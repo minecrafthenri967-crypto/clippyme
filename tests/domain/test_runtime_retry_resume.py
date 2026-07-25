@@ -4,21 +4,6 @@ import io
 from clippyme.domain import job_runner
 
 
-class _ImmediateThread:
-    def __init__(self, target, args=(), **kwargs):
-        self.target = target
-        self.args = args
-
-    def start(self):
-        self.target(*self.args)
-
-    def is_alive(self):
-        return False
-
-    def join(self, timeout=None):
-        return None
-
-
 class _Process:
     def __init__(self, returncode, attempt_log, env):
         self.returncode = returncode
@@ -43,7 +28,10 @@ def _patch(monkeypatch, attempts, returncode=1):
     monkeypatch.setattr(job_runner, "load_runtime_state", lambda *args: None)
     monkeypatch.setattr(job_runner, "collect_runtime_metrics", lambda *args: {})
     monkeypatch.setattr(job_runner, "runtime_result_fields", lambda *args: {})
-    monkeypatch.setattr(job_runner.threading, "Thread", _ImmediateThread)
+    # Keep the real Thread class: asyncio.to_thread uses the same threading
+    # module internally. Mock only the log-consumer target so the runner's
+    # daemon thread exits immediately without touching the executor.
+    monkeypatch.setattr(job_runner, "enqueue_output", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         job_runner.subprocess,
         "Popen",
