@@ -44,7 +44,7 @@ jobs:
         run: bandit -q -r src/clippyme -ll -ii
 
       - name: Run host test suite (excludes integration)
-        id: host-tests
+        id: host_tests
         continue-on-error: true
         shell: bash
         run: |
@@ -79,7 +79,7 @@ jobs:
         run: pip-audit -r requirements-runtime-tools.txt --desc
 
       - name: Enforce backend test result
-        if: steps.host-tests.outcome != 'success'
+        if: steps.host_tests.outcome != 'success'
         run: exit 1
 
   frontend-audit:
