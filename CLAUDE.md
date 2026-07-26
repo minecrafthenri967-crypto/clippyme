@@ -90,8 +90,9 @@ reusing `gemini_request.encode_words_toon` and `gemini_parser`'s JSON-repair
 chain), `cut` (done — thin adapter over `cut_ops.snap_clips_to_transcript`; the
 cascade maths is NOT duplicated), `reframe` (done — offline speaker timeline +
 200 ms camera lead + Savitzky-Golay smoothing, all pure/host-tested; only
-`reframe/detect.py` needs cv2/MediaPipe), then `render`, `export` (contracts
-documented in each
+`reframe/detect.py` needs cv2/MediaPipe), `render` (done — RDP-simplified
+trajectory as a piecewise-linear `crop=x` expression, one ffmpeg pass per clip),
+then `export` (contract documented in each
 package's `__init__.py`, entrypoints raise `NotImplementedError`). Cross-phase
 data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is
 a workspace directory + manifest (`clipper_pro/workspace.py`) — each phase

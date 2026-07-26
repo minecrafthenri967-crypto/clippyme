@@ -110,6 +110,10 @@ class Settings:
     camera_smooth_seconds: float = 0.35
     speaker_gap_tolerance: float = 0.8
 
+    # -- phase 6: render ---------------------------------------------------
+    output_width: int = 1080
+    output_height: int = 1920
+
     # -- phase 7: export ---------------------------------------------------
     export_crf: int = 18
 
@@ -167,6 +171,12 @@ class Settings:
             speaker_gap_tolerance=env_int(
                 "CLIPPER_PRO_SPEAKER_GAP_MS", 800, minimum=0, maximum=10_000
             ) / 1000.0,
+            output_width=env_int(
+                "CLIPPER_PRO_OUTPUT_WIDTH", 1080, minimum=160, maximum=2160
+            ),
+            output_height=env_int(
+                "CLIPPER_PRO_OUTPUT_HEIGHT", 1920, minimum=160, maximum=3840
+            ),
             export_crf=env_int("CLIPPER_PRO_EXPORT_CRF", 18, minimum=0, maximum=51),
         )
 
