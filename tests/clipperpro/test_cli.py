@@ -44,16 +44,19 @@ class TestParser:
 
 
 class TestUnimplementedPhases:
-    # Derived from the CLI rather than hardcoded, so building a phase never
-    # leaves a stale expectation behind.
-    @pytest.mark.parametrize("phase", cli._PENDING_PHASES)
-    def test_reports_clearly_and_exits_two(self, phase, capsys):
-        assert cli.main([phase]) == 2
-        assert "not implemented yet" in capsys.readouterr().err
+    def test_all_seven_phases_are_implemented(self):
+        # Every phase of the pipeline now has a handler; nothing is pending.
+        assert cli._PENDING_PHASES == ()
+        assert set(cli._HANDLERS) == {
+            "ingest", "transcribe", "rank", "cut", "reframe", "render", "export",
+        }
 
-    def test_implemented_phases_are_not_in_the_pending_list(self):
-        # Guards against a phase staying "pending" in the CLI after it is built.
-        assert set(cli._HANDLERS) & set(cli._PENDING_PHASES) == set()
+    def test_a_pending_phase_would_still_report_clearly(self, capsys, monkeypatch):
+        # The mechanism stays covered so re-adding a stub phase behaves.
+        monkeypatch.setattr(cli, "_PENDING_PHASES", ("future",))
+        monkeypatch.setattr(cli, "_HANDLERS", dict(cli._HANDLERS))
+        assert cli.main(["future"]) == 2
+        assert "not implemented yet" in capsys.readouterr().err
 
 
 class TestPhaseChaining:

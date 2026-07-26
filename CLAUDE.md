@@ -92,8 +92,9 @@ cascade maths is NOT duplicated), `reframe` (done — offline speaker timeline +
 200 ms camera lead + Savitzky-Golay smoothing, all pure/host-tested; only
 `reframe/detect.py` needs cv2/MediaPipe), `render` (done — RDP-simplified
 trajectory as a piecewise-linear `crop=x` expression, one ffmpeg pass per clip),
-then `export` (contract documented in each
-package's `__init__.py`, entrypoints raise `NotImplementedError`). Cross-phase
+`export` (done — scored draft report as JSON + Markdown twins from one assembled
+document). **All seven phases are implemented**; `clipper-pro --help` is the
+current surface. Cross-phase
 data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is
 a workspace directory + manifest (`clipper_pro/workspace.py`) — each phase
 records its artifact there, so the next one needs no repeated paths. Same
@@ -101,6 +102,13 @@ purity rule as the pipeline: `*_ops.py` modules are stdlib-only and host-tested,
 the modules beside them do the I/O. Env knobs are `CLIPPER_PRO_*`, documented in
 `.env.example`. Tests live in `tests/clipperpro/` (spelled without the
 underscore so the test package cannot shadow the real one).
+
+⚠️ Overlap policy spans two phases: phase 3's dedupe tolerates a modest overlap
+between clips (measured against the shorter one), and phase 4 must NOT veto it —
+each clip renders to its own file, so shared footage is not a rendering problem.
+Phase 4 only warns when snapping *added* overlap (`overlap_growth`), which would
+mean the sentence stage's neighbour clamp failed. An earlier phase-4 hard check
+on any overlap put the two phases in contradiction and aborted valid runs.
 
 ⚠️ Phase 2 capability asymmetry: **Deepgram Nova-3 does not tag audio events**
 (laughter/applause) — only ElevenLabs Scribe does. `transcribe/base.py` declares

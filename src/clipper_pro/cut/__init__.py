@@ -42,6 +42,7 @@ from clipper_pro.cut.snap_ops import (
     candidates_to_clips,
     clips_to_candidates,
     describe_movement,
+    overlap_growth,
     validate_snapped,
     words_to_dicts,
 )
@@ -55,6 +56,7 @@ __all__ = [
     "clips_to_candidates",
     "describe_movement",
     "detect_silences",
+    "overlap_growth",
     "run_cut",
     "validate_snapped",
     "words_to_dicts",
@@ -131,6 +133,15 @@ def run_cut(
         # A bad interaction between the three stages must not reach the renderer.
         raise ToolFailureError(
             "snapped clips are not renderable: " + "; ".join(problems)
+        )
+
+    # Overlap the candidates arrived with is phase 3's call; overlap snapping
+    # *added* means the sentence stage's neighbour clamp did not hold.
+    growth = overlap_growth(candidates, snapped)
+    if growth > 0.01:
+        print(
+            f"   ⚠️  snapping added {growth:.2f}s of overlap between clips",
+            file=sys.stderr,
         )
 
     paths = {event.index: event.path for event in events}

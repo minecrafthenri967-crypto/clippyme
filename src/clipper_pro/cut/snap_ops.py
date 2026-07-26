@@ -18,6 +18,7 @@ can show what the snapping actually did.
 from __future__ import annotations
 
 import math
+from itertools import pairwise
 
 from clipper_pro.types import Candidate, Word
 
@@ -25,6 +26,7 @@ __all__ = [
     "candidates_to_clips",
     "clips_to_candidates",
     "describe_movement",
+    "overlap_growth",
     "validate_snapped",
     "words_to_dicts",
 ]
@@ -115,10 +117,16 @@ def validate_snapped(
     Checked rather than assumed because the cascade composes three independent
     adjustments; a bad interaction between them should surface here, next to the
     conversion, instead of as a confusing ffmpeg error several phases later.
+
+    Overlap between clips is deliberately **not** an error. Each clip renders to
+    its own file, so sharing source footage is not a rendering problem — and
+    phase 3 already decides how much overlap is editorially acceptable (its
+    dedupe tolerates a modest amount). Vetoing it here would put two phases in
+    contradiction and abort a run that phase 3 considered fine. Overlap that
+    snapping *introduced* is a different matter; see :func:`overlap_growth`.
     """
     problems: list[str] = []
-    ordered = sorted(candidates, key=lambda c: c.start)
-    for index, candidate in enumerate(ordered):
+    for index, candidate in enumerate(sorted(candidates, key=lambda c: c.start)):
         label = f"clip[{index}] {candidate.title or '<untitled>'}"
         if candidate.start < 0:
             problems.append(f"{label}: negative start {candidate.start:.2f}")
@@ -127,11 +135,23 @@ def validate_snapped(
                 f"{label}: ends at {candidate.end:.2f}s past the "
                 f"{source_duration:.2f}s source"
             )
-        if index + 1 < len(ordered):
-            following = ordered[index + 1]
-            if candidate.end > following.start + 0.01:
-                problems.append(
-                    f"{label}: overlaps the next clip by "
-                    f"{candidate.end - following.start:.2f}s"
-                )
     return problems
+
+
+def _total_overlap(candidates: list[Candidate]) -> float:
+    """Seconds of source shared between time-adjacent clips."""
+    ordered = sorted(candidates, key=lambda c: c.start)
+    return sum(
+        max(0.0, earlier.end - later.start) for earlier, later in pairwise(ordered)
+    )
+
+
+def overlap_growth(before: list[Candidate], after: list[Candidate]) -> float:
+    """Extra overlap seconds that snapping introduced (0.0 when it added none).
+
+    The sentence stage is neighbour-clamped precisely so a forward extension
+    cannot eat the next clip. A positive value here means that clamp did not
+    hold, which is worth surfacing — unlike overlap the candidates arrived with,
+    which is phase 3's call to make.
+    """
+    return max(0.0, _total_overlap(after) - _total_overlap(before))

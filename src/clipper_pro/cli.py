@@ -35,7 +35,7 @@ if TYPE_CHECKING:  # heavy phase modules stay lazily imported at runtime
 
 __all__ = ["build_parser", "main"]
 
-_PENDING_PHASES = ("export",)
+_PENDING_PHASES: tuple[str, ...] = ()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -128,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--crf", type=int, default=None,
         help="x264 CRF (default 18 — a CapCut-import intermediate, not delivery)",
     )
+
+    export = sub.add_parser(
+        "export", help="phase 7: write the scored draft report for CapCut import"
+    )
+    export.add_argument("--work-dir", required=True, help="run workspace directory")
 
     for name in _PENDING_PHASES:
         sub.add_parser(name, help=f"phase {name} (not implemented yet)")
@@ -401,6 +406,46 @@ def _cmd_render(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def _renders_from_workspace(work_dir: str) -> list[dict[str, Any]]:
+    """Phase 6's render records, or an empty list when it has not run."""
+    path = os.path.join(work_dir, "analysis", "renders.json")
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path) as fh:
+            return json.load(fh).get("clips") or []
+    except (json.JSONDecodeError, AttributeError):
+        return []
+
+
+def _cmd_export(args: argparse.Namespace) -> dict[str, Any]:
+    from clipper_pro.export import run_export
+
+    settings = Settings.from_env()
+    media = _media_from_workspace(args.work_dir)
+    candidates = _snapped_or_ranked(args.work_dir)
+
+    artifacts = workspace_load(args.work_dir).get("artifacts") or {}
+    ranker = (artifacts.get("rank") or {}).get("provider", "")
+    renders = _renders_from_workspace(args.work_dir)
+
+    report_path = run_export(
+        candidates, renders, media, args.work_dir,
+        settings=settings, ranker=ranker,
+    )
+
+    payload = {
+        "phase": "export",
+        "clips": len(candidates),
+        "rendered": sum(1 for r in renders if r.get("path")),
+        "report_json": report_path,
+        "report_markdown": os.path.join(args.work_dir, "reports", "draft.md"),
+        "renders_dir": os.path.join(args.work_dir, "renders"),
+    }
+    record_artifact(args.work_dir, "export", payload)
+    return payload
+
+
 _HANDLERS = {
     "ingest": _cmd_ingest,
     "transcribe": _cmd_transcribe,
@@ -408,6 +453,7 @@ _HANDLERS = {
     "cut": _cmd_cut,
     "reframe": _cmd_reframe,
     "render": _cmd_render,
+    "export": _cmd_export,
 }
 
 

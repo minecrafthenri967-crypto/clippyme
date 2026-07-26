@@ -16,6 +16,7 @@ from clipper_pro.cut.snap_ops import (
     candidates_to_clips,
     clips_to_candidates,
     describe_movement,
+    overlap_growth,
     validate_snapped,
     words_to_dicts,
 )
@@ -116,11 +117,14 @@ class TestValidateSnapped:
             [Candidate(0, 30), Candidate(40, 70)], source_duration=100.0
         ) == []
 
-    def test_overlap_is_reported(self):
-        problems = validate_snapped(
+    def test_overlap_is_not_an_error(self):
+        # Each clip renders to its own file, so shared footage is not a rendering
+        # problem — and phase 3's dedupe already decides how much overlap is
+        # editorially acceptable. Vetoing it here put two phases in contradiction
+        # and aborted runs phase 3 considered fine.
+        assert validate_snapped(
             [Candidate(0, 45), Candidate(40, 70)], source_duration=100.0
-        )
-        assert "overlaps the next clip by 5.00s" in problems[0]
+        ) == []
 
     def test_running_past_the_source_is_reported(self):
         problems = validate_snapped([Candidate(80, 120)], source_duration=100.0)
@@ -181,7 +185,7 @@ class TestRunCut:
         assert snapped[0].title == "The pivot" and snapped[0].reason == "why"
         assert snapped[0].scores.hook == 9 and snapped[0].scores.emotion == 7
 
-    def test_adjacent_clips_do_not_overlap_after_expansion(self, workspace):
+    def test_snapping_does_not_add_overlap(self, workspace):
         # Sentence expansion is neighbour-clamped; two back-to-back picks must
         # not grow into each other.
         transcript = _transcript(
@@ -195,7 +199,9 @@ class TestRunCut:
             candidates, transcript, SourceMedia(path="/v.mp4", duration=45.0),
             workspace, settings=Settings(snap_silence=False),
         )
-        assert validate_snapped(snapped, source_duration=45.0) == []
+        # The sentence stage is neighbour-clamped, so expansion must not eat the
+        # next clip even though pre-existing overlap would be tolerated.
+        assert overlap_growth(candidates, snapped) == pytest.approx(0.0)
 
     def test_no_candidates_is_an_error(self, workspace):
         with pytest.raises(ToolFailureError, match="no candidates to snap"):
@@ -223,10 +229,10 @@ class TestRunCut:
         assert "stage 3 skipped" in capsys.readouterr().err
 
     def test_unrenderable_result_is_refused(self, workspace, monkeypatch):
-        # If the cascade ever produced overlapping edges, that must surface here
-        # rather than as a confusing ffmpeg error several phases later.
+        # A bad interaction between the three stages must surface here rather
+        # than as a confusing ffmpeg error several phases later.
         monkeypatch.setattr(
-            phase4, "validate_snapped", lambda *a, **k: ["clip[0]: overlaps the next clip"]
+            phase4, "validate_snapped", lambda *a, **k: ["clip[0]: negative start"]
         )
         with pytest.raises(ToolFailureError, match="not renderable"):
             phase4.run_cut(
@@ -242,3 +248,28 @@ class TestDetectSilences:
 
     def test_empty_path_yields_no_silences(self):
         assert phase4.detect_silences("") == []
+
+
+class TestOverlapGrowth:
+    def test_no_growth_when_nothing_moves(self):
+        clips = [Candidate(0, 30), Candidate(40, 70)]
+        assert overlap_growth(clips, clips) == pytest.approx(0.0)
+
+    def test_pre_existing_overlap_is_not_counted_as_growth(self):
+        # Phase 3 may hand over a tolerated overlap; phase 4 must not blame the
+        # cascade for it.
+        before = [Candidate(0, 45), Candidate(40, 70)]
+        assert overlap_growth(before, before) == pytest.approx(0.0)
+
+    def test_added_overlap_is_measured(self):
+        before = [Candidate(0, 30), Candidate(40, 70)]
+        after = [Candidate(0, 44), Candidate(40, 70)]
+        assert overlap_growth(before, after) == pytest.approx(4.0)
+
+    def test_reduced_overlap_reports_zero_not_negative(self):
+        before = [Candidate(0, 45), Candidate(40, 70)]
+        after = [Candidate(0, 40), Candidate(40, 70)]
+        assert overlap_growth(before, after) == pytest.approx(0.0)
+
+    def test_empty_input(self):
+        assert overlap_growth([], []) == pytest.approx(0.0)
