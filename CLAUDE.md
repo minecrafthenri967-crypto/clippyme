@@ -88,7 +88,9 @@ provider abstraction over the repo's Deepgram/ElevenLabs backends), `rank`
 (done — 5-axis rubric behind DeepSeek-V3/Gemini providers, SQLite prompt cache,
 reusing `gemini_request.encode_words_toon` and `gemini_parser`'s JSON-repair
 chain), `cut` (done — thin adapter over `cut_ops.snap_clips_to_transcript`; the
-cascade maths is NOT duplicated), then `reframe`, `render`, `export` (contracts
+cascade maths is NOT duplicated), `reframe` (done — offline speaker timeline +
+200 ms camera lead + Savitzky-Golay smoothing, all pure/host-tested; only
+`reframe/detect.py` needs cv2/MediaPipe), then `render`, `export` (contracts
 documented in each
 package's `__init__.py`, entrypoints raise `NotImplementedError`). Cross-phase
 data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is

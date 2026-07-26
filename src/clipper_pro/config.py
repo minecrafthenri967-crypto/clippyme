@@ -100,6 +100,16 @@ class Settings:
     # the cut inaudible. Disable to keep purely transcript-derived edges.
     snap_silence: bool = True
 
+    # -- phase 5: reframe --------------------------------------------------
+    # How far ahead of audible speech the camera starts moving. Phase 5 runs
+    # offline, so this is a shift applied to known onsets, not a prediction.
+    camera_lead: float = 0.2
+    # Minimum screen time before the camera may leave a speaker; stops a rapid
+    # exchange from panning faster than a viewer can follow.
+    camera_min_hold: float = 1.0
+    camera_smooth_seconds: float = 0.35
+    speaker_gap_tolerance: float = 0.8
+
     # -- phase 7: export ---------------------------------------------------
     export_crf: int = 18
 
@@ -143,6 +153,20 @@ class Settings:
                 env_int("CLIPPER_PRO_MAX_CLIP_SECONDS", 60, minimum=5, maximum=180)
             ),
             snap_silence=env_flag("CLIPPER_PRO_SNAP_SILENCE", True),
+            # Sub-second knobs are read in milliseconds so the clamping helper
+            # stays integer-only and a typo cannot produce a fractional mess.
+            camera_lead=env_int(
+                "CLIPPER_PRO_CAMERA_LEAD_MS", 200, minimum=0, maximum=2000
+            ) / 1000.0,
+            camera_min_hold=env_int(
+                "CLIPPER_PRO_CAMERA_MIN_HOLD_MS", 1000, minimum=0, maximum=10_000
+            ) / 1000.0,
+            camera_smooth_seconds=env_int(
+                "CLIPPER_PRO_CAMERA_SMOOTH_MS", 350, minimum=0, maximum=5000
+            ) / 1000.0,
+            speaker_gap_tolerance=env_int(
+                "CLIPPER_PRO_SPEAKER_GAP_MS", 800, minimum=0, maximum=10_000
+            ) / 1000.0,
             export_crf=env_int("CLIPPER_PRO_EXPORT_CRF", 18, minimum=0, maximum=51),
         )
 

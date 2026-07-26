@@ -20,9 +20,11 @@ from clipper_pro.errors import ValidationError
 
 __all__ = [
     "AudioEvent",
+    "CameraKeyframe",
     "Candidate",
     "RubricScores",
     "SourceMedia",
+    "SpeakerSegment",
     "Word",
 ]
 
@@ -184,6 +186,73 @@ class RubricScores:
     def from_dict(cls, data: dict[str, Any]) -> RubricScores:
         # ``total`` is derived, so it is accepted and ignored on the way back in.
         return cls(**{axis: float(data.get(axis, 0.0)) for axis in cls.WEIGHTS})
+
+
+@dataclass(frozen=True)
+class SpeakerSegment:
+    """A contiguous stretch in which one diarized speaker holds the floor.
+
+    Times are absolute seconds into the source. ``speaker`` is phase 2's
+    diarization label, or ``None`` when the transcript carries none — a
+    single-speaker video is the common case and needs no labels at all.
+    """
+
+    start: float
+    end: float
+    speaker: int | None = None
+
+    def __post_init__(self) -> None:
+        _require_range(self.start, self.end, f"speaker segment {self.speaker}")
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class CameraKeyframe:
+    """Where the crop window sits at one instant, in source pixels.
+
+    Phase 6 turns a list of these into a filtergraph; phase 5 decides them.
+    Explicit pixel rectangles rather than a normalised centre, so the renderer
+    needs no knowledge of how the geometry was derived.
+    """
+
+    time: float
+    x: float
+    y: float
+    width: float
+    height: float
+    speaker: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.time < 0:
+            raise ValidationError(f"keyframe time must be >= 0, got {self.time}")
+        if self.width <= 0 or self.height <= 0:
+            raise ValidationError(
+                f"keyframe must have positive size, got {self.width}x{self.height}"
+            )
+
+    @property
+    def center_x(self) -> float:
+        return self.x + self.width / 2.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CameraKeyframe:
+        return cls(
+            time=float(data["time"]),
+            x=float(data["x"]),
+            y=float(data["y"]),
+            width=float(data["width"]),
+            height=float(data["height"]),
+            speaker=None if data.get("speaker") is None else int(data["speaker"]),
+        )
 
 
 @dataclass(frozen=True)

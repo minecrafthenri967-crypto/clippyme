@@ -32,7 +32,7 @@ from clipper_pro.workspace import record_artifact
 
 __all__ = ["build_parser", "main"]
 
-_PENDING_PHASES = ("reframe", "render", "export")
+_PENDING_PHASES = ("render", "export")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -106,6 +106,15 @@ def build_parser() -> argparse.ArgumentParser:
     cut.add_argument(
         "--no-silence", action="store_true",
         help="skip the waveform stage and keep transcript-derived edges",
+    )
+
+    reframe = sub.add_parser(
+        "reframe", help="phase 5: build a 9:16 crop trajectory per clip"
+    )
+    reframe.add_argument("--work-dir", required=True, help="run workspace directory")
+    reframe.add_argument(
+        "--centred", action="store_true",
+        help="skip speaker tracking and centre every crop (no cv2 needed)",
     )
 
     for name in _PENDING_PHASES:
@@ -290,11 +299,63 @@ def _cmd_cut(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def _cmd_reframe(args: argparse.Namespace) -> dict[str, Any]:
+    from clipper_pro.reframe import run_reframe
+
+    settings = Settings.from_env()
+    media = _media_from_workspace(args.work_dir)
+    transcript = _transcript_from_workspace(args.work_dir)
+    # Prefer phase 4's snapped edges; fall back to phase 3's if cut hasn't run.
+    candidates = _snapped_or_ranked(args.work_dir)
+
+    plans = run_reframe(
+        candidates, transcript, media, args.work_dir,
+        settings=settings,
+        locate=(lambda _p, _s: {}) if args.centred else None,
+    )
+
+    payload = {
+        "phase": "reframe",
+        "clips": len(plans),
+        "crops": [
+            {
+                "clip": p.clip_index,
+                "keyframes": len(p.keyframes),
+                "source": f"{p.source_width}x{p.source_height}@{p.fps:g}",
+                "crop": (
+                    f"{p.keyframes[0].width:g}x{p.keyframes[0].height:g}"
+                    if p.keyframes else None
+                ),
+                "speakers": sorted(
+                    {kf.speaker for kf in p.keyframes if kf.speaker is not None}
+                ),
+            }
+            for p in plans
+        ],
+        "reframe_path": os.path.join(args.work_dir, "analysis", "reframe.json"),
+    }
+    record_artifact(args.work_dir, "reframe", payload)
+    return payload
+
+
+def _snapped_or_ranked(work_dir: str) -> list[Candidate]:
+    """Phase 4's cuts when present, else phase 3's candidates."""
+    cuts = os.path.join(work_dir, "analysis", "cuts.json")
+    if os.path.isfile(cuts):
+        try:
+            with open(cuts) as fh:
+                return [Candidate.from_dict(c) for c in json.load(fh).get("clips") or []]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise ValidationError(f"cuts at {cuts} is unreadable: {exc}") from exc
+    return _candidates_from_workspace(work_dir)
+
+
 _HANDLERS = {
     "ingest": _cmd_ingest,
     "transcribe": _cmd_transcribe,
     "rank": _cmd_rank,
     "cut": _cmd_cut,
+    "reframe": _cmd_reframe,
 }
 
 
