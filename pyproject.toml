@@ -7,6 +7,11 @@ name = "clippyme"
 version = "0.0.0"
 requires-python = ">=3.11"
 
+# The clipper-pro pipeline is driven per phase from the command line so a run
+# can be inspected between steps; `python -m clipper_pro` works identically.
+[project.scripts]
+clipper-pro = "clipper_pro.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

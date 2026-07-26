@@ -78,6 +78,20 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   excluded).
 - `storage/` — `config_store.py` (persisted config in `data/config.json`).
 
+A second, independent package lives under `src/clipper_pro/` — the AI-Clipper
+Pro pipeline. It is CLI-driven (`clipper-pro` / `python -m clipper_pro`), one
+subcommand per phase, and does **not** import the FastAPI app or the ClippyMe
+job runtime; it reuses `clippyme.pipeline.download` for the URL allow-list and
+will port `cut_ops` / `reframe_*` maths rather than re-deriving them. Phases:
+`ingest` (done — download + mono-16 kHz FLAC extraction), then `transcribe`,
+`rank`, `cut`, `reframe`, `render`, `export` (contracts documented in each
+package's `__init__.py`, entrypoints raise `NotImplementedError`). Cross-phase
+data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is
+a workspace directory + manifest (`clipper_pro/workspace.py`). Same purity rule
+as the pipeline: `*_ops.py` modules are stdlib-only and host-tested, the
+modules beside them do the I/O. Tests live in `tests/clipperpro/` (spelled
+without the underscore so the test package cannot shadow the real one).
+
 Frontend lives entirely in `dashboard/src/redesign/` (`main.jsx` renders
 `RedesignApp`). Shared hooks in `dashboard/src/hooks/` (incl.
 `useManualTrim.js` — the modal's trim state machine), pure logic in
