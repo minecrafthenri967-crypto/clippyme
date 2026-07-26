@@ -44,7 +44,9 @@ class TestParser:
 
 
 class TestUnimplementedPhases:
-    @pytest.mark.parametrize("phase", ["cut", "reframe", "render", "export"])
+    # Derived from the CLI rather than hardcoded, so building a phase never
+    # leaves a stale expectation behind.
+    @pytest.mark.parametrize("phase", cli._PENDING_PHASES)
     def test_reports_clearly_and_exits_two(self, phase, capsys):
         assert cli.main([phase]) == 2
         assert "not implemented yet" in capsys.readouterr().err

@@ -94,6 +94,12 @@ class Settings:
     min_clip_duration: float = 12.0
     max_clip_duration: float = 60.0
 
+    # -- phase 4: cut ------------------------------------------------------
+    # Stage 3 of the snapping cascade. On by default: a sentence boundary is a
+    # grammatical claim, silence is an acoustic fact, and only the second makes
+    # the cut inaudible. Disable to keep purely transcript-derived edges.
+    snap_silence: bool = True
+
     # -- phase 7: export ---------------------------------------------------
     export_crf: int = 18
 
@@ -136,6 +142,7 @@ class Settings:
             max_clip_duration=float(
                 env_int("CLIPPER_PRO_MAX_CLIP_SECONDS", 60, minimum=5, maximum=180)
             ),
+            snap_silence=env_flag("CLIPPER_PRO_SNAP_SILENCE", True),
             export_crf=env_int("CLIPPER_PRO_EXPORT_CRF", 18, minimum=0, maximum=51),
         )
 

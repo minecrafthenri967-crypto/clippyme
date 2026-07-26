@@ -25,14 +25,14 @@ from clipper_pro.errors import ClipperProError, ValidationError
 from clipper_pro.ingest import describe_saving, run_ingest, spec_from_settings
 from clipper_pro.ingest.audio_ops import estimate_flac_bytes
 from clipper_pro.transcribe.base import TranscriptResult
-from clipper_pro.types import SourceMedia
+from clipper_pro.types import Candidate, SourceMedia
 from clipper_pro.workspace import init as workspace_init
 from clipper_pro.workspace import load as workspace_load
 from clipper_pro.workspace import record_artifact
 
 __all__ = ["build_parser", "main"]
 
-_PENDING_PHASES = ("cut", "reframe", "render", "export")
+_PENDING_PHASES = ("reframe", "render", "export")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,6 +97,15 @@ def build_parser() -> argparse.ArgumentParser:
     rank.add_argument(
         "--no-cache", action="store_true",
         help="ignore any cached ranking for this prompt and re-ask the model",
+    )
+
+    cut = sub.add_parser(
+        "cut", help="phase 4: snap clip edges to words, sentences and silence"
+    )
+    cut.add_argument("--work-dir", required=True, help="run workspace directory")
+    cut.add_argument(
+        "--no-silence", action="store_true",
+        help="skip the waveform stage and keep transcript-derived edges",
     )
 
     for name in _PENDING_PHASES:
@@ -231,7 +240,62 @@ def _cmd_rank(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
-_HANDLERS = {"ingest": _cmd_ingest, "transcribe": _cmd_transcribe, "rank": _cmd_rank}
+def _candidates_from_workspace(work_dir: str) -> list[Candidate]:
+    """Recover phase 3's candidates, or phase 4's if it has already run."""
+    path = os.path.join(work_dir, "analysis", "candidates.json")
+    if not os.path.isfile(path):
+        raise ValidationError(f"no candidates at {path} — run 'clipper-pro rank' first")
+    try:
+        with open(path) as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValidationError(f"candidates at {path} is not valid JSON: {exc}") from exc
+    return [Candidate.from_dict(c) for c in payload.get("clips") or []]
+
+
+def _cmd_cut(args: argparse.Namespace) -> dict[str, Any]:
+    from clipper_pro.cut import run_cut
+
+    settings = Settings.from_env()
+    media = _media_from_workspace(args.work_dir)
+    transcript = _transcript_from_workspace(args.work_dir)
+    candidates = _candidates_from_workspace(args.work_dir)
+
+    snapped = run_cut(
+        candidates,
+        transcript,
+        media,
+        args.work_dir,
+        settings=settings,
+        use_silence=False if args.no_silence else None,
+    )
+
+    payload = {
+        "phase": "cut",
+        "clips": len(snapped),
+        "moved": sum(1 for c in snapped if c.snapped_from is not None),
+        "snapped": [
+            {
+                "start": round(c.start, 3),
+                "end": round(c.end, 3),
+                "duration": round(c.duration, 3),
+                "moved_from": list(c.snapped_from) if c.snapped_from else None,
+                "title": c.title,
+            }
+            for c in snapped
+        ],
+        "cuts_path": os.path.join(args.work_dir, "analysis", "cuts.json"),
+    }
+    record_artifact(args.work_dir, "cut", payload)
+    return payload
+
+
+_HANDLERS = {
+    "ingest": _cmd_ingest,
+    "transcribe": _cmd_transcribe,
+    "rank": _cmd_rank,
+    "cut": _cmd_cut,
+}
 
 
 def main(argv: list[str] | None = None) -> int:
