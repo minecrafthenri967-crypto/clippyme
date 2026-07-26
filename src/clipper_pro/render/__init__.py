@@ -139,41 +139,47 @@ def run_render(
 
     outputs: list[str] = []
     records: list[dict] = []
-    for plan in plans:
-        title = ""
-        if candidates and plan.clip_index < len(candidates):
-            title = candidates[plan.clip_index].title
-        output_path = os.path.join(renders_dir, clip_output_name(plan.clip_index, title))
+    try:
+        for plan in plans:
+            title = ""
+            if candidates and plan.clip_index < len(candidates):
+                title = candidates[plan.clip_index].title
+            output_path = os.path.join(renders_dir, clip_output_name(plan.clip_index, title))
 
-        argv, anchors = build_render_command(
-            media.path, plan, output_path,
-            crf=settings.export_crf,
-            output_width=settings.output_width,
-            output_height=settings.output_height,
-        )
-        print(
-            f"   🎬 clip {plan.clip_index + 1}: {plan.duration:.1f}s, "
-            f"{len(plan.keyframes)} keyframes → {anchors} anchors, one pass",
-            file=sys.stderr,
-        )
-        _run_ffmpeg(argv, timeout=timeout or settings.ffmpeg_timeout)
-
-        if not os.path.isfile(output_path) or os.path.getsize(output_path) == 0:
-            raise ToolFailureError(
-                f"ffmpeg reported success but produced no video at {output_path}"
+            argv, anchors = build_render_command(
+                media.path, plan, output_path,
+                crf=settings.export_crf,
+                output_width=settings.output_width,
+                output_height=settings.output_height,
             )
-        outputs.append(output_path)
-        records.append({
-            "clip_index": plan.clip_index,
-            "path": output_path,
-            "duration": round(plan.duration, 3),
-            "keyframes": len(plan.keyframes),
-            "anchors": anchors,
-            "bytes": os.path.getsize(output_path),
-        })
+            print(
+                f"   🎬 clip {plan.clip_index + 1}: {plan.duration:.1f}s, "
+                f"{len(plan.keyframes)} keyframes → {anchors} anchors, one pass",
+                file=sys.stderr,
+            )
+            _run_ffmpeg(argv, timeout=timeout or settings.ffmpeg_timeout)
 
-    _write_renders(work_dir, records, crf=settings.export_crf,
-                   size=f"{settings.output_width}x{settings.output_height}")
+            if not os.path.isfile(output_path) or os.path.getsize(output_path) == 0:
+                raise ToolFailureError(
+                    f"ffmpeg reported success but produced no video at {output_path}"
+                )
+            outputs.append(output_path)
+            records.append({
+                "clip_index": plan.clip_index,
+                "path": output_path,
+                "duration": round(plan.duration, 3),
+                "keyframes": len(plan.keyframes),
+                "anchors": anchors,
+                "bytes": os.path.getsize(output_path),
+            })
+    finally:
+        # Persist whatever actually finished, even on a mid-loop failure.
+        # Without this, a crash on clip N left the manifest from an earlier,
+        # unrelated run untouched — export would then report that stale run's
+        # clip count instead of the truth of what is actually on disk now.
+        _write_renders(work_dir, records, crf=settings.export_crf,
+                       size=f"{settings.output_width}x{settings.output_height}")
+
     return outputs
 
 

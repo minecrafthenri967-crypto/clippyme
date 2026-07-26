@@ -1,10 +1,14 @@
 """Phase 6: trajectory simplification, crop expression, filtergraph, argv."""
 
+import json
+import os
 from itertools import pairwise
 
 import pytest
 
-from clipper_pro.errors import ValidationError
+from clipper_pro import render as phase6
+from clipper_pro.config import Settings
+from clipper_pro.errors import ToolFailureError, ValidationError
 from clipper_pro.reframe.plan import CameraPlan
 from clipper_pro.render import build_render_command, clip_output_name
 from clipper_pro.render.filtergraph_ops import (
@@ -13,7 +17,8 @@ from clipper_pro.render.filtergraph_ops import (
     crop_x_expression,
     simplify_trajectory,
 )
-from clipper_pro.types import CameraKeyframe
+from clipper_pro.types import CameraKeyframe, SourceMedia
+from clipper_pro.workspace import init as workspace_init
 
 
 def _kfs(xs, fps=30.0, start=0.0, width=607.0, height=1080.0):
@@ -262,3 +267,101 @@ class TestClipOutputName:
 
     def test_truncates_a_long_title(self):
         assert len(clip_output_name(0, "x" * 300)) < 80
+
+
+class TestRunRender:
+    """Orchestration: renders.json must always reflect what actually finished.
+
+    ``_run_ffmpeg`` is stubbed rather than shelling out to a real ffmpeg — these
+    tests are about the loop's bookkeeping, not about encoding, which
+    build_render_command / filtergraph_ops already cover.
+    """
+
+    def _plan(self, index, start):
+        return CameraPlan(
+            clip_index=index, start=start, end=start + 10.0, source_width=1920,
+            source_height=1080, fps=30.0,
+            keyframes=[
+                CameraKeyframe(time=start, x=0.0, y=0.0, width=607.0, height=1080.0)
+            ],
+        )
+
+    def _workspace_and_source(self, tmp_path):
+        work = str(tmp_path / "run")
+        workspace_init(work)
+        source = tmp_path / "v.mp4"
+        source.write_bytes(b"\x00")
+        return work, SourceMedia(path=str(source), duration=60.0)
+
+    def test_writes_the_renders_artifact_on_full_success(self, tmp_path, monkeypatch):
+        def fake_run_ffmpeg(argv, *, timeout):
+            with open(argv[-1], "wb") as fh:
+                fh.write(b"\x00" * 100)
+
+        monkeypatch.setattr(phase6, "_run_ffmpeg", fake_run_ffmpeg)
+        monkeypatch.setattr(phase6, "require_binary", lambda name: f"/usr/bin/{name}")
+        work, media = self._workspace_and_source(tmp_path)
+
+        outputs = phase6.run_render(
+            [self._plan(0, 0.0), self._plan(1, 20.0)], media, work,
+            settings=Settings(),
+        )
+        assert len(outputs) == 2
+        with open(f"{work}/analysis/renders.json") as fh:
+            assert len(json.load(fh)["clips"]) == 2
+
+    def test_mid_loop_failure_still_persists_what_finished(self, tmp_path, monkeypatch):
+        # Shape of a real failure hit in the wild: ffmpeg succeeds on clip 1,
+        # then fails on clip 2 (there, ffmpeg's faststart rewrite hit a WSL/
+        # DrvFs file-lock: "Unable to re-open output file for shifting data").
+        # Before this fix, renders.json was written only once, after the whole
+        # loop succeeded — a crash here left a PRIOR, unrelated run's manifest
+        # untouched, and phase 7 went on to report that stale clip count as if
+        # it belonged to this run.
+        calls = {"n": 0}
+
+        def flaky_run_ffmpeg(argv, *, timeout):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                with open(argv[-1], "wb") as fh:
+                    fh.write(b"\x00" * 100)
+                return
+            raise ToolFailureError("ffmpeg exited with 254: Unable to re-open output file")
+
+        monkeypatch.setattr(phase6, "_run_ffmpeg", flaky_run_ffmpeg)
+        monkeypatch.setattr(phase6, "require_binary", lambda name: f"/usr/bin/{name}")
+        work, media = self._workspace_and_source(tmp_path)
+
+        # Seed a stale manifest from an earlier, unrelated 7-clip run.
+        os.makedirs(f"{work}/analysis", exist_ok=True)
+        with open(f"{work}/analysis/renders.json", "w") as fh:
+            json.dump(
+                {"crf": 18, "output_size": "1080x1920",
+                 "clips": [{"clip_index": i} for i in range(7)]},
+                fh,
+            )
+
+        with pytest.raises(ToolFailureError, match="re-open output file"):
+            phase6.run_render(
+                [self._plan(0, 0.0), self._plan(1, 20.0)], media, work,
+                settings=Settings(),
+            )
+
+        with open(f"{work}/analysis/renders.json") as fh:
+            payload = json.load(fh)
+        # Reflects the one clip that actually finished — neither the stale 7
+        # nor an empty/unwritten file.
+        assert len(payload["clips"]) == 1
+        assert payload["clips"][0]["clip_index"] == 0
+
+    def test_missing_source_video_is_rejected_before_ffmpeg(self, tmp_path):
+        work = str(tmp_path / "run")
+        workspace_init(work)
+        media = SourceMedia(path=str(tmp_path / "missing.mp4"), duration=60.0)
+        with pytest.raises(ToolFailureError, match="source video not found"):
+            phase6.run_render([self._plan(0, 0.0)], media, work, settings=Settings())
+
+    def test_no_plans_is_rejected(self, tmp_path):
+        work, media = self._workspace_and_source(tmp_path)
+        with pytest.raises(ToolFailureError, match="no camera plans"):
+            phase6.run_render([], media, work, settings=Settings())
