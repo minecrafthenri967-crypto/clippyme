@@ -25,6 +25,12 @@ __all__ = ["Settings", "env_choice", "env_flag", "env_int"]
 # Gemini credentials (as ClippyMe does) can run phase 3 without a second key.
 RANKERS = ("deepseek", "gemini")
 
+# Transcription providers understood by clipper_pro.transcribe. Deepgram Nova-3
+# is the default for word-level accuracy; ElevenLabs Scribe is the option that
+# also tags audio events (see clipper_pro.transcribe.base for the capability
+# table and why the difference is declared rather than assumed).
+TRANSCRIBERS = ("deepgram", "elevenlabs")
+
 _DEFAULT_FFMPEG_TIMEOUT = 1800
 
 
@@ -74,6 +80,10 @@ class Settings:
     flac_compression: int = 8
     ffmpeg_timeout: int = _DEFAULT_FFMPEG_TIMEOUT
 
+    # -- phase 2: transcribe -----------------------------------------------
+    transcriber: str = "deepgram"
+    transcript_cache: bool = True
+
     # -- phase 3: rank -----------------------------------------------------
     ranker: str = "deepseek"
     rank_cache: bool = True
@@ -107,6 +117,10 @@ class Settings:
                 minimum=30,
                 maximum=24 * 3600,
             ),
+            transcriber=env_choice(
+                "CLIPPER_PRO_TRANSCRIBER", "deepgram", TRANSCRIBERS
+            ),
+            transcript_cache=env_flag("CLIPPER_PRO_TRANSCRIPT_CACHE", True),
             ranker=env_choice("CLIPPER_PRO_RANKER", "deepseek", RANKERS),
             rank_cache=env_flag("CLIPPER_PRO_RANK_CACHE", True),
             export_crf=env_int("CLIPPER_PRO_EXPORT_CRF", 18, minimum=0, maximum=51),

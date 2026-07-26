@@ -1,13 +1,13 @@
-"""Command-line entry point: ``python -m clipper_pro``.
+"""Command-line entry point: ``python -m clipper_pro`` / ``clipper-pro``.
 
 One subcommand per phase, so a run can be driven step by step and inspected
 between steps — which is how an agent is expected to use this. Every command
 prints a single JSON object on stdout (progress and warnings go to stderr), so
-the output pipes into ``jq`` or is parsed by a calling harness without
-scraping log lines.
+the output pipes into ``jq`` or is parsed by a calling harness without scraping
+log lines.
 
-Only ``ingest`` is wired up so far; the remaining phases are registered here so
-``--help`` reflects the real shape of the pipeline rather than hiding it.
+A phase reads what the previous one recorded in the workspace manifest, so the
+steps compose without the caller having to thread paths between them.
 """
 
 from __future__ import annotations
@@ -18,16 +18,18 @@ import sys
 from typing import Any
 
 from clipper_pro import __version__
-from clipper_pro.config import Settings
-from clipper_pro.errors import ClipperProError
+from clipper_pro.config import TRANSCRIBERS, Settings
+from clipper_pro.errors import ClipperProError, ValidationError
 from clipper_pro.ingest import describe_saving, run_ingest, spec_from_settings
 from clipper_pro.ingest.audio_ops import estimate_flac_bytes
+from clipper_pro.types import SourceMedia
 from clipper_pro.workspace import init as workspace_init
+from clipper_pro.workspace import load as workspace_load
 from clipper_pro.workspace import record_artifact
 
 __all__ = ["build_parser", "main"]
 
-_PENDING_PHASES = ("transcribe", "rank", "cut", "reframe", "render", "export")
+_PENDING_PHASES = ("rank", "cut", "reframe", "render", "export")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,12 +52,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--sample-rate", type=int, default=None,
         help="analysis audio sample rate in Hz (default 16000)",
     )
-    ingest.add_argument(
-        "--cookies", default=None, help="cookies file for the downloader",
-    )
+    ingest.add_argument("--cookies", default=None, help="cookies file for the downloader")
     ingest.add_argument(
         "--overwrite", action="store_true",
         help="re-extract even if this run already produced the audio",
+    )
+
+    transcribe = sub.add_parser(
+        "transcribe",
+        help="phase 2: word-level transcription with diarization and audio events",
+    )
+    transcribe.add_argument("--work-dir", required=True, help="run workspace directory")
+    transcribe.add_argument(
+        "--provider", choices=TRANSCRIBERS, default=None,
+        help="transcription provider (default deepgram; elevenlabs also tags audio events)",
+    )
+    transcribe.add_argument(
+        "--require-events", action="store_true",
+        help="fail rather than continue if the provider cannot tag audio events",
+    )
+    transcribe.add_argument(
+        "--no-cache", action="store_true",
+        help="ignore any cached transcript for this audio and re-transcribe",
     )
 
     for name in _PENDING_PHASES:
@@ -93,19 +111,67 @@ def _cmd_ingest(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def _media_from_workspace(work_dir: str) -> SourceMedia:
+    """Recover phase 1's source record so later phases need no repeated paths."""
+    artifacts = workspace_load(work_dir).get("artifacts") or {}
+    ingest = artifacts.get("ingest")
+    if not isinstance(ingest, dict) or not isinstance(ingest.get("source"), dict):
+        raise ValidationError(
+            f"no ingest artifact in {work_dir} — run 'clipper-pro ingest' first"
+        )
+    return SourceMedia.from_dict(ingest["source"])
+
+
+def _cmd_transcribe(args: argparse.Namespace) -> dict[str, Any]:
+    from clipper_pro.transcribe import run_transcribe  # defers the requests import
+
+    settings = Settings.from_env()
+    media = _media_from_workspace(args.work_dir)
+
+    result = run_transcribe(
+        media,
+        args.work_dir,
+        settings=settings,
+        provider=args.provider,
+        use_cache=False if args.no_cache else None,
+        require_events=args.require_events,
+    )
+
+    # The full word list belongs in the artifact file, not in a terminal; the
+    # summary is what a human or an agent needs to decide whether to continue.
+    payload = {
+        "phase": "transcribe",
+        "provider": result.provider,
+        "model": result.model,
+        "language": result.language,
+        "words": len(result.words),
+        "events": len(result.events),
+        "event_kinds": sorted({e.kind for e in result.events}),
+        "speakers": sorted(result.speakers),
+        "duration": round(result.duration, 3),
+        "transcript_path": f"{args.work_dir}/analysis/transcript.json",
+    }
+    record_artifact(args.work_dir, "transcribe", payload)
+    return payload
+
+
+_HANDLERS = {"ingest": _cmd_ingest, "transcribe": _cmd_transcribe}
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    if args.command in _PENDING_PHASES:
+    handler = _HANDLERS.get(args.command)
+    if handler is None:
         print(
             f"phase '{args.command}' is not implemented yet — "
-            f"'ingest' is the current entry point",
+            f"implemented phases: {', '.join(sorted(_HANDLERS))}",
             file=sys.stderr,
         )
         return 2
 
     try:
-        result = _cmd_ingest(args)
+        result = handler(args)
     except ClipperProError as exc:
         print(f"error: {exc.detail}", file=sys.stderr)
         return exc.exit_code

@@ -83,14 +83,23 @@ Pro pipeline. It is CLI-driven (`clipper-pro` / `python -m clipper_pro`), one
 subcommand per phase, and does **not** import the FastAPI app or the ClippyMe
 job runtime; it reuses `clippyme.pipeline.download` for the URL allow-list and
 will port `cut_ops` / `reframe_*` maths rather than re-deriving them. Phases:
-`ingest` (done — download + mono-16 kHz FLAC extraction), then `transcribe`,
+`ingest` (done — download + mono-16 kHz FLAC extraction), `transcribe` (done —
+provider abstraction over the repo's Deepgram/ElevenLabs backends), then
 `rank`, `cut`, `reframe`, `render`, `export` (contracts documented in each
 package's `__init__.py`, entrypoints raise `NotImplementedError`). Cross-phase
 data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is
-a workspace directory + manifest (`clipper_pro/workspace.py`). Same purity rule
-as the pipeline: `*_ops.py` modules are stdlib-only and host-tested, the
-modules beside them do the I/O. Tests live in `tests/clipperpro/` (spelled
-without the underscore so the test package cannot shadow the real one).
+a workspace directory + manifest (`clipper_pro/workspace.py`) — each phase
+records its artifact there, so the next one needs no repeated paths. Same
+purity rule as the pipeline: `*_ops.py` modules are stdlib-only and host-tested,
+the modules beside them do the I/O. Env knobs are `CLIPPER_PRO_*`, documented in
+`.env.example`. Tests live in `tests/clipperpro/` (spelled without the
+underscore so the test package cannot shadow the real one).
+
+⚠️ Phase 2 capability asymmetry: **Deepgram Nova-3 does not tag audio events**
+(laughter/applause) — only ElevenLabs Scribe does. `transcribe/base.py` declares
+this per provider rather than assuming it; `require_events=True` turns a missing
+capability into an error instead of an empty list that reads as "no laughter"
+when it means "nobody listened for any".
 
 Frontend lives entirely in `dashboard/src/redesign/` (`main.jsx` renders
 `RedesignApp`). Shared hooks in `dashboard/src/hooks/` (incl.
