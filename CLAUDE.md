@@ -84,8 +84,10 @@ subcommand per phase, and does **not** import the FastAPI app or the ClippyMe
 job runtime; it reuses `clippyme.pipeline.download` for the URL allow-list and
 will port `cut_ops` / `reframe_*` maths rather than re-deriving them. Phases:
 `ingest` (done — download + mono-16 kHz FLAC extraction), `transcribe` (done —
-provider abstraction over the repo's Deepgram/ElevenLabs backends), then
-`rank`, `cut`, `reframe`, `render`, `export` (contracts documented in each
+provider abstraction over the repo's Deepgram/ElevenLabs backends), `rank`
+(done — 5-axis rubric behind DeepSeek-V3/Gemini providers, SQLite prompt cache,
+reusing `gemini_request.encode_words_toon` and `gemini_parser`'s JSON-repair
+chain), then `cut`, `reframe`, `render`, `export` (contracts documented in each
 package's `__init__.py`, entrypoints raise `NotImplementedError`). Cross-phase
 data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is
 a workspace directory + manifest (`clipper_pro/workspace.py`) — each phase

@@ -87,6 +87,12 @@ class Settings:
     # -- phase 3: rank -----------------------------------------------------
     ranker: str = "deepseek"
     rank_cache: bool = True
+    max_clips: int = 10
+    # Bounds the ranker is told to respect and phase 3 enforces. 12 s is about
+    # the floor at which a hook-plus-payoff fits; 60 s is the ceiling shared by
+    # Reels/Shorts/TikTok's short lane.
+    min_clip_duration: float = 12.0
+    max_clip_duration: float = 60.0
 
     # -- phase 7: export ---------------------------------------------------
     export_crf: int = 18
@@ -123,6 +129,13 @@ class Settings:
             transcript_cache=env_flag("CLIPPER_PRO_TRANSCRIPT_CACHE", True),
             ranker=env_choice("CLIPPER_PRO_RANKER", "deepseek", RANKERS),
             rank_cache=env_flag("CLIPPER_PRO_RANK_CACHE", True),
+            max_clips=env_int("CLIPPER_PRO_MAX_CLIPS", 10, minimum=1, maximum=50),
+            min_clip_duration=float(
+                env_int("CLIPPER_PRO_MIN_CLIP_SECONDS", 12, minimum=3, maximum=120)
+            ),
+            max_clip_duration=float(
+                env_int("CLIPPER_PRO_MAX_CLIP_SECONDS", 60, minimum=5, maximum=180)
+            ),
             export_crf=env_int("CLIPPER_PRO_EXPORT_CRF", 18, minimum=0, maximum=51),
         )
 

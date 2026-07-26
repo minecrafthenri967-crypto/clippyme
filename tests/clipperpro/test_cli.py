@@ -44,10 +44,14 @@ class TestParser:
 
 
 class TestUnimplementedPhases:
-    @pytest.mark.parametrize("phase", ["rank", "cut", "reframe", "render", "export"])
+    @pytest.mark.parametrize("phase", ["cut", "reframe", "render", "export"])
     def test_reports_clearly_and_exits_two(self, phase, capsys):
         assert cli.main([phase]) == 2
         assert "not implemented yet" in capsys.readouterr().err
+
+    def test_implemented_phases_are_not_in_the_pending_list(self):
+        # Guards against a phase staying "pending" in the CLI after it is built.
+        assert set(cli._HANDLERS) & set(cli._PENDING_PHASES) == set()
 
 
 class TestPhaseChaining:

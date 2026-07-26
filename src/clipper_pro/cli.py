@@ -14,14 +14,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any
 
 from clipper_pro import __version__
+from clipper_pro.config import RANKERS as RANKERS_CHOICES
 from clipper_pro.config import TRANSCRIBERS, Settings
 from clipper_pro.errors import ClipperProError, ValidationError
 from clipper_pro.ingest import describe_saving, run_ingest, spec_from_settings
 from clipper_pro.ingest.audio_ops import estimate_flac_bytes
+from clipper_pro.transcribe.base import TranscriptResult
 from clipper_pro.types import SourceMedia
 from clipper_pro.workspace import init as workspace_init
 from clipper_pro.workspace import load as workspace_load
@@ -29,7 +32,7 @@ from clipper_pro.workspace import record_artifact
 
 __all__ = ["build_parser", "main"]
 
-_PENDING_PHASES = ("rank", "cut", "reframe", "render", "export")
+_PENDING_PHASES = ("cut", "reframe", "render", "export")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,6 +77,26 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument(
         "--no-cache", action="store_true",
         help="ignore any cached transcript for this audio and re-transcribe",
+    )
+
+    rank = sub.add_parser(
+        "rank", help="phase 3: score moments against the 5-axis virality rubric"
+    )
+    rank.add_argument("--work-dir", required=True, help="run workspace directory")
+    rank.add_argument(
+        "--provider", choices=RANKERS_CHOICES, default=None,
+        help="ranking provider (default deepseek)",
+    )
+    rank.add_argument(
+        "--max-clips", type=int, default=None, help="cap on returned clips (default 10)"
+    )
+    rank.add_argument(
+        "--instructions", default=None,
+        help="free-text preferences to guide selection (treated as untrusted)",
+    )
+    rank.add_argument(
+        "--no-cache", action="store_true",
+        help="ignore any cached ranking for this prompt and re-ask the model",
     )
 
     for name in _PENDING_PHASES:
@@ -155,7 +178,60 @@ def _cmd_transcribe(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
-_HANDLERS = {"ingest": _cmd_ingest, "transcribe": _cmd_transcribe}
+def _transcript_from_workspace(work_dir: str) -> TranscriptResult:
+    """Recover phase 2's transcript artifact so phase 3 needs no repeated paths."""
+    path = os.path.join(work_dir, "analysis", "transcript.json")
+    if not os.path.isfile(path):
+        raise ValidationError(
+            f"no transcript at {path} — run 'clipper-pro transcribe' first"
+        )
+    try:
+        with open(path) as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValidationError(f"transcript at {path} is not valid JSON: {exc}") from exc
+    return TranscriptResult.from_dict(payload)
+
+
+def _cmd_rank(args: argparse.Namespace) -> dict[str, Any]:
+    from clipper_pro.rank import run_rank  # defers the provider imports
+
+    settings = Settings.from_env()
+    transcript = _transcript_from_workspace(args.work_dir)
+
+    candidates = run_rank(
+        transcript,
+        args.work_dir,
+        settings=settings,
+        provider=args.provider,
+        instructions=args.instructions,
+        use_cache=False if args.no_cache else None,
+        max_clips=args.max_clips,
+    )
+
+    payload = {
+        "phase": "rank",
+        "provider": args.provider or settings.ranker,
+        "clips": len(candidates),
+        # The per-axis scores live in the artifact; the summary is what a human
+        # needs to judge whether the selection is worth rendering.
+        "ranked": [
+            {
+                "start": round(c.start, 2),
+                "end": round(c.end, 2),
+                "duration": round(c.duration, 2),
+                "score": c.scores.total,
+                "title": c.title,
+            }
+            for c in candidates
+        ],
+        "candidates_path": os.path.join(args.work_dir, "analysis", "candidates.json"),
+    }
+    record_artifact(args.work_dir, "rank", payload)
+    return payload
+
+
+_HANDLERS = {"ingest": _cmd_ingest, "transcribe": _cmd_transcribe, "rank": _cmd_rank}
 
 
 def main(argv: list[str] | None = None) -> int:
