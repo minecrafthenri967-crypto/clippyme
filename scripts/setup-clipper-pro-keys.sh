@@ -15,6 +15,56 @@ set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
+declare -A PRESET=()
+VISIBLE=0
+
+usage() {
+    cat <<'USAGE'
+Verwendung:
+  bash scripts/setup-clipper-pro-keys.sh [OPTION ...]
+
+Ohne Optionen fragt das Skript die Schlüssel ab (Eingabe als * maskiert).
+
+  --visible              Eingabe im Klartext anzeigen — hilft, wenn unklar ist,
+                         ob das Einfügen im Terminal überhaupt ankommt.
+  --deepgram KEY         Schlüssel direkt übergeben, ohne Abfrage.
+  --deepseek KEY
+  --gemini KEY
+  -h, --help             Diese Hilfe.
+
+Hinweis zu --deepgram/--deepseek/--gemini: der Schlüssel landet in der
+Shell-History. Danach entweder `history -d <nr>` oder die Abfrage nutzen.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --visible) VISIBLE=1 ;;
+        --deepgram)
+            PRESET[DEEPGRAM_API_KEY]="${2-}"
+            shift
+            ;;
+        --deepseek)
+            PRESET[DEEPSEEK_API_KEY]="${2-}"
+            shift
+            ;;
+        --gemini)
+            PRESET[GEMINI_API_KEY]="${2-}"
+            shift
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'Unbekannte Option: %s\n\n' "$1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
 ENV_FILE=".env"
 TEMPLATE=".env.example"
 
@@ -78,19 +128,58 @@ say "${bold}AI-Clipper Pro — API-Schlüssel einrichten${reset}"
 say "${dim}Eingabe ist verdeckt. Enter ohne Eingabe = bestehenden Wert behalten.${reset}"
 say
 
+# Liest eine Eingabe und zeigt pro Zeichen ein '*'. Ein völlig stummer Prompt
+# (read -s) sieht beim Einfügen aus wie ein hängender Terminal — die Sternchen
+# belegen, dass die Zeichen angekommen sind, ohne den Schlüssel zu zeigen.
+read_masked() {
+    local target="$1" char value=""
+    while IFS= read -rsn1 char; do
+        case "$char" in
+            "") break ;;
+            $'\177' | $'\b')
+                if [[ -n "$value" ]]; then
+                    value="${value%?}"
+                    printf '\b \b'
+                fi
+                ;;
+            *)
+                value+="$char"
+                printf '*'
+                ;;
+        esac
+    done
+    printf '\n'
+    printf -v "$target" '%s' "$value"
+}
+
 ask_key() {
-    local name="$1" label="$2" url="$3" existing entered
+    local name="$1" label="$2" url="$3" existing entered preset
     strip_placeholder "$name"
     existing="$(current_value "$name")"
+
+    # Per --deepgram/--deepseek/--gemini übergebene Schlüssel fragen nicht nach.
+    preset="${PRESET[$name]:-}"
+    if [[ -n "$preset" ]]; then
+        set_var "$name" "$(printf '%s' "$preset" | tr -d '[:space:]"'"'")"
+        say "${bold}$label${reset}"
+        ok "  über Argument übernommen."
+        say
+        return
+    fi
 
     say "${bold}$label${reset}"
     say "  ${dim}$url${reset}"
     if [[ -n "$existing" ]]; then
         say "  ${dim}(bereits gesetzt — Enter behält den bestehenden Wert)${reset}"
     fi
+    say "  ${dim}Einfügen: Rechtsklick oder Strg+Shift+V. Enter = überspringen.${reset}"
     printf '  %s: ' "$name"
-    read -rs entered
-    printf '\n\n'
+    if [[ "$VISIBLE" == 1 ]]; then
+        IFS= read -r entered
+    else
+        read_masked entered
+    fi
+    printf '\n'
 
     if [[ -z "$entered" ]]; then
         if [[ -z "$existing" ]]; then
