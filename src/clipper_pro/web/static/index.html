@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-Clipper Pro</title>
+<!-- Inline so the page makes no request the server would 404 on. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎬</text></svg>">
+<style>
+  /* Self-contained on purpose: no CDN, no build step, works offline. */
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115; --panel: #171a21; --line: #262b36;
+    --text: #e6e9ef; --muted: #98a1b3; --accent: #5b9dff;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #ffffff; --line: #e3e6ea;
+      --text: #12151b; --muted: #5c6675; --accent: #1f6feb;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px; margin-bottom: 16px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; padding: 10px 12px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; font: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px;
+    border: 1px solid transparent; background: var(--accent); color: #fff; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: transparent; border-color: var(--line); color: var(--text); font-weight: 500; }
+  .row { display: flex; gap: 10px; align-items: flex-end; }
+  .row > :first-child { flex: 1; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
+  details[open] summary { margin-bottom: 12px; }
+
+  .checks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .chip {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); background: var(--panel);
+  }
+  .chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .chip.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+
+  .phases { list-style: none; margin: 0; padding: 0; }
+  .phases li {
+    display: flex; gap: 10px; align-items: baseline;
+    padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px;
+  }
+  .phases li:last-child { border-bottom: 0; }
+  .dot { width: 16px; flex: none; text-align: center; }
+  .pname { flex: none; width: 168px; }
+  .pdetail { color: var(--muted); font-size: 13px; flex: 1; }
+  .psec { color: var(--muted); font-size: 12px; flex: none; }
+  .running .pname { color: var(--accent); font-weight: 600; }
+  .failed .pname { color: var(--bad); font-weight: 600; }
+
+  .bar { height: 4px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 4px 0 16px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); transition: width .4s ease; }
+
+  pre.log {
+    margin: 14px 0 0; padding: 12px; max-height: 220px; overflow: auto;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    font: 12px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--muted); white-space: pre-wrap; word-break: break-word;
+  }
+  .err {
+    margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px;
+    background: color-mix(in srgb, var(--bad) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+  }
+
+  .clip { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .clip:last-child { border-bottom: 0; }
+  .clip video { width: 150px; flex: none; border-radius: 8px; background: #000; aspect-ratio: 9/16; }
+  .clip-body { flex: 1; min-width: 0; }
+  .clip-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .rank { font-weight: 700; color: var(--muted); }
+  .title { font-weight: 600; }
+  .score {
+    margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums;
+    padding: 2px 8px; border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+  }
+  .reason { color: var(--muted); font-size: 13px; margin: 6px 0 8px; }
+  .axes { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .axes b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .meta { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  a { color: var(--accent); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI-Clipper Pro</h1>
+  <div class="sub">Long video in, ranked vertical clips out. Runs entirely on this machine.</div>
+
+  <div class="checks" id="checks"></div>
+
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label for="source">YouTube link or a video file path on this machine</label>
+        <input type="text" id="source" placeholder="https://youtu.be/… or /home/you/video.mp4" autocomplete="off">
+      </div>
+      <button id="start">Make clips</button>
+    </div>
+
+    <details>
+      <summary>Options</summary>
+      <div class="grid">
+        <div>
+          <label for="transcriber">Transcription</label>
+          <select id="transcriber"></select>
+        </div>
+        <div>
+          <label for="ranker">Ranking</label>
+          <select id="ranker"></select>
+        </div>
+        <div>
+          <label for="maxclips">Max clips</label>
+          <input type="number" id="maxclips" min="1" max="50" placeholder="10">
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label for="instructions">What are you looking for? (optional)</label>
+        <textarea id="instructions" rows="2" placeholder="e.g. prefer the funny reactions over the explanations"></textarea>
+      </div>
+    </details>
+  </div>
+
+  <div class="panel hidden" id="progress">
+    <div class="bar"><i id="barfill" style="width:0%"></i></div>
+    <ul class="phases" id="phases"></ul>
+    <div class="err hidden" id="error"></div>
+    <pre class="log hidden" id="log"></pre>
+  </div>
+
+  <div class="panel hidden" id="results">
+    <div class="clip-head" style="margin-bottom:6px">
+      <strong id="results-title">Clips</strong>
+      <span class="score" id="results-count"></span>
+    </div>
+    <div class="sub" id="results-note" style="margin-bottom:4px"></div>
+    <div id="clips"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const ICONS = { pending: "·", running: "●", done: "✓", failed: "✗", skipped: "–" };
+let pollTimer = null;
+let currentRun = null;
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (_) { /* not json */ }
+    throw new Error(detail);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+function chip(label, ok, hint) {
+  const el = document.createElement("span");
+  el.className = "chip " + (ok ? "ok" : "bad");
+  el.textContent = (ok ? "✓ " : "✗ ") + label;
+  if (hint) el.title = hint;
+  return el;
+}
+
+async function loadHealth() {
+  const h = await api("/api/health");
+  const box = $("checks");
+  box.replaceChildren();
+  box.append(chip("ffmpeg", h.ffmpeg, h.ffmpeg ? "" : "Install ffmpeg — rendering cannot run without it"));
+  box.append(chip("Deepgram key", h.keys.deepgram));
+  box.append(chip("DeepSeek key", h.keys.deepseek));
+  if (h.keys.elevenlabs) box.append(chip("ElevenLabs key", true));
+  if (h.keys.gemini) box.append(chip("Gemini key", true));
+
+  const where = document.createElement("span");
+  where.className = "chip";
+  where.textContent = "runs → " + h.runs_root;
+  box.append(where);
+
+  fill($("transcriber"), h.transcribers, h.keys.elevenlabs ? null : "deepgram");
+  fill($("ranker"), h.rankers, h.keys.deepseek ? "deepseek" : "gemini");
+  return h;
+}
+
+function fill(select, values, preferred) {
+  select.replaceChildren();
+  for (const v of values) {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = v;
+    if (v === preferred) o.selected = true;
+    select.append(o);
+  }
+}
+
+function renderPhases(run) {
+  $("progress").classList.remove("hidden");
+  $("barfill").style.width = Math.round(run.progress * 100) + "%";
+
+  const list = $("phases");
+  list.replaceChildren();
+  for (const p of run.phases) {
+    const li = document.createElement("li");
+    li.className = p.status;
+    li.innerHTML =
+      `<span class="dot">${ICONS[p.status] || "·"}</span>` +
+      `<span class="pname"></span><span class="pdetail"></span><span class="psec"></span>`;
+    li.querySelector(".pname").textContent = p.label;
+    li.querySelector(".pdetail").textContent = p.detail || "";
+    li.querySelector(".psec").textContent = p.seconds ? p.seconds.toFixed(0) + "s" : "";
+    list.append(li);
+  }
+
+  const err = $("error");
+  err.classList.toggle("hidden", !run.error);
+  err.textContent = run.error || "";
+
+  if (run.log && run.log.length) {
+    const log = $("log");
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+    log.classList.remove("hidden");
+    log.textContent = run.log.join("\n");
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+}
+
+function axisLine(axes) {
+  return Object.entries(axes || {})
+    .map(([k, v]) => `${k} <b>${Number(v).toFixed(0)}</b>`)
+    .join("");
+}
+
+async function showResults(runId) {
+  let report;
+  try { report = await api(`/api/runs/${runId}/report`); } catch (_) { return; }
+
+  const clips = report.clips || [];
+  $("results").classList.remove("hidden");
+  $("results-count").textContent = clips.length + (clips.length === 1 ? " clip" : " clips");
+  $("results-note").textContent = (report.export && report.export.profile) || "";
+
+  const box = $("clips");
+  box.replaceChildren();
+  clips.forEach((c, i) => {
+    const el = document.createElement("div");
+    el.className = "clip";
+
+    const video = document.createElement("video");
+    video.controls = true; video.preload = "metadata";
+    video.src = `/api/runs/${runId}/clips/${i}/video`;
+    if (!c.rendered) { video.removeAttribute("src"); video.style.opacity = ".3"; }
+
+    const body = document.createElement("div");
+    body.className = "clip-body";
+
+    const head = document.createElement("div");
+    head.className = "clip-head";
+    head.innerHTML = `<span class="rank">#${c.rank}</span><span class="title"></span>` +
+                     `<span class="score">${Number(c.score).toFixed(2)}</span>`;
+    head.querySelector(".title").textContent = c.title || "Untitled";
+
+    const reason = document.createElement("div");
+    reason.className = "reason";
+    reason.textContent = c.reason || "";
+
+    const axes = document.createElement("div");
+    axes.className = "axes";
+    axes.innerHTML = axisLine(c.axes).split("</b>").join("</b> ");
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const at = `at ${c.timecode} · ${Number(c.duration).toFixed(0)}s`;
+    if (c.rendered) {
+      // ?download=1 asks the server for an attachment, so the saved file keeps
+      // its real name instead of being called "video".
+      meta.innerHTML = `${at} · <a href="/api/runs/${runId}/clips/${i}/video?download=1">download</a>`;
+    } else {
+      meta.textContent = at + " · not rendered";
+    }
+
+    body.append(head, reason, axes, meta);
+    el.append(video, body);
+    box.append(el);
+  });
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function poll() {
+  if (!currentRun) return;
+  let run;
+  try { run = await api(`/api/runs/${currentRun}`); } catch (_) { return; }
+  renderPhases(run);
+
+  if (run.status === "done" || run.status === "failed") {
+    stopPolling();
+    $("start").disabled = false;
+    $("start").textContent = "Make clips";
+    await showResults(run.id);
+    loadHealth();
+  }
+}
+
+async function start() {
+  const source = $("source").value.trim();
+  if (!source) { $("source").focus(); return; }
+
+  const body = {
+    source,
+    transcribe_provider: $("transcriber").value || null,
+    rank_provider: $("ranker").value || null,
+    max_clips: $("maxclips").value ? Number($("maxclips").value) : null,
+    instructions: $("instructions").value.trim() || null,
+    centred: true,
+  };
+
+  $("start").disabled = true;
+  $("start").textContent = "Working…";
+  $("results").classList.add("hidden");
+  $("error").classList.add("hidden");
+  $("log").classList.add("hidden");
+  $("log").textContent = "";
+
+  try {
+    const run = await api("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    currentRun = run.id;
+    renderPhases(run);
+    stopPolling();
+    pollTimer = setInterval(poll, 1500);
+    poll();
+  } catch (e) {
+    $("start").disabled = false;
+    $("start").textContent = "Make clips";
+    const err = $("error");
+    err.classList.remove("hidden");
+    err.textContent = e.message;
+    $("progress").classList.remove("hidden");
+  }
+}
+
+$("start").addEventListener("click", start);
+$("source").addEventListener("keydown", (e) => { if (e.key === "Enter") start(); });
+loadHealth();
+
+// On load, pick up where the user left off. A run in flight is resumed; a
+// finished one is shown again, so closing the tab does not lose the clips.
+api("/api/runs").then(async (data) => {
+  const latest = (data.runs || [])[0];
+  if (!latest) return;
+  currentRun = latest.id;
+
+  if (latest.status === "running" || latest.status === "queued") {
+    $("start").disabled = true;
+    $("start").textContent = "Working…";
+    pollTimer = setInterval(poll, 1500);
+    poll();
+    return;
+  }
+
+  const run = await api(`/api/runs/${latest.id}`).catch(() => null);
+  if (run) {
+    renderPhases(run);
+    $("source").value = run.source || "";
+    await showResults(run.id);
+  }
+}).catch(() => {});
+</script>
+</body>
+</html>

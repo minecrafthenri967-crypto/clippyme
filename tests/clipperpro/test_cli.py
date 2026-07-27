@@ -1,4 +1,8 @@
-"""CLI surface: argument wiring, phase chaining through the manifest, exit codes."""
+"""CLI surface: argument parsing, option translation, dispatch, exit codes.
+
+The CLI's job is now argv in, :func:`clipper_pro.pipeline.run_phase` out — the
+orchestration it used to carry is covered by ``test_pipeline.py``.
+"""
 
 import json
 
@@ -6,19 +10,21 @@ import pytest
 
 from clipper_pro import cli
 from clipper_pro.errors import ValidationError
-from clipper_pro.workspace import init as workspace_init
-from clipper_pro.workspace import record_artifact
+from clipper_pro.pipeline import PHASES
 
 
 class TestParser:
     def test_every_phase_is_listed(self, capsys):
-        # --help must reflect the real shape of the pipeline, including the
-        # phases that are not built yet.
         with pytest.raises(SystemExit):
             cli.build_parser().parse_args(["--help"])
         out = capsys.readouterr().out
-        for phase in ("ingest", "transcribe", "rank", "cut", "reframe", "render", "export"):
+        for phase in PHASES:
             assert phase in out
+
+    def test_the_web_ui_is_offered(self, capsys):
+        with pytest.raises(SystemExit):
+            cli.build_parser().parse_args(["--help"])
+        assert "web" in capsys.readouterr().out
 
     def test_ingest_requires_a_work_dir(self):
         with pytest.raises(SystemExit):
@@ -42,94 +48,116 @@ class TestParser:
         assert args.provider == "elevenlabs"
         assert args.require_events is True and args.no_cache is True
 
+    def test_web_defaults_to_localhost_only(self):
+        # Binding beyond loopback would expose a service that runs ffmpeg and
+        # yt-dlp on the user's machine; that must be a deliberate choice.
+        args = cli.build_parser().parse_args(["web"])
+        assert args.host == "127.0.0.1"
 
-class TestUnimplementedPhases:
+
+class TestOptionsFromArgs:
+    def _opts(self, argv):
+        return cli._options_from_args(cli.build_parser().parse_args(argv))
+
+    def test_ingest_flags_are_translated(self):
+        opts = self._opts(
+            ["ingest", "v.mp4", "--work-dir", "/w", "--sample-rate", "8000", "--overwrite"]
+        )
+        assert opts.sample_rate == 8000 and opts.overwrite is True
+
+    def test_transcribe_flags_are_translated(self):
+        opts = self._opts(
+            ["transcribe", "--work-dir", "/w", "--provider", "elevenlabs",
+             "--require-events", "--no-cache"]
+        )
+        assert opts.transcribe_provider == "elevenlabs"
+        assert opts.require_events is True and opts.no_transcript_cache is True
+
+    def test_rank_flags_are_translated(self):
+        opts = self._opts(
+            ["rank", "--work-dir", "/w", "--provider", "gemini",
+             "--max-clips", "3", "--instructions", "funny bits", "--no-cache"]
+        )
+        assert opts.rank_provider == "gemini" and opts.max_clips == 3
+        assert opts.instructions == "funny bits" and opts.no_rank_cache is True
+
+    def test_absent_flags_stay_unset(self):
+        # Each subparser defines only its own flags; a field the current
+        # subcommand lacks must default rather than raise.
+        opts = self._opts(["export", "--work-dir", "/w"])
+        assert opts.sample_rate is None and opts.crf is None
+        assert opts.centred is False and opts.no_silence is False
+
+    def test_cut_and_reframe_and_render_flags(self):
+        assert self._opts(["cut", "--work-dir", "/w", "--no-silence"]).no_silence is True
+        assert self._opts(["reframe", "--work-dir", "/w", "--centred"]).centred is True
+        assert self._opts(["render", "--work-dir", "/w", "--crf", "23"]).crf == 23
+
+
+class TestDispatch:
+    def test_calls_run_phase_with_the_parsed_arguments(self, monkeypatch, capsys):
+        seen = {}
+
+        def fake_run_phase(phase, work_dir, *, source=None, options=None):
+            seen.update(phase=phase, work_dir=work_dir, source=source, options=options)
+            return {"phase": phase, "ok": True}
+
+        monkeypatch.setattr(cli, "run_phase", fake_run_phase)
+        assert cli.main(["ingest", "v.mp4", "--work-dir", "/w"]) == 0
+
+        assert seen["phase"] == "ingest"
+        assert seen["work_dir"] == "/w"
+        assert seen["source"] == "v.mp4"
+        assert json.loads(capsys.readouterr().out)["ok"] is True
+
+    def test_non_ingest_phases_pass_no_source(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(
+            cli, "run_phase",
+            lambda phase, wd, *, source=None, options=None: seen.update(source=source) or {},
+        )
+        cli.main(["rank", "--work-dir", "/w"])
+        assert seen["source"] is None
+
+    def test_domain_errors_become_exit_codes_not_tracebacks(self, monkeypatch, capsys):
+        def boom(*a, **k):
+            raise ValidationError("something specific went wrong")
+
+        monkeypatch.setattr(cli, "run_phase", boom)
+        assert cli.main(["rank", "--work-dir", "/w"]) == ValidationError("x").exit_code
+        assert "something specific went wrong" in capsys.readouterr().err
+
+    def test_real_validation_error_surfaces_from_the_pipeline(self, tmp_path, capsys):
+        # End to end through the real run_phase: an unsupported scheme is caught.
+        code = cli.main(["ingest", "file:///etc/passwd", "--work-dir", str(tmp_path / "w")])
+        assert code == 1
+        assert "unsupported source scheme" in capsys.readouterr().err
+
+
+class TestPendingPhases:
     def test_all_seven_phases_are_implemented(self):
-        # Every phase of the pipeline now has a handler; nothing is pending.
         assert cli._PENDING_PHASES == ()
-        assert set(cli._HANDLERS) == {
-            "ingest", "transcribe", "rank", "cut", "reframe", "render", "export",
-        }
+        assert len(PHASES) == 7
 
-    def test_a_pending_phase_would_still_report_clearly(self, capsys, monkeypatch):
+    def test_a_pending_phase_would_still_report_clearly(self, monkeypatch, capsys):
         # The mechanism stays covered so re-adding a stub phase behaves.
         monkeypatch.setattr(cli, "_PENDING_PHASES", ("future",))
-        monkeypatch.setattr(cli, "_HANDLERS", dict(cli._HANDLERS))
         assert cli.main(["future"]) == 2
         assert "not implemented yet" in capsys.readouterr().err
 
 
-class TestPhaseChaining:
-    def test_transcribe_reads_the_ingest_artifact(self, tmp_path, monkeypatch):
-        root = str(tmp_path / "run")
-        workspace_init(root)
-        audio = tmp_path / "run" / "audio" / "a.flac"
-        audio.write_bytes(b"AUDIO")
-        record_artifact(root, "ingest", {
-            "phase": "ingest",
-            "source": {"path": "/v/a.mp4", "duration": 10.0, "audio_path": str(audio)},
-        })
+class TestWebCommand:
+    def test_starts_the_server_with_the_parsed_options(self, monkeypatch):
+        seen = {}
 
-        captured = {}
+        def fake_serve(*, host, port, runs_dir, open_browser):
+            seen.update(host=host, port=port, runs_dir=runs_dir, open_browser=open_browser)
+            return 0
 
-        def fake_run_transcribe(media, work_dir, **kwargs):
-            from clipper_pro.transcribe.base import TranscriptResult
-            from clipper_pro.types import Word
-            captured["audio_path"] = media.audio_path
-            captured["kwargs"] = kwargs
-            return TranscriptResult(
-                words=[Word("hi", 0.0, 0.5, speaker=0)],
-                language="en", provider="deepgram", model="nova-3",
-            )
+        from clipper_pro.web import server
+        monkeypatch.setattr(server, "serve", fake_serve)
 
-        import clipper_pro.transcribe as phase2
-        monkeypatch.setattr(phase2, "run_transcribe", fake_run_transcribe)
-
-        assert cli.main(["transcribe", "--work-dir", root]) == 0
-        # The phase found its input without the caller re-supplying any path.
-        assert captured["audio_path"] == str(audio)
-
-    def test_transcribe_without_ingest_is_a_clear_error(self, tmp_path, capsys):
-        root = str(tmp_path / "run")
-        workspace_init(root)
-        assert cli.main(["transcribe", "--work-dir", root]) == ValidationError("x").exit_code
-        assert "run 'clipper-pro ingest' first" in capsys.readouterr().err
-
-    def test_media_from_workspace_rejects_a_malformed_artifact(self, tmp_path):
-        root = str(tmp_path / "run")
-        workspace_init(root)
-        record_artifact(root, "ingest", {"phase": "ingest"})  # no source record
-        with pytest.raises(ValidationError, match="no ingest artifact"):
-            cli._media_from_workspace(root)
-
-
-class TestIngestCommand:
-    def test_prints_json_and_records_the_artifact(self, tmp_path, monkeypatch, capsys):
-        from clipper_pro.types import SourceMedia
-
-        root = str(tmp_path / "run")
-        audio = tmp_path / "a.flac"
-        audio.write_bytes(b"\x00" * 100)
-        source = tmp_path / "v.mp4"
-        source.write_bytes(b"\x00" * 1000)
-
-        monkeypatch.setattr(
-            cli, "run_ingest",
-            lambda *a, **k: SourceMedia(
-                path=str(source), duration=20.0, title="v", audio_path=str(audio)
-            ),
-        )
-
-        assert cli.main(["ingest", str(source), "--work-dir", root]) == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["phase"] == "ingest"
-        assert payload["audio"]["sample_rate"] == 16_000
-
-        from clipper_pro.workspace import load
-        assert load(root)["artifacts"]["ingest"]["phase"] == "ingest"
-
-    def test_domain_errors_become_exit_codes_not_tracebacks(self, tmp_path, capsys):
-        root = str(tmp_path / "run")
-        code = cli.main(["ingest", "file:///etc/passwd", "--work-dir", root])
-        assert code == 1
-        assert "unsupported source scheme" in capsys.readouterr().err
+        assert cli.main(["web", "--port", "9001", "--no-browser"]) == 0
+        assert seen == {
+            "host": "127.0.0.1", "port": 9001, "runs_dir": None, "open_browser": False,
+        }

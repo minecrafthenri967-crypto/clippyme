@@ -94,7 +94,17 @@ cascade maths is NOT duplicated), `reframe` (done — offline speaker timeline +
 trajectory as a piecewise-linear `crop=x` expression, one ffmpeg pass per clip),
 `export` (done — scored draft report as JSON + Markdown twins from one assembled
 document). **All seven phases are implemented**; `clipper-pro --help` is the
-current surface. Cross-phase
+current surface. Two front ends drive it and must not
+drift: `clipper_pro/pipeline.py` owns the per-phase orchestration
+(`run_phase(phase, work_dir, source=, options=)` + the workspace loaders), and
+both `cli.py` (argv → `PhaseOptions`) and `web/` (HTTP body → `PhaseOptions`)
+are thin translators over it. `clipper-pro web` serves a localhost-only UI
+(`web/app.py` routes, `web/runs.py` pure run state, `web/worker.py` background
+thread with stderr tee, one self-contained `web/static/index.html`); it binds
+loopback, rejects cross-origin requests, serves clips by index with a
+realpath containment check, and defaults runs to `~/clipper-pro-runs` — never
+the CWD, since a WSL checkout under `/mnt/c` is where ffmpeg's faststart
+rewrite hits a Windows file lock. Cross-phase
 data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is
 a workspace directory + manifest (`clipper_pro/workspace.py`) — each phase
 records its artifact there, so the next one needs no repeated paths. Same

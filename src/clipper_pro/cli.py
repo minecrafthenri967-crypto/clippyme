@@ -6,35 +6,29 @@ prints a single JSON object on stdout (progress and warnings go to stderr), so
 the output pipes into ``jq`` or is parsed by a calling harness without scraping
 log lines.
 
-A phase reads what the previous one recorded in the workspace manifest, so the
-steps compose without the caller having to thread paths between them.
+This module owns *argument parsing only*. The orchestration behind each phase
+lives in :mod:`clipper_pro.pipeline`, shared with the local web UI so the two
+front ends cannot drift apart. A phase reads what the previous one recorded in
+the workspace manifest, so the steps compose without the caller threading paths
+between them.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from clipper_pro import __version__
 from clipper_pro.config import RANKERS as RANKERS_CHOICES
-from clipper_pro.config import TRANSCRIBERS, Settings
-from clipper_pro.errors import ClipperProError, ValidationError
-from clipper_pro.ingest import describe_saving, run_ingest, spec_from_settings
-from clipper_pro.ingest.audio_ops import estimate_flac_bytes
-from clipper_pro.transcribe.base import TranscriptResult
-from clipper_pro.types import Candidate, SourceMedia
-from clipper_pro.workspace import init as workspace_init
-from clipper_pro.workspace import load as workspace_load
-from clipper_pro.workspace import record_artifact
-
-if TYPE_CHECKING:  # heavy phase modules stay lazily imported at runtime
-    from clipper_pro.reframe.plan import CameraPlan
+from clipper_pro.config import TRANSCRIBERS
+from clipper_pro.errors import ClipperProError
+from clipper_pro.pipeline import PHASES, PhaseOptions, run_phase
 
 __all__ = ["build_parser", "main"]
 
+#: Phases with a parser but no implementation. Empty — all seven are built.
 _PENDING_PHASES: tuple[str, ...] = ()
 
 
@@ -134,343 +128,94 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export.add_argument("--work-dir", required=True, help="run workspace directory")
 
+    web = sub.add_parser(
+        "web", help="serve the local web UI (localhost only) and open a browser"
+    )
+    web.add_argument(
+        "--runs-dir", default=None,
+        help="where runs are stored (default ~/clipper-pro-runs)",
+    )
+    web.add_argument("--port", type=int, default=8720, help="port to listen on")
+    web.add_argument(
+        "--host", default="127.0.0.1",
+        help="interface to bind (default 127.0.0.1 — localhost only)",
+    )
+    web.add_argument(
+        "--no-browser", action="store_true", help="do not open a browser window"
+    )
+
     for name in _PENDING_PHASES:
         sub.add_parser(name, help=f"phase {name} (not implemented yet)")
 
     return parser
 
 
-def _cmd_ingest(args: argparse.Namespace) -> dict[str, Any]:
-    settings = Settings.from_env().with_overrides(asr_sample_rate=args.sample_rate)
-    workspace_init(args.work_dir)
+def _options_from_args(args: argparse.Namespace) -> PhaseOptions:
+    """Translate parsed argv into the shared per-run overrides.
 
-    media = run_ingest(
-        args.source,
-        args.work_dir,
-        settings=settings,
-        cookies_file=args.cookies,
-        overwrite=args.overwrite,
+    Reads with ``getattr`` defaults because each subparser defines only its own
+    flags; a field the current subcommand does not have simply stays unset.
+    """
+    return PhaseOptions(
+        sample_rate=getattr(args, "sample_rate", None),
+        cookies=getattr(args, "cookies", None),
+        overwrite=getattr(args, "overwrite", False),
+        # Both transcribe and rank spell their provider flag "--provider"; which
+        # one it means is decided by the subcommand, so the same attribute feeds
+        # both fields and the phase reads only its own.
+        transcribe_provider=getattr(args, "provider", None),
+        require_events=getattr(args, "require_events", False),
+        no_transcript_cache=getattr(args, "no_cache", False),
+        rank_provider=getattr(args, "provider", None),
+        max_clips=getattr(args, "max_clips", None),
+        instructions=getattr(args, "instructions", None),
+        no_rank_cache=getattr(args, "no_cache", False),
+        no_silence=getattr(args, "no_silence", False),
+        centred=getattr(args, "centred", False),
+        crf=getattr(args, "crf", None),
     )
 
-    spec = spec_from_settings(settings)
-    payload = {
-        "phase": "ingest",
-        "source": media.to_dict(),
-        "audio": {
-            "path": media.audio_path,
-            "sample_rate": spec.sample_rate,
-            "channels": spec.channels,
-            "codec": spec.codec,
-            "estimated_bytes": estimate_flac_bytes(media.duration, spec),
-        },
-        "saving": describe_saving(media.path, media.audio_path),
-    }
-    record_artifact(args.work_dir, "ingest", payload)
-    return payload
 
-
-def _media_from_workspace(work_dir: str) -> SourceMedia:
-    """Recover phase 1's source record so later phases need no repeated paths."""
-    artifacts = workspace_load(work_dir).get("artifacts") or {}
-    ingest = artifacts.get("ingest")
-    if not isinstance(ingest, dict) or not isinstance(ingest.get("source"), dict):
-        raise ValidationError(
-            f"no ingest artifact in {work_dir} — run 'clipper-pro ingest' first"
+def _cmd_web(args: argparse.Namespace) -> int:
+    """Start the local web UI. Imported lazily so the CLI needs no web runtime."""
+    try:
+        from clipper_pro.web.server import serve
+    except ImportError as exc:
+        print(
+            f"error: the web UI needs fastapi + uvicorn — "
+            f"install with: pip install -e '.[web]'  ({exc})",
+            file=sys.stderr,
         )
-    return SourceMedia.from_dict(ingest["source"])
-
-
-def _cmd_transcribe(args: argparse.Namespace) -> dict[str, Any]:
-    from clipper_pro.transcribe import run_transcribe  # defers the requests import
-
-    settings = Settings.from_env()
-    media = _media_from_workspace(args.work_dir)
-
-    result = run_transcribe(
-        media,
-        args.work_dir,
-        settings=settings,
-        provider=args.provider,
-        use_cache=False if args.no_cache else None,
-        require_events=args.require_events,
+        return 3
+    return serve(
+        host=args.host,
+        port=args.port,
+        runs_dir=args.runs_dir,
+        open_browser=not args.no_browser,
     )
-
-    # The full word list belongs in the artifact file, not in a terminal; the
-    # summary is what a human or an agent needs to decide whether to continue.
-    payload = {
-        "phase": "transcribe",
-        "provider": result.provider,
-        "model": result.model,
-        "language": result.language,
-        "words": len(result.words),
-        "events": len(result.events),
-        "event_kinds": sorted({e.kind for e in result.events}),
-        "speakers": sorted(result.speakers),
-        "duration": round(result.duration, 3),
-        "transcript_path": f"{args.work_dir}/analysis/transcript.json",
-    }
-    record_artifact(args.work_dir, "transcribe", payload)
-    return payload
-
-
-def _transcript_from_workspace(work_dir: str) -> TranscriptResult:
-    """Recover phase 2's transcript artifact so phase 3 needs no repeated paths."""
-    path = os.path.join(work_dir, "analysis", "transcript.json")
-    if not os.path.isfile(path):
-        raise ValidationError(
-            f"no transcript at {path} — run 'clipper-pro transcribe' first"
-        )
-    try:
-        with open(path) as fh:
-            payload = json.load(fh)
-    except json.JSONDecodeError as exc:
-        raise ValidationError(f"transcript at {path} is not valid JSON: {exc}") from exc
-    return TranscriptResult.from_dict(payload)
-
-
-def _cmd_rank(args: argparse.Namespace) -> dict[str, Any]:
-    from clipper_pro.rank import run_rank  # defers the provider imports
-
-    settings = Settings.from_env()
-    transcript = _transcript_from_workspace(args.work_dir)
-
-    candidates = run_rank(
-        transcript,
-        args.work_dir,
-        settings=settings,
-        provider=args.provider,
-        instructions=args.instructions,
-        use_cache=False if args.no_cache else None,
-        max_clips=args.max_clips,
-    )
-
-    payload = {
-        "phase": "rank",
-        "provider": args.provider or settings.ranker,
-        "clips": len(candidates),
-        # The per-axis scores live in the artifact; the summary is what a human
-        # needs to judge whether the selection is worth rendering.
-        "ranked": [
-            {
-                "start": round(c.start, 2),
-                "end": round(c.end, 2),
-                "duration": round(c.duration, 2),
-                "score": c.scores.total,
-                "title": c.title,
-            }
-            for c in candidates
-        ],
-        "candidates_path": os.path.join(args.work_dir, "analysis", "candidates.json"),
-    }
-    record_artifact(args.work_dir, "rank", payload)
-    return payload
-
-
-def _candidates_from_workspace(work_dir: str) -> list[Candidate]:
-    """Recover phase 3's candidates, or phase 4's if it has already run."""
-    path = os.path.join(work_dir, "analysis", "candidates.json")
-    if not os.path.isfile(path):
-        raise ValidationError(f"no candidates at {path} — run 'clipper-pro rank' first")
-    try:
-        with open(path) as fh:
-            payload = json.load(fh)
-    except json.JSONDecodeError as exc:
-        raise ValidationError(f"candidates at {path} is not valid JSON: {exc}") from exc
-    return [Candidate.from_dict(c) for c in payload.get("clips") or []]
-
-
-def _cmd_cut(args: argparse.Namespace) -> dict[str, Any]:
-    from clipper_pro.cut import run_cut
-
-    settings = Settings.from_env()
-    media = _media_from_workspace(args.work_dir)
-    transcript = _transcript_from_workspace(args.work_dir)
-    candidates = _candidates_from_workspace(args.work_dir)
-
-    snapped = run_cut(
-        candidates,
-        transcript,
-        media,
-        args.work_dir,
-        settings=settings,
-        use_silence=False if args.no_silence else None,
-    )
-
-    payload = {
-        "phase": "cut",
-        "clips": len(snapped),
-        "moved": sum(1 for c in snapped if c.snapped_from is not None),
-        "snapped": [
-            {
-                "start": round(c.start, 3),
-                "end": round(c.end, 3),
-                "duration": round(c.duration, 3),
-                "moved_from": list(c.snapped_from) if c.snapped_from else None,
-                "title": c.title,
-            }
-            for c in snapped
-        ],
-        "cuts_path": os.path.join(args.work_dir, "analysis", "cuts.json"),
-    }
-    record_artifact(args.work_dir, "cut", payload)
-    return payload
-
-
-def _cmd_reframe(args: argparse.Namespace) -> dict[str, Any]:
-    from clipper_pro.reframe import run_reframe
-
-    settings = Settings.from_env()
-    media = _media_from_workspace(args.work_dir)
-    transcript = _transcript_from_workspace(args.work_dir)
-    # Prefer phase 4's snapped edges; fall back to phase 3's if cut hasn't run.
-    candidates = _snapped_or_ranked(args.work_dir)
-
-    plans = run_reframe(
-        candidates, transcript, media, args.work_dir,
-        settings=settings,
-        locate=(lambda _p, _s: {}) if args.centred else None,
-    )
-
-    payload = {
-        "phase": "reframe",
-        "clips": len(plans),
-        "crops": [
-            {
-                "clip": p.clip_index,
-                "keyframes": len(p.keyframes),
-                "source": f"{p.source_width}x{p.source_height}@{p.fps:g}",
-                "crop": (
-                    f"{p.keyframes[0].width:g}x{p.keyframes[0].height:g}"
-                    if p.keyframes else None
-                ),
-                "speakers": sorted(
-                    {kf.speaker for kf in p.keyframes if kf.speaker is not None}
-                ),
-            }
-            for p in plans
-        ],
-        "reframe_path": os.path.join(args.work_dir, "analysis", "reframe.json"),
-    }
-    record_artifact(args.work_dir, "reframe", payload)
-    return payload
-
-
-def _snapped_or_ranked(work_dir: str) -> list[Candidate]:
-    """Phase 4's cuts when present, else phase 3's candidates."""
-    cuts = os.path.join(work_dir, "analysis", "cuts.json")
-    if os.path.isfile(cuts):
-        try:
-            with open(cuts) as fh:
-                return [Candidate.from_dict(c) for c in json.load(fh).get("clips") or []]
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            raise ValidationError(f"cuts at {cuts} is unreadable: {exc}") from exc
-    return _candidates_from_workspace(work_dir)
-
-
-def _plans_from_workspace(work_dir: str) -> list[CameraPlan]:
-    """Recover phase 5's camera plans."""
-    from clipper_pro.reframe.plan import CameraPlan
-
-    path = os.path.join(work_dir, "analysis", "reframe.json")
-    if not os.path.isfile(path):
-        raise ValidationError(f"no camera plans at {path} — run 'clipper-pro reframe' first")
-    try:
-        with open(path) as fh:
-            payload = json.load(fh)
-    except json.JSONDecodeError as exc:
-        raise ValidationError(f"reframe at {path} is not valid JSON: {exc}") from exc
-    return [CameraPlan.from_dict(p) for p in payload.get("clips") or []]
-
-
-def _cmd_render(args: argparse.Namespace) -> dict[str, Any]:
-    from clipper_pro.render import run_render
-
-    settings = Settings.from_env().with_overrides(export_crf=args.crf)
-    media = _media_from_workspace(args.work_dir)
-    plans = _plans_from_workspace(args.work_dir)
-
-    outputs = run_render(
-        plans, media, args.work_dir,
-        settings=settings, candidates=_snapped_or_ranked(args.work_dir),
-    )
-
-    payload = {
-        "phase": "render",
-        "clips": len(outputs),
-        "crf": settings.export_crf,
-        "size": f"{settings.output_width}x{settings.output_height}",
-        "outputs": outputs,
-        "renders_path": os.path.join(args.work_dir, "analysis", "renders.json"),
-    }
-    record_artifact(args.work_dir, "render", payload)
-    return payload
-
-
-def _renders_from_workspace(work_dir: str) -> list[dict[str, Any]]:
-    """Phase 6's render records, or an empty list when it has not run."""
-    path = os.path.join(work_dir, "analysis", "renders.json")
-    if not os.path.isfile(path):
-        return []
-    try:
-        with open(path) as fh:
-            return json.load(fh).get("clips") or []
-    except (json.JSONDecodeError, AttributeError):
-        return []
-
-
-def _cmd_export(args: argparse.Namespace) -> dict[str, Any]:
-    from clipper_pro.export import run_export
-
-    settings = Settings.from_env()
-    media = _media_from_workspace(args.work_dir)
-    candidates = _snapped_or_ranked(args.work_dir)
-
-    artifacts = workspace_load(args.work_dir).get("artifacts") or {}
-    ranker = (artifacts.get("rank") or {}).get("provider", "")
-    renders = _renders_from_workspace(args.work_dir)
-
-    report_path = run_export(
-        candidates, renders, media, args.work_dir,
-        settings=settings, ranker=ranker,
-    )
-
-    payload = {
-        "phase": "export",
-        "clips": len(candidates),
-        "rendered": sum(1 for r in renders if r.get("path")),
-        "report_json": report_path,
-        "report_markdown": os.path.join(args.work_dir, "reports", "draft.md"),
-        "renders_dir": os.path.join(args.work_dir, "renders"),
-    }
-    record_artifact(args.work_dir, "export", payload)
-    return payload
-
-
-_HANDLERS = {
-    "ingest": _cmd_ingest,
-    "transcribe": _cmd_transcribe,
-    "rank": _cmd_rank,
-    "cut": _cmd_cut,
-    "reframe": _cmd_reframe,
-    "render": _cmd_render,
-    "export": _cmd_export,
-}
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    handler = _HANDLERS.get(args.command)
-    if handler is None:
+    if args.command == "web":
+        return _cmd_web(args)
+
+    if args.command not in PHASES:
         print(
             f"phase '{args.command}' is not implemented yet — "
-            f"implemented phases: {', '.join(sorted(_HANDLERS))}",
+            f"implemented phases: {', '.join(PHASES)}",
             file=sys.stderr,
         )
         return 2
 
     try:
-        result = handler(args)
+        result: dict[str, Any] = run_phase(
+            args.command,
+            args.work_dir,
+            source=getattr(args, "source", None),
+            options=_options_from_args(args),
+        )
     except ClipperProError as exc:
         print(f"error: {exc.detail}", file=sys.stderr)
         return exc.exit_code
