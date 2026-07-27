@@ -37,6 +37,28 @@ DEFAULT_SAMPLES_PER_SEGMENT = 12
 #: its speaker will be located from their other turns anyway.
 _MIN_SEGMENT_SECONDS = 0.5
 
+#: Minimum MAR samples a face-track needs before its variance is trusted. Two
+#: points always describe a straight line, so variance below this is noise.
+_MIN_TRACK_SAMPLES = 3
+
+
+def _face_box(face: object) -> tuple[float, float, float, float] | None:
+    """Normalise one detector result to ``(x, y, w, h)``, or None if unusable.
+
+    ``detect_face_candidates`` yields ``{"box": [x, y, w, h], "score": …}``; a
+    plain 4-sequence is accepted too so a caller can inject a simpler detector.
+    Anything else is not a face this module can measure, which is a "no
+    position" outcome rather than an error — see ``locate_speakers``.
+    """
+    raw = face.get("box") if isinstance(face, dict) else face
+    try:
+        x, y, w, h = (float(value) for value in tuple(raw)[:4])  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    return x, y, w, h
+
 
 def locate_speakers(
     video_path: str,
@@ -53,7 +75,10 @@ def locate_speakers(
     """
     import cv2  # heavy import, deliberately call-scoped
 
-    from clippyme.pipeline.reframe_detect import compute_mouth_aspect_ratio
+    from clippyme.pipeline.reframe_detect import (
+        compute_mouth_aspect_ratio,
+        detect_face_candidates,
+    )
 
     capture = cv2.VideoCapture(video_path)
     if not capture.isOpened():
@@ -70,7 +95,13 @@ def locate_speakers(
             if segment.duration < _MIN_SEGMENT_SECONDS:
                 continue
             best = _best_face_for_segment(
-                capture, cv2, compute_mouth_aspect_ratio, segment, fps, samples_per_segment
+                capture,
+                cv2,
+                compute_mouth_aspect_ratio,
+                detect_face_candidates,
+                segment,
+                fps,
+                samples_per_segment,
             )
             if best is not None:
                 evidence.setdefault(segment.speaker, []).append(best)
@@ -89,11 +120,9 @@ def locate_speakers(
 
 
 def _best_face_for_segment(
-    capture, cv2, mar_fn, segment: SpeakerSegment, fps: float, samples: int
+    capture, cv2, mar_fn, detect_fn, segment: SpeakerSegment, fps: float, samples: int
 ) -> tuple[float, float] | None:
     """Return ``(mar_variance, center_x)`` for the most-moving mouth in a turn."""
-    from clippyme.pipeline.reframe_detect import detect_faces
-
     step = segment.duration / max(1, samples)
     # box-key -> (mar samples, x-centre samples)
     tracks: dict[tuple[int, int], tuple[list[float], list[float]]] = {}
@@ -105,11 +134,14 @@ def _best_face_for_segment(
         if not ok or frame is None:
             continue
         try:
-            faces = detect_faces(frame) or []
+            faces = detect_fn(frame) or []
         except Exception:  # noqa: BLE001, S112 — see module docstring
             continue
-        for box in faces:
-            x, y, w, h = box[:4]
+        for face in faces:
+            box = _face_box(face)
+            if box is None:
+                continue
+            x, y, w, h = box
             try:
                 mar = mar_fn(frame, (x, y, w, h))
             except Exception:  # noqa: BLE001 — detector trouble means "no position"
@@ -125,7 +157,7 @@ def _best_face_for_segment(
 
     best: tuple[float, float] | None = None
     for mars, centers in tracks.values():
-        if len(mars) < 3:
+        if len(mars) < _MIN_TRACK_SAMPLES:
             continue
         mean = sum(mars) / len(mars)
         variance = sum((m - mean) ** 2 for m in mars) / len(mars)

@@ -164,25 +164,45 @@ YouTube (Proxy antwortet mit `403 CONNECT`). Deshalb:
 **Das ist eine Umgebungsgrenze, kein bekannter Fehler** — aber eben auch kein Beweis,
 dass es funktioniert.
 
-### 4.3 `reframe/detect.py` hat überhaupt keinen Test
-Das cv2/MediaPipe-Modul, das erkennt „welches Gesicht ist gerade Sprecher 1",
-ist von **keinem** Test abgedeckt — weder auf dem Host noch in der
-Docker-Integration. Alle Tests laufen über den Rückfallpfad: mittiger 9:16-Ausschnitt.
-Heißt: Die Kamera-**Verfolgung** ist unerprobt; das mittige Zuschneiden funktioniert.
+### 4.3 `reframe/detect.py` — inzwischen getestet, und dabei drei echte Fehler gefunden
+**Erledigt.** Das Modul ist jetzt abgedeckt (`tests/clipperpro/test_reframe_detect.py`,
+29 Host-Tests + `test_reframe_detect_integration.py`, 5 Docker-Tests). Der Test
+hat dabei bewiesen, dass die Sprecher-Verfolgung **gar nicht lief** — drei Fehler,
+die keiner der 810 vorherigen Tests bemerken konnte, weil alle `locate=`
+explizit übergaben und den echten Pfad damit umgingen:
+
+1. `detect.py` importierte `detect_faces` — diese Funktion existiert nicht. Sie
+   heißt `detect_face_candidates`. Jeder Aufruf lief in einen `ImportError`.
+2. `detect_face_candidates` liefert `[{"box": [x,y,w,h], "score": …}]`, der Code
+   zerlegte das Ergebnis aber als 4er-Sequenz (`box[:4]`) → `TypeError` auf einem
+   Dict.
+3. Der `ImportError`-Schutz in `_default_locator` umschloss den **Import** statt
+   den **Aufruf**. Da `detect.py` cv2 erst im Funktionskörper importiert, griff
+   der Schutz nie — statt „mittiger Ausschnitt" stürzte Phase 5 ab.
+
+Alle drei sind behoben und durch Regressionstests abgesichert (jeder Fix wurde
+gegengeprüft: Fehler wieder eingebaut → Test schlägt fehl).
+
+Was weiterhin **nicht** verifiziert ist: die *Qualität* der Verfolgung. Die
+Docker-Tests prüfen den Vertrag (Namen, Datenformat, Seek-Verhalten von echtem
+cv2), nicht ob die Kamera das richtige Gesicht wählt — dafür bräuchte es
+Testmaterial mit echten Gesichtern. Und die Docker-Tests selbst sind in dieser
+Umgebung **nie gelaufen** (kein Docker verfügbar); sie sind geschrieben, aber
+unausgeführt.
 
 ### 4.4 Es existiert noch keine `.env`
 Im Projekt liegt nur `.env.example`. Ohne kopierte und ausgefüllte `.env` kann
 kein echter Lauf starten. (Siehe Schritt 2 unten.)
 
-### 4.5 Der PR ist noch nicht gemerged
-PR #1 ist offen. CI ist komplett grün, Merge-Status ist `clean`. Es fehlt nur die
-Entscheidung/der Klick.
+### 4.5 Der PR ist gemerged
+**Erledigt.** PR #1 wurde am 27.07.2026 nach `main` gemerged (Merge-Commit
+`b222350`). Schritt 1 in Abschnitt 5 ist damit hinfällig.
 
-### 4.6 Kleinigkeit: 8 kosmetische Linter-Hinweise
-`ruff` mit seinem vollen Standard-Regelsatz meldet 8-mal `RUF046`
-(überflüssiges `int()` um ein bereits ganzzahliges `round()`), hauptsächlich in
-`render/hooks_ops.py`. **Der CI-Regelsatz des Projekts ist sauber** — das sind
-Stilhinweise, keine Fehler. Aufräumen ist optional.
+### 4.6 Kleinigkeit: 3 kosmetische Linter-Hinweise
+`ruff` mit seinem vollen Standard-Regelsatz meldet **3-mal** `RUF046`
+(überflüssiges `int()` um ein bereits ganzzahliges `round()`) in `src/clipper_pro`.
+**Der CI-Regelsatz des Projekts ist sauber** — das sind Stilhinweise, keine
+Fehler. Aufräumen ist optional. (Die frühere Angabe „8" war zu hoch.)
 
 ### 4.7 Bewusst nicht gebaut
 - **Veröffentlichen aus dem Beobachter heraus** — absichtlich ausgelassen. Ein
@@ -199,9 +219,17 @@ Stilhinweise, keine Fehler. Aufräumen ist optional.
 
 In dieser Reihenfolge:
 
-### Schritt 1 — PR #1 mergen
-https://github.com/minecrafthenri967-crypto/clippyme/pull/1 → Button
-**„Merge pull request"** → **„Confirm merge"**. CI ist grün, Konflikte gibt es keine.
+### Schritt 1 — ~~PR #1 mergen~~ ✅ erledigt
+PR #1 ist gemerged (siehe 4.5). Weiter mit Schritt 2.
+
+**Zusätzlich empfohlen:** die neuen Docker-Tests einmal wirklich ausführen —
+sie sind geschrieben, aber in der Entwicklungsumgebung nie gelaufen:
+```sh
+docker compose run --rm -u root backend sh -lc \
+  "pip install -q pytest && pytest -m integration -k reframe_detect"
+```
+Das prüft die Sprecher-Verfolgung gegen echtes cv2/MediaPipe — genau die Stelle,
+an der die drei Fehler aus 4.3 saßen.
 
 ### Schritt 2 — `.env` anlegen und Schlüssel eintragen
 ```sh

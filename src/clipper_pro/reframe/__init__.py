@@ -77,9 +77,18 @@ Locator = Callable[[str, list[SpeakerSegment]], dict[int | None, float]]
 
 
 def _default_locator(video_path: str, segments: list[SpeakerSegment]):
-    """Use the cv2/MediaPipe locator, degrading to centred crops without it."""
+    """Use the cv2/MediaPipe locator, degrading to centred crops without it.
+
+    The guard has to wrap the *call*, not the import: ``detect`` imports only
+    ``clipper_pro.types`` at module scope and pulls cv2/MediaPipe in call-scoped,
+    so importing it succeeds on a host that cannot run it. An unresolved position
+    is a documented degradation (``run_reframe`` centres the crop), never a
+    reason to fail phase 5.
+    """
     try:
         from clipper_pro.reframe.detect import locate_speakers
+
+        return locate_speakers(video_path, segments)
     except ImportError:
         print(
             "   ⚠️  cv2/MediaPipe unavailable — every clip gets a centred crop "
@@ -87,7 +96,6 @@ def _default_locator(video_path: str, segments: list[SpeakerSegment]):
             file=sys.stderr,
         )
         return {}
-    return locate_speakers(video_path, segments)
 
 
 def run_reframe(
