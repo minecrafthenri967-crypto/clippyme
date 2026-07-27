@@ -27,6 +27,8 @@ from clipper_pro.config import (
     HOOK_POSITIONS,
     HOOK_STYLES,
     TRANSCRIBERS,
+    WATCH_CATCHUP_MODES,
+    Settings,
 )
 from clipper_pro.config import RANKERS as RANKERS_CHOICES
 from clipper_pro.errors import ClipperProError
@@ -36,6 +38,69 @@ __all__ = ["build_parser", "main"]
 
 #: Phases with a parser but no implementation. Empty — all seven are built.
 _PENDING_PHASES: tuple[str, ...] = ()
+
+
+def _add_render_flags(parser: argparse.ArgumentParser) -> None:
+    """Attach phase 6's look-and-feel flags.
+
+    Shared by ``render`` and ``watch``: an unattended watcher renders the same
+    clips a manual run does, and two copies of these definitions would drift the
+    first time a caption preset was added to one of them.
+    """
+    parser.add_argument(
+        "--crf", type=int, default=None,
+        help="x264 CRF (default 18 — a CapCut-import intermediate, not delivery)",
+    )
+    parser.add_argument(
+        "--captions", action="store_true", default=None,
+        help="burn in word-level karaoke captions (no extra API — uses phase 2's timings)",
+    )
+    parser.add_argument(
+        "--no-captions", dest="captions", action="store_false",
+        help="render without captions even if they are enabled by configuration",
+    )
+    parser.add_argument(
+        "--caption-preset", choices=CAPTION_PRESETS, default=None,
+        help="caption style (default hormozi_bold)",
+    )
+    parser.add_argument(
+        "--caption-words", type=int, default=None,
+        help="words shown at once, 1-12 (default 3)",
+    )
+    parser.add_argument(
+        "--caption-position", choices=CAPTION_POSITIONS, default=None,
+        help="where captions sit in frame (default bottom)",
+    )
+    parser.add_argument(
+        "--hooks", action="store_true", default=None,
+        help=(
+            "burn in the 3-8 word text hook from phase 3, held for the whole "
+            "clip (no extra API — it came with the ranking)"
+        ),
+    )
+    parser.add_argument(
+        "--no-hooks", dest="hooks", action="store_false",
+        help="render without the text hook even if it is enabled by configuration",
+    )
+    parser.add_argument(
+        "--hook-style", choices=HOOK_STYLES, default=None,
+        help="hook border treatment (default boxed_light — dark text on a white slab)",
+    )
+    parser.add_argument(
+        "--hook-position", choices=HOOK_POSITIONS, default=None,
+        help=(
+            "where the hook sits (default upper_third; there is no centre "
+            "option — it would cover the speaker)"
+        ),
+    )
+    parser.add_argument(
+        "--hook-font", default=None,
+        help="font face for the hook (default Montserrat-ExtraBold)",
+    )
+    parser.add_argument(
+        "--hook-font-size", type=int, default=None,
+        help="hook font size against the 1920-tall frame, 20-300 (default 76)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -124,60 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
         "render", help="phase 6: render each clip in a single ffmpeg pass"
     )
     render.add_argument("--work-dir", required=True, help="run workspace directory")
-    render.add_argument(
-        "--crf", type=int, default=None,
-        help="x264 CRF (default 18 — a CapCut-import intermediate, not delivery)",
-    )
-    render.add_argument(
-        "--captions", action="store_true", default=None,
-        help="burn in word-level karaoke captions (no extra API — uses phase 2's timings)",
-    )
-    render.add_argument(
-        "--no-captions", dest="captions", action="store_false",
-        help="render without captions even if they are enabled by configuration",
-    )
-    render.add_argument(
-        "--caption-preset", choices=CAPTION_PRESETS, default=None,
-        help="caption style (default hormozi_bold)",
-    )
-    render.add_argument(
-        "--caption-words", type=int, default=None,
-        help="words shown at once, 1-12 (default 3)",
-    )
-    render.add_argument(
-        "--caption-position", choices=CAPTION_POSITIONS, default=None,
-        help="where captions sit in frame (default bottom)",
-    )
-    render.add_argument(
-        "--hooks", action="store_true", default=None,
-        help=(
-            "burn in the 3-8 word text hook from phase 3, held for the whole "
-            "clip (no extra API — it came with the ranking)"
-        ),
-    )
-    render.add_argument(
-        "--no-hooks", dest="hooks", action="store_false",
-        help="render without the text hook even if it is enabled by configuration",
-    )
-    render.add_argument(
-        "--hook-style", choices=HOOK_STYLES, default=None,
-        help="hook border treatment (default boxed_light — dark text on a white slab)",
-    )
-    render.add_argument(
-        "--hook-position", choices=HOOK_POSITIONS, default=None,
-        help=(
-            "where the hook sits (default upper_third; there is no centre "
-            "option — it would cover the speaker)"
-        ),
-    )
-    render.add_argument(
-        "--hook-font", default=None,
-        help="font face for the hook (default Montserrat-ExtraBold)",
-    )
-    render.add_argument(
-        "--hook-font-size", type=int, default=None,
-        help="hook font size against the 1920-tall frame, 20-300 (default 76)",
-    )
+    _add_render_flags(render)
 
     export = sub.add_parser(
         "export", help="phase 7: write the scored draft report for CapCut import"
@@ -200,6 +212,59 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-browser", action="store_true", help="do not open a browser window"
     )
 
+    watch = sub.add_parser(
+        "watch",
+        help="poll YouTube channels and run the whole pipeline on each new upload",
+    )
+    watch.add_argument(
+        "--channel", action="append", default=None, dest="channels", metavar="CHANNEL",
+        help=(
+            "channel to watch: @handle, channel URL, or UC… id. Repeatable; "
+            "defaults to CLIPPER_PRO_WATCH_CHANNELS"
+        ),
+    )
+    watch.add_argument(
+        "--runs-dir", default=None,
+        help="where each video's workspace is created (default ~/clipper-pro-runs)",
+    )
+    watch.add_argument(
+        "--interval", type=int, default=None,
+        help="seconds between polls (default 900)",
+    )
+    watch.add_argument(
+        "--catchup", choices=WATCH_CATCHUP_MODES, default=None,
+        help=(
+            "what to do with uploads already in the feed the first time a channel "
+            "is seen: live_only adopts them unprocessed (default), backfill "
+            "processes the lot — which bills the API for every one of them"
+        ),
+    )
+    watch.add_argument(
+        "--max-attempts", type=int, default=None,
+        help="how often a failing video is retried before it is left alone (default 3)",
+    )
+    watch.add_argument(
+        "--once", action="store_true",
+        help="poll once and exit instead of looping (for cron, or a smoke test)",
+    )
+    watch.add_argument(
+        "--transcribe-provider", choices=TRANSCRIBERS, default=None,
+        help="phase 2 provider (default deepgram)",
+    )
+    watch.add_argument(
+        "--rank-provider", choices=RANKERS_CHOICES, default=None,
+        help="phase 3 provider (default deepseek)",
+    )
+    watch.add_argument(
+        "--max-clips", type=int, default=None, help="cap on clips per video (default 10)"
+    )
+    watch.add_argument("--cookies", default=None, help="cookies file for the downloader")
+    watch.add_argument(
+        "--centred", action="store_true",
+        help="skip phase 5 speaker tracking and centre every crop (no cv2 needed)",
+    )
+    _add_render_flags(watch)
+
     for name in _PENDING_PHASES:
         sub.add_parser(name, help=f"phase {name} (not implemented yet)")
 
@@ -218,11 +283,16 @@ def _options_from_args(args: argparse.Namespace) -> PhaseOptions:
         overwrite=getattr(args, "overwrite", False),
         # Both transcribe and rank spell their provider flag "--provider"; which
         # one it means is decided by the subcommand, so the same attribute feeds
-        # both fields and the phase reads only its own.
-        transcribe_provider=getattr(args, "provider", None),
+        # both fields and the phase reads only its own. `watch` runs every phase
+        # in one command, so it cannot share a name and spells both out.
+        transcribe_provider=(
+            getattr(args, "transcribe_provider", None) or getattr(args, "provider", None)
+        ),
         require_events=getattr(args, "require_events", False),
         no_transcript_cache=getattr(args, "no_cache", False),
-        rank_provider=getattr(args, "provider", None),
+        rank_provider=(
+            getattr(args, "rank_provider", None) or getattr(args, "provider", None)
+        ),
         max_clips=getattr(args, "max_clips", None),
         instructions=getattr(args, "instructions", None),
         no_rank_cache=getattr(args, "no_cache", False),
@@ -260,11 +330,44 @@ def _cmd_web(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_watch(args: argparse.Namespace) -> int:
+    """Run the channel watcher. Imported lazily so ``--help`` stays cheap."""
+    from clipper_pro.watch import WatchConfig, run_watch
+    from clipper_pro.watch.state_ops import parse_channels
+
+    # Reused rather than re-derived: the default deliberately avoids the working
+    # directory, for the WSL/ffmpeg reason documented in that module.
+    from clipper_pro.web.runs import default_runs_root
+
+    settings = Settings.from_env()
+    channels = args.channels or parse_channels(settings.watch_channels)
+
+    config = WatchConfig(
+        channels=tuple(channels),
+        runs_root=args.runs_dir or default_runs_root(),
+        interval=args.interval or settings.watch_interval,
+        catchup=args.catchup or settings.watch_catchup,
+        max_attempts=args.max_attempts or settings.watch_max_attempts,
+        once=args.once,
+    )
+    summary = run_watch(config, options=_options_from_args(args))
+    json.dump(summary, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.command == "web":
         return _cmd_web(args)
+
+    if args.command == "watch":
+        try:
+            return _cmd_watch(args)
+        except ClipperProError as exc:
+            print(f"error: {exc.detail}", file=sys.stderr)
+            return exc.exit_code
 
     if args.command not in PHASES:
         print(

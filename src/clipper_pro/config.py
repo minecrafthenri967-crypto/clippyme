@@ -48,6 +48,12 @@ CAPTION_POSITIONS = ("bottom", "center", "top")
 HOOK_STYLES = ("boxed_light", "boxed_dark", "outline", "shadow")
 HOOK_POSITIONS = ("top", "upper_third", "lower_third", "bottom")
 
+# What the channel watcher does with the uploads already in a feed the first time
+# it sees a channel. Mirrored from clipper_pro.watch.state_ops for the same
+# reason as the tuples above — and here importing it would also be circular,
+# since the watch package imports the pipeline, which imports this module.
+WATCH_CATCHUP_MODES = ("live_only", "backfill")
+
 _DEFAULT_FFMPEG_TIMEOUT = 1800
 
 
@@ -151,6 +157,15 @@ class Settings:
     # -- phase 7: export ---------------------------------------------------
     export_crf: int = 18
 
+    # -- the channel watcher (not a phase — see clipper_pro.watch) ---------
+    # Comma- or whitespace-separated channels: @handle, channel URL, or UC id.
+    watch_channels: str = ""
+    # A quarter hour is well inside YouTube's feed latency and keeps a day-long
+    # watch to a few hundred requests. The floor stops a typo from hammering it.
+    watch_interval: int = 900
+    watch_catchup: str = "live_only"
+    watch_max_attempts: int = 3
+
     @classmethod
     def from_env(cls) -> Settings:
         """Build settings from ``CLIPPER_PRO_*`` environment variables."""
@@ -240,6 +255,16 @@ class Settings:
             ),
             hook_uppercase=env_flag("CLIPPER_PRO_HOOK_UPPERCASE", False),
             export_crf=env_int("CLIPPER_PRO_EXPORT_CRF", 18, minimum=0, maximum=51),
+            watch_channels=(os.getenv("CLIPPER_PRO_WATCH_CHANNELS") or "").strip(),
+            watch_interval=env_int(
+                "CLIPPER_PRO_WATCH_INTERVAL", 900, minimum=60, maximum=24 * 3600
+            ),
+            watch_catchup=env_choice(
+                "CLIPPER_PRO_WATCH_CATCHUP", "live_only", WATCH_CATCHUP_MODES
+            ),
+            watch_max_attempts=env_int(
+                "CLIPPER_PRO_WATCH_MAX_ATTEMPTS", 3, minimum=1, maximum=10
+            ),
         )
 
     def with_overrides(self, **kwargs: object) -> Settings:

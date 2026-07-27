@@ -17,6 +17,7 @@ __all__ = [
     "MissingBinaryError",
     "ToolFailureError",
     "ValidationError",
+    "WatchError",
 ]
 
 
@@ -65,3 +66,14 @@ class IngestError(ClipperProError):
     """Phase 1 could not obtain usable media (download or extraction failed)."""
 
     exit_code = 5
+
+
+class WatchError(ClipperProError):
+    """The watcher could not reach a channel feed.
+
+    Separate from :class:`ValidationError` because it is assumed transient: the
+    watch loop logs one of these and polls again rather than giving up on the
+    channel, where a validation failure means the configuration itself is wrong.
+    """
+
+    exit_code = 6

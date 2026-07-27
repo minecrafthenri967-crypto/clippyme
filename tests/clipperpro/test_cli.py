@@ -93,6 +93,25 @@ class TestOptionsFromArgs:
         assert self._opts(["reframe", "--work-dir", "/w", "--centred"]).centred is True
         assert self._opts(["render", "--work-dir", "/w", "--crf", "23"]).crf == 23
 
+    def test_watch_names_both_providers_separately(self):
+        # `watch` runs transcribe and rank in one command, so it cannot reuse the
+        # single "--provider" the per-phase subcommands share.
+        opts = self._opts(
+            ["watch", "--channel", "@c", "--transcribe-provider", "elevenlabs",
+             "--rank-provider", "gemini"]
+        )
+        assert opts.transcribe_provider == "elevenlabs"
+        assert opts.rank_provider == "gemini"
+
+    def test_watch_carries_the_render_look(self):
+        opts = self._opts(
+            ["watch", "--channel", "@c", "--hooks", "--hook-style", "outline",
+             "--captions", "--caption-preset", "neon_glow", "--centred"]
+        )
+        assert opts.hooks is True and opts.hook_style == "outline"
+        assert opts.captions is True and opts.caption_preset == "neon_glow"
+        assert opts.centred is True
+
 
 class TestDispatch:
     def test_calls_run_phase_with_the_parsed_arguments(self, monkeypatch, capsys):
@@ -161,3 +180,47 @@ class TestWebCommand:
         assert seen == {
             "host": "127.0.0.1", "port": 9001, "runs_dir": None, "open_browser": False,
         }
+
+
+class TestWatchCommand:
+    def test_builds_the_config_from_flags(self, monkeypatch, tmp_path, capsys):
+        seen = {}
+
+        def fake_run_watch(config, *, options=None, log=None, sleep=None):
+            seen["config"] = config
+            seen["options"] = options
+            return {"cycles": 1}
+
+        from clipper_pro import watch
+        monkeypatch.setattr(watch, "run_watch", fake_run_watch)
+
+        code = cli.main([
+            "watch", "--channel", "@one", "--channel", "@two",
+            "--runs-dir", str(tmp_path), "--interval", "120",
+            "--catchup", "backfill", "--max-attempts", "2", "--once",
+        ])
+        assert code == 0
+        config = seen["config"]
+        assert config.channels == ("@one", "@two")
+        assert config.runs_root == str(tmp_path)
+        assert config.interval == 120 and config.catchup == "backfill"
+        assert config.max_attempts == 2 and config.once is True
+        assert json.loads(capsys.readouterr().out) == {"cycles": 1}
+
+    def test_channels_fall_back_to_the_environment(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("CLIPPER_PRO_WATCH_CHANNELS", "@from-env, @second")
+        seen = {}
+
+        def fake_run_watch(config, **kwargs):
+            seen["channels"] = config.channels
+            return {}
+
+        from clipper_pro import watch
+        monkeypatch.setattr(watch, "run_watch", fake_run_watch)
+        cli.main(["watch", "--runs-dir", str(tmp_path), "--once"])
+        assert seen["channels"] == ("@from-env", "@second")
+
+    def test_no_channels_anywhere_is_a_clean_error(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.delenv("CLIPPER_PRO_WATCH_CHANNELS", raising=False)
+        assert cli.main(["watch", "--runs-dir", str(tmp_path), "--once"]) == 1
+        assert "at least one channel" in capsys.readouterr().err

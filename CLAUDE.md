@@ -106,7 +106,20 @@ thread with stderr tee, one self-contained `web/static/index.html`); it binds
 loopback, rejects cross-origin requests, serves clips by index with a
 realpath containment check, and defaults runs to `~/clipper-pro-runs` — never
 the CWD, since a WSL checkout under `/mnt/c` is where ffmpeg's faststart
-rewrite hits a Windows file lock. Cross-phase
+rewrite hits a Windows file lock. `clipper-pro watch` (`watch/`) is a **driver,
+not a phase**: it polls YouTube uploads feeds (reusing
+`clippyme.integrations.youtube_feed`, so Shorts stay structurally excluded) and
+calls `run_phase` per new upload — one workspace per video, named after the
+video id so a retry resumes. `watch/state_ops.py` is pure/host-tested and owns
+the three money-safety rules: first sight of a channel adopts the ~15 uploads
+already in the feed **without processing them** (`catchup=live_only`, the
+default; `backfill` is the explicit opt-in that bills per video), a failing
+video is retried at most `max_attempts` times and then left alone, and phases
+already recorded in a run's manifest are skipped so a retry after a render
+failure does not re-bill transcription and ranking. State is
+`<runs-dir>/watch-state.json`, written atomically (0o600) after every video;
+a video id from a feed is re-validated before it becomes a directory name. The
+watcher deliberately does **not** publish. Cross-phase
 data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is
 a workspace directory + manifest (`clipper_pro/workspace.py`) — each phase
 records its artifact there, so the next one needs no repeated paths. Same
