@@ -78,6 +78,91 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   excluded).
 - `storage/` — `config_store.py` (persisted config in `data/config.json`).
 
+A second, independent package lives under `src/clipper_pro/` — the AI-Clipper
+Pro pipeline. It is CLI-driven (`clipper-pro` / `python -m clipper_pro`), one
+subcommand per phase, and does **not** import the FastAPI app or the ClippyMe
+job runtime; it reuses `clippyme.pipeline.download` for the URL allow-list and
+will port `cut_ops` / `reframe_*` maths rather than re-deriving them. Phases:
+`ingest` (done — download + mono-16 kHz FLAC extraction), `transcribe` (done —
+provider abstraction over the repo's Deepgram/ElevenLabs backends), `rank`
+(done — 5-axis rubric behind DeepSeek-V3/Gemini providers, SQLite prompt cache,
+reusing `gemini_request.encode_words_toon` and `gemini_parser`'s JSON-repair
+chain), `cut` (done — thin adapter over `cut_ops.snap_clips_to_transcript`; the
+cascade maths is NOT duplicated), `reframe` (done — offline speaker timeline +
+200 ms camera lead + Savitzky-Golay smoothing, all pure/host-tested; only
+`reframe/detect.py` needs cv2/MediaPipe), `render` (done — RDP-simplified
+trajectory as a piecewise-linear `crop=x` expression plus optional burned-in
+karaoke captions and an optional whole-clip text hook, one ffmpeg pass per
+clip),
+`export` (done — scored draft report as JSON + Markdown twins from one assembled
+document). **All seven phases are implemented**; `clipper-pro --help` is the
+current surface. Two front ends drive it and must not
+drift: `clipper_pro/pipeline.py` owns the per-phase orchestration
+(`run_phase(phase, work_dir, source=, options=)` + the workspace loaders), and
+both `cli.py` (argv → `PhaseOptions`) and `web/` (HTTP body → `PhaseOptions`)
+are thin translators over it. `clipper-pro web` serves a localhost-only UI
+(`web/app.py` routes, `web/runs.py` pure run state, `web/worker.py` background
+thread with stderr tee, one self-contained `web/static/index.html`); it binds
+loopback, rejects cross-origin requests, serves clips by index with a
+realpath containment check, and defaults runs to `~/clipper-pro-runs` — never
+the CWD, since a WSL checkout under `/mnt/c` is where ffmpeg's faststart
+rewrite hits a Windows file lock. `clipper-pro watch` (`watch/`) is a **driver,
+not a phase**: it polls YouTube uploads feeds (reusing
+`clippyme.integrations.youtube_feed`, so Shorts stay structurally excluded) and
+calls `run_phase` per new upload — one workspace per video, named after the
+video id so a retry resumes. `watch/state_ops.py` is pure/host-tested and owns
+the three money-safety rules: first sight of a channel adopts the ~15 uploads
+already in the feed **without processing them** (`catchup=live_only`, the
+default; `backfill` is the explicit opt-in that bills per video), a failing
+video is retried at most `max_attempts` times and then left alone, and phases
+already recorded in a run's manifest are skipped so a retry after a render
+failure does not re-bill transcription and ranking. State is
+`<runs-dir>/watch-state.json`, written atomically (0o600) after every video;
+a video id from a feed is re-validated before it becomes a directory name. The
+watcher deliberately does **not** publish. Cross-phase
+data contracts are the dataclasses in `clipper_pro/types.py`; per-run state is
+a workspace directory + manifest (`clipper_pro/workspace.py`) — each phase
+records its artifact there, so the next one needs no repeated paths. Same
+purity rule as the pipeline: `*_ops.py` modules are stdlib-only and host-tested,
+the modules beside them do the I/O. Env knobs are `CLIPPER_PRO_*`, documented in
+`.env.example`. Tests live in `tests/clipperpro/` (spelled without the
+underscore so the test package cannot shadow the real one).
+
+⚠️ Caption timebase: phase 6 seeks with `-ss` AFTER `-i`, and with output
+seeking the filter graph still sees each frame's ORIGINAL timestamp. ASS events
+must therefore be written in **source time**, not clip-relative — a
+clip-relative document makes captions vanish exactly `clip.start` seconds in.
+`render/captions.py` filters the words itself and passes `clip_start=0.0` so the
+generator does not rebase. The `ass=` filter goes LAST in the graph (after
+crop→scale) because the ASS declares PlayRes 1080x1920, the delivery frame.
+Captions reuse `clippyme.domain.subtitles.generate_ass_karaoke` (semantic line
+breaks, six presets) scaled by `DEFAULT_FONT_SCALE` — the presets are sized
+~2% of frame height, short-form captions want ~5%.
+
+⚠️ Text hooks (`render/hooks_ops.py` pure + `render/hooks.py` writer) follow the
+same source-time rule, and three product constraints that are NOT negotiable
+without asking: the single ASS event spans the **whole clip** (ClippyMe's own
+hook overlay stops at 4s; here a looping viewer must still see it), `HOOK_POSITIONS`
+offers **no centre option** (after the 9:16 crop the centre is the speaker's
+face), and the border is a **setting** — `boxed_light`/`boxed_dark` use ASS
+`BorderStyle=3` (the outline colour paints an opaque slab), `outline` a thick
+stroke, `shadow` neither. The hook filter is appended after the caption filter so
+it wins where they overlap, and its text comes from `Candidate.hook_text`, which
+phase 3's ranking call returns alongside the scores — no second API bill.
+
+⚠️ Overlap policy spans two phases: phase 3's dedupe tolerates a modest overlap
+between clips (measured against the shorter one), and phase 4 must NOT veto it —
+each clip renders to its own file, so shared footage is not a rendering problem.
+Phase 4 only warns when snapping *added* overlap (`overlap_growth`), which would
+mean the sentence stage's neighbour clamp failed. An earlier phase-4 hard check
+on any overlap put the two phases in contradiction and aborted valid runs.
+
+⚠️ Phase 2 capability asymmetry: **Deepgram Nova-3 does not tag audio events**
+(laughter/applause) — only ElevenLabs Scribe does. `transcribe/base.py` declares
+this per provider rather than assuming it; `require_events=True` turns a missing
+capability into an error instead of an empty list that reads as "no laughter"
+when it means "nobody listened for any".
+
 Frontend lives entirely in `dashboard/src/redesign/` (`main.jsx` renders
 `RedesignApp`). Shared hooks in `dashboard/src/hooks/` (incl.
 `useManualTrim.js` — the modal's trim state machine), pure logic in
