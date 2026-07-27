@@ -39,6 +39,8 @@ from clipper_pro import __version__
 from clipper_pro.config import (
     CAPTION_POSITIONS,
     CAPTION_PRESETS,
+    HOOK_POSITIONS,
+    HOOK_STYLES,
     RANKERS,
     TRANSCRIBERS,
 )
@@ -68,6 +70,10 @@ class StartRunRequest(BaseModel):
     caption_preset: str | None = None
     caption_words_per_group: int | None = Field(default=None, ge=1, le=12)
     caption_position: str | None = None
+    hooks: bool = False
+    hook_style: str | None = None
+    hook_position: str | None = None
+    hook_font_size: int | None = Field(default=None, ge=20, le=300)
 
     @field_validator("caption_preset")
     @classmethod
@@ -81,6 +87,20 @@ class StartRunRequest(BaseModel):
     def _known_position(cls, value: str | None) -> str | None:
         if value is not None and value not in CAPTION_POSITIONS:
             raise ValueError(f"expected one of {', '.join(CAPTION_POSITIONS)}")
+        return value
+
+    @field_validator("hook_style")
+    @classmethod
+    def _known_hook_style(cls, value: str | None) -> str | None:
+        if value is not None and value not in HOOK_STYLES:
+            raise ValueError(f"expected one of {', '.join(HOOK_STYLES)}")
+        return value
+
+    @field_validator("hook_position")
+    @classmethod
+    def _known_hook_position(cls, value: str | None) -> str | None:
+        if value is not None and value not in HOOK_POSITIONS:
+            raise ValueError(f"expected one of {', '.join(HOOK_POSITIONS)}")
         return value
 
     def to_options(self) -> PhaseOptions:
@@ -97,6 +117,10 @@ class StartRunRequest(BaseModel):
             caption_preset=self.caption_preset,
             caption_words_per_group=self.caption_words_per_group,
             caption_position=self.caption_position,
+            hooks=self.hooks,
+            hook_style=self.hook_style,
+            hook_position=self.hook_position,
+            hook_font_size=self.hook_font_size,
         )
 
 
@@ -158,6 +182,8 @@ def create_app(runs_root: str | None = None) -> FastAPI:
             "rankers": list(RANKERS),
             "caption_presets": list(CAPTION_PRESETS),
             "caption_positions": list(CAPTION_POSITIONS),
+            "hook_styles": list(HOOK_STYLES),
+            "hook_positions": list(HOOK_POSITIONS),
             "busy": registry.active() is not None,
         }
 

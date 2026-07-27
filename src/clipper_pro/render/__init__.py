@@ -50,6 +50,8 @@ from clipper_pro.render.filtergraph_ops import (
     crop_x_expression,
     simplify_trajectory,
 )
+from clipper_pro.render.hooks import write_clip_hook
+from clipper_pro.render.hooks_ops import HookSettings
 from clipper_pro.types import Candidate, SourceMedia, Word
 
 __all__ = [
@@ -57,6 +59,7 @@ __all__ = [
     "DEFAULT_OUTPUT_WIDTH",
     "RENDER_FILENAME",
     "CaptionSettings",
+    "HookSettings",
     "build_ass_filter",
     "build_filtergraph",
     "build_render_command",
@@ -91,6 +94,7 @@ def build_render_command(
     output_width: int = DEFAULT_OUTPUT_WIDTH,
     output_height: int = DEFAULT_OUTPUT_HEIGHT,
     captions_filter: str | None = None,
+    hook_filter: str | None = None,
 ) -> tuple[list[str], int]:
     """Build the single-pass ffmpeg argv; return ``(argv, anchor_count)``.
 
@@ -105,6 +109,7 @@ def build_render_command(
         output_width=output_width,
         output_height=output_height,
         captions_filter=captions_filter,
+        hook_filter=hook_filter,
     )
 
     from clippyme.domain.encode import x264_video_args
@@ -134,12 +139,15 @@ def run_render(
     candidates: list[Candidate] | None = None,
     words: list[Word] | None = None,
     captions: CaptionSettings | None = None,
+    hooks: HookSettings | None = None,
     timeout: int | None = None,
 ) -> list[str]:
     """Render every plan to ``renders/`` and return the output paths.
 
     ``words`` are phase 2's transcript timings; with ``captions`` enabled they
-    are burned in during the same pass, so captions cost no extra encode.
+    are burned in during the same pass, so captions cost no extra encode. The
+    same holds for ``hooks``, whose text comes from the phase-3 candidates that
+    are already being read here for the output filename.
     """
     settings = settings or Settings.from_env()
     if not plans:
@@ -158,8 +166,10 @@ def run_render(
     try:
         for plan in plans:
             title = ""
+            hook_text = ""
             if candidates and plan.clip_index < len(candidates):
                 title = candidates[plan.clip_index].title
+                hook_text = candidates[plan.clip_index].hook_text
             output_path = os.path.join(renders_dir, clip_output_name(plan.clip_index, title))
 
             captions_filter = None
@@ -171,17 +181,33 @@ def run_render(
                 if ass_path:
                     captions_filter = build_ass_filter(ass_path, bundled_fonts_dir())
 
+            hook_filter = None
+            if hooks is not None and hooks.enabled:
+                hook_path = write_clip_hook(
+                    hook_text, work_dir, plan.clip_index,
+                    # Source time — the graph sees original timestamps because
+                    # `-ss` follows `-i`. The event spans the clip end to end,
+                    # so the hook is on screen whenever a looping viewer lands.
+                    start=plan.start, end=plan.end, settings=hooks,
+                    play_res_x=settings.output_width,
+                    play_res_y=settings.output_height,
+                )
+                if hook_path:
+                    hook_filter = build_ass_filter(hook_path, bundled_fonts_dir())
+
             argv, anchors = build_render_command(
                 media.path, plan, output_path,
                 crf=settings.export_crf,
                 output_width=settings.output_width,
                 output_height=settings.output_height,
                 captions_filter=captions_filter,
+                hook_filter=hook_filter,
             )
             print(
                 f"   🎬 clip {plan.clip_index + 1}: {plan.duration:.1f}s, "
                 f"{len(plan.keyframes)} keyframes → {anchors} anchors"
-                f"{', captions' if captions_filter else ''}, one pass",
+                f"{', captions' if captions_filter else ''}"
+                f"{', hook' if hook_filter else ''}, one pass",
                 file=sys.stderr,
             )
             _run_ffmpeg(argv, timeout=timeout or settings.ffmpeg_timeout)
@@ -198,6 +224,7 @@ def run_render(
                 "keyframes": len(plan.keyframes),
                 "anchors": anchors,
                 "captions": bool(captions_filter),
+                "hook": hook_text if hook_filter else "",
                 "bytes": os.path.getsize(output_path),
             })
     finally:

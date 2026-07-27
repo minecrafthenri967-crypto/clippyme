@@ -92,7 +92,8 @@ cascade maths is NOT duplicated), `reframe` (done — offline speaker timeline +
 200 ms camera lead + Savitzky-Golay smoothing, all pure/host-tested; only
 `reframe/detect.py` needs cv2/MediaPipe), `render` (done — RDP-simplified
 trajectory as a piecewise-linear `crop=x` expression plus optional burned-in
-karaoke captions, one ffmpeg pass per clip),
+karaoke captions and an optional whole-clip text hook, one ffmpeg pass per
+clip),
 `export` (done — scored draft report as JSON + Markdown twins from one assembled
 document). **All seven phases are implemented**; `clipper-pro --help` is the
 current surface. Two front ends drive it and must not
@@ -124,6 +125,17 @@ crop→scale) because the ASS declares PlayRes 1080x1920, the delivery frame.
 Captions reuse `clippyme.domain.subtitles.generate_ass_karaoke` (semantic line
 breaks, six presets) scaled by `DEFAULT_FONT_SCALE` — the presets are sized
 ~2% of frame height, short-form captions want ~5%.
+
+⚠️ Text hooks (`render/hooks_ops.py` pure + `render/hooks.py` writer) follow the
+same source-time rule, and three product constraints that are NOT negotiable
+without asking: the single ASS event spans the **whole clip** (ClippyMe's own
+hook overlay stops at 4s; here a looping viewer must still see it), `HOOK_POSITIONS`
+offers **no centre option** (after the 9:16 crop the centre is the speaker's
+face), and the border is a **setting** — `boxed_light`/`boxed_dark` use ASS
+`BorderStyle=3` (the outline colour paints an opaque slab), `outline` a thick
+stroke, `shadow` neither. The hook filter is appended after the caption filter so
+it wins where they overlap, and its text comes from `Candidate.hook_text`, which
+phase 3's ranking call returns alongside the scores — no second API bill.
 
 ⚠️ Overlap policy spans two phases: phase 3's dedupe tolerates a modest overlap
 between clips (measured against the shorter one), and phase 4 must NOT veto it —

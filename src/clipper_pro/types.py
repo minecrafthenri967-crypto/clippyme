@@ -262,12 +262,19 @@ class Candidate:
     Phase 3 emits these with rough transcript-derived edges; phase 4 replaces
     ``start``/``end`` with semantically snapped ones and records the movement in
     ``snapped_from`` so the report can show what the snapping actually did.
+
+    ``hook_text`` is the 3-8 word overlay phase 6 burns in for the clip's whole
+    duration. It rides on the candidate rather than being generated at render
+    time because it comes from the same ranking call that judged the clip — the
+    model that decided *why* this moment works is the one that should say so on
+    screen, and asking again would be a second API bill for one sentence.
     """
 
     start: float
     end: float
     title: str = ""
     reason: str = ""
+    hook_text: str = ""
     scores: RubricScores = field(default_factory=RubricScores)
     snapped_from: tuple[float, float] | None = None
 
@@ -285,6 +292,7 @@ class Candidate:
             "duration": round(self.duration, 3),
             "title": self.title,
             "reason": self.reason,
+            "hook_text": self.hook_text,
             "scores": self.scores.to_dict(),
             "snapped_from": list(self.snapped_from) if self.snapped_from else None,
         }
@@ -297,6 +305,7 @@ class Candidate:
             end=float(data["end"]),
             title=str(data.get("title", "")),
             reason=str(data.get("reason", "")),
+            hook_text=str(data.get("hook_text", "")),
             scores=RubricScores.from_dict(data.get("scores") or {}),
             snapped_from=(float(snapped[0]), float(snapped[1])) if snapped else None,
         )

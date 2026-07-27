@@ -21,7 +21,13 @@ import sys
 from typing import Any
 
 from clipper_pro import __version__
-from clipper_pro.config import CAPTION_POSITIONS, CAPTION_PRESETS, TRANSCRIBERS
+from clipper_pro.config import (
+    CAPTION_POSITIONS,
+    CAPTION_PRESETS,
+    HOOK_POSITIONS,
+    HOOK_STYLES,
+    TRANSCRIBERS,
+)
 from clipper_pro.config import RANKERS as RANKERS_CHOICES
 from clipper_pro.errors import ClipperProError
 from clipper_pro.pipeline import PHASES, PhaseOptions, run_phase
@@ -142,6 +148,36 @@ def build_parser() -> argparse.ArgumentParser:
         "--caption-position", choices=CAPTION_POSITIONS, default=None,
         help="where captions sit in frame (default bottom)",
     )
+    render.add_argument(
+        "--hooks", action="store_true", default=None,
+        help=(
+            "burn in the 3-8 word text hook from phase 3, held for the whole "
+            "clip (no extra API — it came with the ranking)"
+        ),
+    )
+    render.add_argument(
+        "--no-hooks", dest="hooks", action="store_false",
+        help="render without the text hook even if it is enabled by configuration",
+    )
+    render.add_argument(
+        "--hook-style", choices=HOOK_STYLES, default=None,
+        help="hook border treatment (default boxed_light — dark text on a white slab)",
+    )
+    render.add_argument(
+        "--hook-position", choices=HOOK_POSITIONS, default=None,
+        help=(
+            "where the hook sits (default upper_third; there is no centre "
+            "option — it would cover the speaker)"
+        ),
+    )
+    render.add_argument(
+        "--hook-font", default=None,
+        help="font face for the hook (default Montserrat-ExtraBold)",
+    )
+    render.add_argument(
+        "--hook-font-size", type=int, default=None,
+        help="hook font size against the 1920-tall frame, 20-300 (default 76)",
+    )
 
     export = sub.add_parser(
         "export", help="phase 7: write the scored draft report for CapCut import"
@@ -197,6 +233,11 @@ def _options_from_args(args: argparse.Namespace) -> PhaseOptions:
         caption_preset=getattr(args, "caption_preset", None),
         caption_words_per_group=getattr(args, "caption_words", None),
         caption_position=getattr(args, "caption_position", None),
+        hooks=getattr(args, "hooks", None),
+        hook_style=getattr(args, "hook_style", None),
+        hook_position=getattr(args, "hook_position", None),
+        hook_font=getattr(args, "hook_font", None),
+        hook_font_size=getattr(args, "hook_font_size", None),
     )
 
 

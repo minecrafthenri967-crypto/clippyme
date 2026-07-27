@@ -102,6 +102,11 @@ class PhaseOptions:
     caption_preset: str | None = None
     caption_words_per_group: int | None = None
     caption_position: str | None = None
+    hooks: bool | None = None
+    hook_style: str | None = None
+    hook_position: str | None = None
+    hook_font: str | None = None
+    hook_font_size: int | None = None
 
 
 # --- workspace loaders ------------------------------------------------------
@@ -389,6 +394,7 @@ def _reframe(work_dir: str, _source: str | None, opts: PhaseOptions) -> dict[str
 def _render(work_dir: str, _source: str | None, opts: PhaseOptions) -> dict[str, Any]:
     from clipper_pro.render import run_render
     from clipper_pro.render.captions_ops import CaptionSettings
+    from clipper_pro.render.hooks_ops import HookSettings
 
     settings = Settings.from_env().with_overrides(export_crf=opts.crf)
     captions = CaptionSettings(
@@ -397,6 +403,14 @@ def _render(work_dir: str, _source: str | None, opts: PhaseOptions) -> dict[str,
         words_per_group=opts.caption_words_per_group or settings.caption_words_per_group,
         position=opts.caption_position or settings.caption_position,
         uppercase=settings.caption_uppercase,
+    )
+    hooks = HookSettings(
+        enabled=settings.hooks if opts.hooks is None else opts.hooks,
+        style=opts.hook_style or settings.hook_style,
+        position=opts.hook_position or settings.hook_position,
+        font=opts.hook_font or settings.hook_font,
+        font_size=opts.hook_font_size or settings.hook_font_size,
+        uppercase=settings.hook_uppercase,
     )
     # Only read the transcript when captions actually need it — a render can
     # otherwise still run against a workspace whose transcript was pruned.
@@ -410,6 +424,7 @@ def _render(work_dir: str, _source: str | None, opts: PhaseOptions) -> dict[str,
         candidates=snapped_or_ranked(work_dir),
         words=words,
         captions=captions,
+        hooks=hooks,
     )
 
     payload = {
@@ -418,6 +433,7 @@ def _render(work_dir: str, _source: str | None, opts: PhaseOptions) -> dict[str,
         "crf": settings.export_crf,
         "size": f"{settings.output_width}x{settings.output_height}",
         "captions": captions.preset if captions.enabled else None,
+        "hooks": f"{hooks.style}/{hooks.position}" if hooks.enabled else None,
         "outputs": outputs,
         "renders_path": os.path.join(work_dir, "analysis", "renders.json"),
     }

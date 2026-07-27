@@ -80,6 +80,7 @@ def clips_to_candidates(
                 end=end,
                 title=original.title,
                 reason=original.reason,
+                hook_text=original.hook_text,
                 scores=original.scores,
                 snapped_from=(original.start, original.end) if moved else None,
             )

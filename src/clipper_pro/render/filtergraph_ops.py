@@ -157,6 +157,7 @@ def build_filtergraph(
     output_height: int = DEFAULT_OUTPUT_HEIGHT,
     tolerance: float = DEFAULT_TOLERANCE_PX,
     captions_filter: str | None = None,
+    hook_filter: str | None = None,
 ) -> tuple[str, int]:
     """Build the ``crop → scale → setsar [→ ass]`` chain; return ``(graph, anchors)``.
 
@@ -169,6 +170,10 @@ def build_filtergraph(
     document is authored against the delivery resolution. Burning before the
     scale would position the text in the crop's coordinates and then resample
     it, giving captions that are both in the wrong place and soft.
+
+    ``hook_filter`` follows the captions for the same reason, and *after* them
+    so that in the rare frame where the two overlap the hook — the one element
+    that must stay legible for the clip's whole duration — is the one on top.
     """
     if not keyframes:
         raise ValidationError("cannot build a filtergraph without keyframes")
@@ -201,6 +206,7 @@ def build_filtergraph(
         f",scale={output_width}:{output_height}:flags=lanczos"
         f",setsar=1"
     )
-    if captions_filter:
-        graph = f"{graph},{captions_filter}"
+    for overlay in (captions_filter, hook_filter):
+        if overlay:
+            graph = f"{graph},{overlay}"
     return graph, len(anchors)

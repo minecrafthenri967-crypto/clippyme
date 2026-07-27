@@ -290,3 +290,51 @@ class TestSelectTop:
     @pytest.mark.parametrize("limit", [0, -1])
     def test_non_positive_limit_returns_nothing(self, limit):
         assert select_top([Candidate(0, 30)], limit) == []
+
+
+class TestHookText:
+    """Phase 3 supplies the on-screen hook, so phase 6 needs no second API call."""
+
+    def test_the_prompt_asks_for_a_hook(self):
+        prompt = build_rank_prompt([], [], 600.0)
+        assert "hook_text" in prompt
+        assert "3-8 words" in prompt
+        assert "scroll" in prompt.lower()
+
+    def test_the_example_shape_carries_the_field(self):
+        """The model copies the shape, so the field has to appear in it."""
+        prompt = build_rank_prompt([], [], 600.0)
+        example = prompt.split("### JSON ###")[-1]
+        assert '"hook_text"' in example
+
+    def test_a_returned_hook_lands_on_the_candidate(self):
+        candidates, problems = parse_rank_response(
+            {"clips": [{"start": 0, "end": 30, "hook_text": "Nobody warned me"}]},
+            source_duration=600.0,
+        )
+        assert not problems
+        assert candidates[0].hook_text == "Nobody warned me"
+
+    def test_an_overlong_hook_is_capped_at_parse_time(self):
+        """Stored as it will be rendered, so the report cannot lie about it."""
+        candidates, _ = parse_rank_response(
+            {"clips": [{"start": 0, "end": 30,
+                        "hook_text": "one two three four five six seven eight nine ten"}]},
+            source_duration=600.0,
+        )
+        assert candidates[0].hook_text == "one two three four five six seven eight"
+
+    def test_a_missing_hook_is_not_an_error(self):
+        candidates, problems = parse_rank_response(
+            {"clips": [{"start": 0, "end": 30}]}, source_duration=600.0
+        )
+        assert not problems
+        assert candidates[0].hook_text == ""
+
+    def test_ass_directives_in_the_hook_are_stripped(self):
+        candidates, _ = parse_rank_response(
+            {"clips": [{"start": 0, "end": 30, "hook_text": r"see {\pos(9,9)} this"}]},
+            source_duration=600.0,
+        )
+        assert "{" not in candidates[0].hook_text
+        assert "\\" not in candidates[0].hook_text

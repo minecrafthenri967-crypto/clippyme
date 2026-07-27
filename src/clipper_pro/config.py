@@ -41,6 +41,13 @@ CAPTION_PRESETS = (
 )
 CAPTION_POSITIONS = ("bottom", "center", "top")
 
+# Text-hook styles and positions, mirrored from clipper_pro.render.hooks_ops for
+# the same reason as the caption tuples above, and kept in step by a test. Note
+# there is no centre position: an overlay in the middle of a 9:16 frame covers
+# the speaker.
+HOOK_STYLES = ("boxed_light", "boxed_dark", "outline", "shadow")
+HOOK_POSITIONS = ("top", "upper_third", "lower_third", "bottom")
+
 _DEFAULT_FFMPEG_TIMEOUT = 1800
 
 
@@ -131,6 +138,15 @@ class Settings:
     caption_words_per_group: int = 3
     caption_position: str = "bottom"
     caption_uppercase: bool = True
+    # Burned-in text hook: the 3-8 word overlay from phase 3's ranking call.
+    # Off by default so an existing recipe renders unchanged. Held for the whole
+    # clip rather than the first few seconds — see clipper_pro.render.hooks_ops.
+    hooks: bool = False
+    hook_style: str = "boxed_light"
+    hook_position: str = "upper_third"
+    hook_font: str = "Montserrat-ExtraBold"
+    hook_font_size: int = 76
+    hook_uppercase: bool = False
 
     # -- phase 7: export ---------------------------------------------------
     export_crf: int = 18
@@ -206,6 +222,23 @@ class Settings:
                 "CLIPPER_PRO_CAPTION_POSITION", "bottom", CAPTION_POSITIONS
             ),
             caption_uppercase=env_flag("CLIPPER_PRO_CAPTION_UPPERCASE", True),
+            hooks=env_flag("CLIPPER_PRO_HOOKS", False),
+            hook_style=env_choice(
+                "CLIPPER_PRO_HOOK_STYLE", "boxed_light", HOOK_STYLES
+            ),
+            hook_position=env_choice(
+                "CLIPPER_PRO_HOOK_POSITION", "upper_third", HOOK_POSITIONS
+            ),
+            # Not clamped through env_choice: any bundled or user-supplied face
+            # is legitimate here, and the render layer validates the name
+            # against the ASS-safe alphabet before it reaches a style line.
+            hook_font=(
+                os.getenv("CLIPPER_PRO_HOOK_FONT") or ""
+            ).strip() or "Montserrat-ExtraBold",
+            hook_font_size=env_int(
+                "CLIPPER_PRO_HOOK_FONT_SIZE", 76, minimum=20, maximum=300
+            ),
+            hook_uppercase=env_flag("CLIPPER_PRO_HOOK_UPPERCASE", False),
             export_crf=env_int("CLIPPER_PRO_EXPORT_CRF", 18, minimum=0, maximum=51),
         )
 

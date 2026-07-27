@@ -161,6 +161,27 @@
           </div>
         </div>
       </div>
+      <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line)">
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:10px; color:var(--text); cursor:pointer">
+          <input type="checkbox" id="hooks" style="width:auto; margin:0">
+          Burn in the text hook
+          <span style="color:var(--muted); font-weight:400; font-size:12px">— 3-8 words, shown for the whole clip</span>
+        </label>
+        <div class="grid" id="hook-opts" style="opacity:.4; pointer-events:none">
+          <div>
+            <label for="hookStyle">Border</label>
+            <select id="hookStyle"></select>
+          </div>
+          <div>
+            <label for="hookPos">Position</label>
+            <select id="hookPos"></select>
+          </div>
+          <div>
+            <label for="hookSize">Font size</label>
+            <input type="number" id="hookSize" min="20" max="300" placeholder="76">
+          </div>
+        </div>
+      </div>
 
       <div style="margin-top:12px">
         <label for="instructions">What are you looking for? (optional)</label>
@@ -230,6 +251,10 @@ async function loadHealth() {
   fill($("ranker"), h.rankers, h.keys.deepseek ? "deepseek" : "gemini");
   fill($("capPreset"), h.caption_presets || [], "hormozi_bold");
   fill($("capPos"), h.caption_positions || [], "bottom");
+  fill($("hookStyle"), h.hook_styles || [], "boxed_light");
+  // upper_third by default: it clears the speaker's face after the 9:16 crop
+  // and does not collide with captions at the bottom.
+  fill($("hookPos"), h.hook_positions || [], "upper_third");
   return h;
 }
 
@@ -368,6 +393,10 @@ async function start() {
     caption_preset: $("capPreset").value || null,
     caption_position: $("capPos").value || null,
     caption_words_per_group: $("capWords").value ? Number($("capWords").value) : null,
+    hooks: $("hooks").checked,
+    hook_style: $("hookStyle").value || null,
+    hook_position: $("hookPos").value || null,
+    hook_font_size: $("hookSize").value ? Number($("hookSize").value) : null,
   };
 
   $("start").disabled = true;
@@ -398,12 +427,16 @@ async function start() {
   }
 }
 
-// The style controls only mean anything once captions are on.
-$("captions").addEventListener("change", (e) => {
-  const box = $("caption-opts");
-  box.style.opacity = e.target.checked ? "1" : ".4";
-  box.style.pointerEvents = e.target.checked ? "auto" : "none";
-});
+// Style controls only mean anything once their layer is on.
+function bindToggle(checkboxId, boxId) {
+  $(checkboxId).addEventListener("change", (e) => {
+    const box = $(boxId);
+    box.style.opacity = e.target.checked ? "1" : ".4";
+    box.style.pointerEvents = e.target.checked ? "auto" : "none";
+  });
+}
+bindToggle("captions", "caption-opts");
+bindToggle("hooks", "hook-opts");
 
 $("start").addEventListener("click", start);
 $("source").addEventListener("keydown", (e) => { if (e.key === "Enter") start(); });

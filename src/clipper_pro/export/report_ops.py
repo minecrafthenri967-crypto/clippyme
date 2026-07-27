@@ -74,6 +74,7 @@ def build_report(
             "score": candidate.scores.total,
             "axes": {axis: getattr(candidate.scores, axis) for axis in RubricScores.WEIGHTS},
             "reason": candidate.reason,
+            "hook_text": candidate.hook_text,
             "snapped_from": list(candidate.snapped_from) if candidate.snapped_from else None,
             "file": record.get("path"),
             "bytes": record.get("bytes"),
@@ -154,6 +155,11 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"({clip.get('duration', 0):.1f}s, source {clip.get('timecode')})"
         )
         lines.append("")
+        if clip.get("hook_text"):
+            # Quoted so a reader can tell the on-screen copy apart from the
+            # ranker's prose about the moment.
+            lines.append(f"**Hook:** \u201c{clip['hook_text']}\u201d")
+            lines.append("")
         if clip.get("reason"):
             lines.append(clip["reason"])
             lines.append("")
