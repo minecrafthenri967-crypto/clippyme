@@ -20,6 +20,8 @@ import json
 import sys
 from typing import Any
 
+from dotenv import load_dotenv
+
 from clipper_pro import __version__
 from clipper_pro.config import (
     CAPTION_POSITIONS,
@@ -357,6 +359,13 @@ def _cmd_watch(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Mirrors clippyme's own entry points (api/app.py, pipeline/main.py): a
+    # .env in the current directory is picked up before any env var is read,
+    # so a key filled into .env.example's copy works without the caller having
+    # to export real shell/OS environment variables first. Never overrides a
+    # variable already set in the real environment.
+    load_dotenv()
+
     args = build_parser().parse_args(argv)
 
     if args.command == "web":
