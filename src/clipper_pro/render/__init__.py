@@ -37,6 +37,12 @@ from clipper_pro.config import Settings
 from clipper_pro.errors import ToolFailureError
 from clipper_pro.ingest.audio import require_binary
 from clipper_pro.reframe.plan import CameraPlan
+from clipper_pro.render.captions import write_clip_captions
+from clipper_pro.render.captions_ops import (
+    CaptionSettings,
+    build_ass_filter,
+    bundled_fonts_dir,
+)
 from clipper_pro.render.filtergraph_ops import (
     DEFAULT_OUTPUT_HEIGHT,
     DEFAULT_OUTPUT_WIDTH,
@@ -44,12 +50,14 @@ from clipper_pro.render.filtergraph_ops import (
     crop_x_expression,
     simplify_trajectory,
 )
-from clipper_pro.types import Candidate, SourceMedia
+from clipper_pro.types import Candidate, SourceMedia, Word
 
 __all__ = [
     "DEFAULT_OUTPUT_HEIGHT",
     "DEFAULT_OUTPUT_WIDTH",
     "RENDER_FILENAME",
+    "CaptionSettings",
+    "build_ass_filter",
     "build_filtergraph",
     "build_render_command",
     "clip_output_name",
@@ -82,6 +90,7 @@ def build_render_command(
     crf: int = 18,
     output_width: int = DEFAULT_OUTPUT_WIDTH,
     output_height: int = DEFAULT_OUTPUT_HEIGHT,
+    captions_filter: str | None = None,
 ) -> tuple[list[str], int]:
     """Build the single-pass ffmpeg argv; return ``(argv, anchor_count)``.
 
@@ -95,6 +104,7 @@ def build_render_command(
         start=plan.start,
         output_width=output_width,
         output_height=output_height,
+        captions_filter=captions_filter,
     )
 
     from clippyme.domain.encode import x264_video_args
@@ -122,9 +132,15 @@ def run_render(
     *,
     settings: Settings | None = None,
     candidates: list[Candidate] | None = None,
+    words: list[Word] | None = None,
+    captions: CaptionSettings | None = None,
     timeout: int | None = None,
 ) -> list[str]:
-    """Render every plan to ``renders/`` and return the output paths."""
+    """Render every plan to ``renders/`` and return the output paths.
+
+    ``words`` are phase 2's transcript timings; with ``captions`` enabled they
+    are burned in during the same pass, so captions cost no extra encode.
+    """
     settings = settings or Settings.from_env()
     if not plans:
         raise ToolFailureError("phase 6 has no camera plans to render; run phase 5 first")
@@ -146,15 +162,26 @@ def run_render(
                 title = candidates[plan.clip_index].title
             output_path = os.path.join(renders_dir, clip_output_name(plan.clip_index, title))
 
+            captions_filter = None
+            if captions is not None and captions.enabled:
+                ass_path = write_clip_captions(
+                    words or [], work_dir, plan.clip_index,
+                    start=plan.start, end=plan.end, settings=captions,
+                )
+                if ass_path:
+                    captions_filter = build_ass_filter(ass_path, bundled_fonts_dir())
+
             argv, anchors = build_render_command(
                 media.path, plan, output_path,
                 crf=settings.export_crf,
                 output_width=settings.output_width,
                 output_height=settings.output_height,
+                captions_filter=captions_filter,
             )
             print(
                 f"   🎬 clip {plan.clip_index + 1}: {plan.duration:.1f}s, "
-                f"{len(plan.keyframes)} keyframes → {anchors} anchors, one pass",
+                f"{len(plan.keyframes)} keyframes → {anchors} anchors"
+                f"{', captions' if captions_filter else ''}, one pass",
                 file=sys.stderr,
             )
             _run_ffmpeg(argv, timeout=timeout or settings.ffmpeg_timeout)
@@ -170,6 +197,7 @@ def run_render(
                 "duration": round(plan.duration, 3),
                 "keyframes": len(plan.keyframes),
                 "anchors": anchors,
+                "captions": bool(captions_filter),
                 "bytes": os.path.getsize(output_path),
             })
     finally:

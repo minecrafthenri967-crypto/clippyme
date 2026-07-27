@@ -156,13 +156,19 @@ def build_filtergraph(
     output_width: int = DEFAULT_OUTPUT_WIDTH,
     output_height: int = DEFAULT_OUTPUT_HEIGHT,
     tolerance: float = DEFAULT_TOLERANCE_PX,
+    captions_filter: str | None = None,
 ) -> tuple[str, int]:
-    """Build the ``crop → scale → setsar`` chain; return ``(graph, anchor_count)``.
+    """Build the ``crop → scale → setsar [→ ass]`` chain; return ``(graph, anchors)``.
 
     The crop takes the geometry phase 5 chose (constant width/height, moving x);
     scale lifts it to the delivery frame; ``setsar=1`` prevents a non-square
     pixel aspect from surviving into the output, which some players honour and
     others ignore — the difference shows up as a subtly stretched clip.
+
+    ``captions_filter`` is appended **last**, after the scale, because the ASS
+    document is authored against the delivery resolution. Burning before the
+    scale would position the text in the crop's coordinates and then resample
+    it, giving captions that are both in the wrong place and soft.
     """
     if not keyframes:
         raise ValidationError("cannot build a filtergraph without keyframes")
@@ -195,4 +201,6 @@ def build_filtergraph(
         f",scale={output_width}:{output_height}:flags=lanczos"
         f",setsar=1"
     )
+    if captions_filter:
+        graph = f"{graph},{captions_filter}"
     return graph, len(anchors)

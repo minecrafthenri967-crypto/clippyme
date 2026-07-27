@@ -31,6 +31,16 @@ RANKERS = ("deepseek", "gemini")
 # table and why the difference is declared rather than assumed).
 TRANSCRIBERS = ("deepgram", "elevenlabs")
 
+# Caption style presets and positions. Duplicated from
+# clipper_pro.render.captions_ops rather than imported, because config must stay
+# importable without pulling the render stack in; the two are kept in step by a
+# test that compares them.
+CAPTION_PRESETS = (
+    "hormozi_bold", "classic_white", "neon_glow",
+    "mrbeast_box", "minimal_clean", "fire_impact",
+)
+CAPTION_POSITIONS = ("bottom", "center", "top")
+
 _DEFAULT_FFMPEG_TIMEOUT = 1800
 
 
@@ -113,6 +123,14 @@ class Settings:
     # -- phase 6: render ---------------------------------------------------
     output_width: int = 1080
     output_height: int = 1920
+    # Burned-in karaoke captions. Off by default so an existing recipe renders
+    # unchanged; costs no extra API (phase 2's word timings) and no extra
+    # encode (same ffmpeg pass).
+    captions: bool = False
+    caption_preset: str = "hormozi_bold"
+    caption_words_per_group: int = 3
+    caption_position: str = "bottom"
+    caption_uppercase: bool = True
 
     # -- phase 7: export ---------------------------------------------------
     export_crf: int = 18
@@ -177,6 +195,17 @@ class Settings:
             output_height=env_int(
                 "CLIPPER_PRO_OUTPUT_HEIGHT", 1920, minimum=160, maximum=3840
             ),
+            captions=env_flag("CLIPPER_PRO_CAPTIONS", False),
+            caption_preset=env_choice(
+                "CLIPPER_PRO_CAPTION_PRESET", "hormozi_bold", CAPTION_PRESETS
+            ),
+            caption_words_per_group=env_int(
+                "CLIPPER_PRO_CAPTION_WORDS", 3, minimum=1, maximum=12
+            ),
+            caption_position=env_choice(
+                "CLIPPER_PRO_CAPTION_POSITION", "bottom", CAPTION_POSITIONS
+            ),
+            caption_uppercase=env_flag("CLIPPER_PRO_CAPTION_UPPERCASE", True),
             export_crf=env_int("CLIPPER_PRO_EXPORT_CRF", 18, minimum=0, maximum=51),
         )
 

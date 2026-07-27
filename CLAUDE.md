@@ -91,7 +91,8 @@ chain), `cut` (done — thin adapter over `cut_ops.snap_clips_to_transcript`; th
 cascade maths is NOT duplicated), `reframe` (done — offline speaker timeline +
 200 ms camera lead + Savitzky-Golay smoothing, all pure/host-tested; only
 `reframe/detect.py` needs cv2/MediaPipe), `render` (done — RDP-simplified
-trajectory as a piecewise-linear `crop=x` expression, one ffmpeg pass per clip),
+trajectory as a piecewise-linear `crop=x` expression plus optional burned-in
+karaoke captions, one ffmpeg pass per clip),
 `export` (done — scored draft report as JSON + Markdown twins from one assembled
 document). **All seven phases are implemented**; `clipper-pro --help` is the
 current surface. Two front ends drive it and must not
@@ -112,6 +113,17 @@ purity rule as the pipeline: `*_ops.py` modules are stdlib-only and host-tested,
 the modules beside them do the I/O. Env knobs are `CLIPPER_PRO_*`, documented in
 `.env.example`. Tests live in `tests/clipperpro/` (spelled without the
 underscore so the test package cannot shadow the real one).
+
+⚠️ Caption timebase: phase 6 seeks with `-ss` AFTER `-i`, and with output
+seeking the filter graph still sees each frame's ORIGINAL timestamp. ASS events
+must therefore be written in **source time**, not clip-relative — a
+clip-relative document makes captions vanish exactly `clip.start` seconds in.
+`render/captions.py` filters the words itself and passes `clip_start=0.0` so the
+generator does not rebase. The `ass=` filter goes LAST in the graph (after
+crop→scale) because the ASS declares PlayRes 1080x1920, the delivery frame.
+Captions reuse `clippyme.domain.subtitles.generate_ass_karaoke` (semantic line
+breaks, six presets) scaled by `DEFAULT_FONT_SCALE` — the presets are sized
+~2% of frame height, short-form captions want ~5%.
 
 ⚠️ Overlap policy spans two phases: phase 3's dedupe tolerates a modest overlap
 between clips (measured against the shorter one), and phase 4 must NOT veto it —

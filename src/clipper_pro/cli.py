@@ -21,8 +21,8 @@ import sys
 from typing import Any
 
 from clipper_pro import __version__
+from clipper_pro.config import CAPTION_POSITIONS, CAPTION_PRESETS, TRANSCRIBERS
 from clipper_pro.config import RANKERS as RANKERS_CHOICES
-from clipper_pro.config import TRANSCRIBERS
 from clipper_pro.errors import ClipperProError
 from clipper_pro.pipeline import PHASES, PhaseOptions, run_phase
 
@@ -122,6 +122,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--crf", type=int, default=None,
         help="x264 CRF (default 18 — a CapCut-import intermediate, not delivery)",
     )
+    render.add_argument(
+        "--captions", action="store_true", default=None,
+        help="burn in word-level karaoke captions (no extra API — uses phase 2's timings)",
+    )
+    render.add_argument(
+        "--no-captions", dest="captions", action="store_false",
+        help="render without captions even if they are enabled by configuration",
+    )
+    render.add_argument(
+        "--caption-preset", choices=CAPTION_PRESETS, default=None,
+        help="caption style (default hormozi_bold)",
+    )
+    render.add_argument(
+        "--caption-words", type=int, default=None,
+        help="words shown at once, 1-12 (default 3)",
+    )
+    render.add_argument(
+        "--caption-position", choices=CAPTION_POSITIONS, default=None,
+        help="where captions sit in frame (default bottom)",
+    )
 
     export = sub.add_parser(
         "export", help="phase 7: write the scored draft report for CapCut import"
@@ -173,6 +193,10 @@ def _options_from_args(args: argparse.Namespace) -> PhaseOptions:
         no_silence=getattr(args, "no_silence", False),
         centred=getattr(args, "centred", False),
         crf=getattr(args, "crf", None),
+        captions=getattr(args, "captions", None),
+        caption_preset=getattr(args, "caption_preset", None),
+        caption_words_per_group=getattr(args, "caption_words", None),
+        caption_position=getattr(args, "caption_position", None),
     )
 
 

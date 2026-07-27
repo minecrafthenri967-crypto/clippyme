@@ -140,6 +140,28 @@
           <input type="number" id="maxclips" min="1" max="50" placeholder="10">
         </div>
       </div>
+      <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line)">
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:10px; color:var(--text); cursor:pointer">
+          <input type="checkbox" id="captions" style="width:auto; margin:0">
+          Burn in karaoke captions
+          <span style="color:var(--muted); font-weight:400; font-size:12px">— no extra cost</span>
+        </label>
+        <div class="grid" id="caption-opts" style="opacity:.4; pointer-events:none">
+          <div>
+            <label for="capPreset">Style</label>
+            <select id="capPreset"></select>
+          </div>
+          <div>
+            <label for="capPos">Position</label>
+            <select id="capPos"></select>
+          </div>
+          <div>
+            <label for="capWords">Words at once</label>
+            <input type="number" id="capWords" min="1" max="12" placeholder="3">
+          </div>
+        </div>
+      </div>
+
       <div style="margin-top:12px">
         <label for="instructions">What are you looking for? (optional)</label>
         <textarea id="instructions" rows="2" placeholder="e.g. prefer the funny reactions over the explanations"></textarea>
@@ -206,6 +228,8 @@ async function loadHealth() {
 
   fill($("transcriber"), h.transcribers, h.keys.elevenlabs ? null : "deepgram");
   fill($("ranker"), h.rankers, h.keys.deepseek ? "deepseek" : "gemini");
+  fill($("capPreset"), h.caption_presets || [], "hormozi_bold");
+  fill($("capPos"), h.caption_positions || [], "bottom");
   return h;
 }
 
@@ -340,6 +364,10 @@ async function start() {
     max_clips: $("maxclips").value ? Number($("maxclips").value) : null,
     instructions: $("instructions").value.trim() || null,
     centred: true,
+    captions: $("captions").checked,
+    caption_preset: $("capPreset").value || null,
+    caption_position: $("capPos").value || null,
+    caption_words_per_group: $("capWords").value ? Number($("capWords").value) : null,
   };
 
   $("start").disabled = true;
@@ -369,6 +397,13 @@ async function start() {
     $("progress").classList.remove("hidden");
   }
 }
+
+// The style controls only mean anything once captions are on.
+$("captions").addEventListener("change", (e) => {
+  const box = $("caption-opts");
+  box.style.opacity = e.target.checked ? "1" : ".4";
+  box.style.pointerEvents = e.target.checked ? "auto" : "none";
+});
 
 $("start").addEventListener("click", start);
 $("source").addEventListener("keydown", (e) => { if (e.key === "Enter") start(); });

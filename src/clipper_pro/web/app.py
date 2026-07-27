@@ -33,10 +33,15 @@ from fastapi.responses import (
     JSONResponse,
     PlainTextResponse,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from clipper_pro import __version__
-from clipper_pro.config import RANKERS, TRANSCRIBERS
+from clipper_pro.config import (
+    CAPTION_POSITIONS,
+    CAPTION_PRESETS,
+    RANKERS,
+    TRANSCRIBERS,
+)
 from clipper_pro.errors import ClipperProError
 from clipper_pro.pipeline import PhaseOptions
 from clipper_pro.web.runs import RunRegistry, clip_path, load_report
@@ -59,6 +64,24 @@ class StartRunRequest(BaseModel):
     require_events: bool = False
     no_silence: bool = False
     crf: int | None = Field(default=None, ge=0, le=51)
+    captions: bool = False
+    caption_preset: str | None = None
+    caption_words_per_group: int | None = Field(default=None, ge=1, le=12)
+    caption_position: str | None = None
+
+    @field_validator("caption_preset")
+    @classmethod
+    def _known_preset(cls, value: str | None) -> str | None:
+        if value is not None and value not in CAPTION_PRESETS:
+            raise ValueError(f"expected one of {', '.join(CAPTION_PRESETS)}")
+        return value
+
+    @field_validator("caption_position")
+    @classmethod
+    def _known_position(cls, value: str | None) -> str | None:
+        if value is not None and value not in CAPTION_POSITIONS:
+            raise ValueError(f"expected one of {', '.join(CAPTION_POSITIONS)}")
+        return value
 
     def to_options(self) -> PhaseOptions:
         return PhaseOptions(
@@ -70,6 +93,10 @@ class StartRunRequest(BaseModel):
             no_silence=self.no_silence,
             centred=self.centred,
             crf=self.crf,
+            captions=self.captions,
+            caption_preset=self.caption_preset,
+            caption_words_per_group=self.caption_words_per_group,
+            caption_position=self.caption_position,
         )
 
 
@@ -129,6 +156,8 @@ def create_app(runs_root: str | None = None) -> FastAPI:
             },
             "transcribers": list(TRANSCRIBERS),
             "rankers": list(RANKERS),
+            "caption_presets": list(CAPTION_PRESETS),
+            "caption_positions": list(CAPTION_POSITIONS),
             "busy": registry.active() is not None,
         }
 

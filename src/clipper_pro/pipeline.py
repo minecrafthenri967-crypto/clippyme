@@ -98,6 +98,10 @@ class PhaseOptions:
     centred: bool = False
     # phase 6
     crf: int | None = None
+    captions: bool | None = None
+    caption_preset: str | None = None
+    caption_words_per_group: int | None = None
+    caption_position: str | None = None
 
 
 # --- workspace loaders ------------------------------------------------------
@@ -384,14 +388,28 @@ def _reframe(work_dir: str, _source: str | None, opts: PhaseOptions) -> dict[str
 
 def _render(work_dir: str, _source: str | None, opts: PhaseOptions) -> dict[str, Any]:
     from clipper_pro.render import run_render
+    from clipper_pro.render.captions_ops import CaptionSettings
 
     settings = Settings.from_env().with_overrides(export_crf=opts.crf)
+    captions = CaptionSettings(
+        enabled=settings.captions if opts.captions is None else opts.captions,
+        preset=opts.caption_preset or settings.caption_preset,
+        words_per_group=opts.caption_words_per_group or settings.caption_words_per_group,
+        position=opts.caption_position or settings.caption_position,
+        uppercase=settings.caption_uppercase,
+    )
+    # Only read the transcript when captions actually need it — a render can
+    # otherwise still run against a workspace whose transcript was pruned.
+    words = transcript_from_workspace(work_dir).words if captions.enabled else []
+
     outputs = run_render(
         plans_from_workspace(work_dir),
         media_from_workspace(work_dir),
         work_dir,
         settings=settings,
         candidates=snapped_or_ranked(work_dir),
+        words=words,
+        captions=captions,
     )
 
     payload = {
@@ -399,6 +417,7 @@ def _render(work_dir: str, _source: str | None, opts: PhaseOptions) -> dict[str,
         "clips": len(outputs),
         "crf": settings.export_crf,
         "size": f"{settings.output_width}x{settings.output_height}",
+        "captions": captions.preset if captions.enabled else None,
         "outputs": outputs,
         "renders_path": os.path.join(work_dir, "analysis", "renders.json"),
     }
