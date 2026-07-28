@@ -59,6 +59,7 @@ from clippyme.api.schemas import (
 from clippyme.api.security import (
     ALLOWED_ORIGINS,
     enforce_api_token,
+    enforce_publish_gate,
     enforce_rate_limit,
     require_trusted_config_request,
 )
@@ -822,6 +823,9 @@ async def publish_clip_endpoint(job_id: str, clip_index: int, req: PublishReques
     on disk and fall back to the base clip.
     """
     require_trusted_config_request(request)
+    # Opt-in: refuses this call unless PUBLISH_GATE_TOKEN is presented, so an
+    # install can route every publish through an external approval bot.
+    enforce_publish_gate(request)
     # Throttle uploads so a runaway "publish all" can't exhaust Zernio quota.
     enforce_rate_limit(request, "publish", capacity=30, refill_per_sec=30 / 60)
     if not is_valid_job_id(job_id):

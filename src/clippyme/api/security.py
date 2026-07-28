@@ -171,6 +171,35 @@ def enforce_api_token(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Valid API token required.")
 
 
+# --- optional publish gate (route publishing through an approval bot) ------
+# CLIPPYME_API_TOKEN above (when set) already gates every /api request alike.
+# This one is narrower: /api/publish specifically, so an install can leave the
+# rest of the API reachable from its dashboard/LAN while requiring publishing
+# itself to come from one trusted caller — e.g. a Discord bot that only calls
+# this after a human reacts with an approval emoji.
+
+
+def enforce_publish_gate(request: Request) -> None:
+    """Raise HTTP 403 unless the request carries the configured publish-gate token.
+
+    Accepts ``X-Publish-Gate-Token: <token>``, compared constant-time like
+    ``enforce_api_token`` above. No-op when ``PUBLISH_GATE_TOKEN`` is unset —
+    the default, unchanged from before this gate existed. Live Monitor's own
+    auto-publish loop is not an HTTP caller and can't present this header at
+    all; it checks ``publish_service.publish_gate_active()`` directly and
+    refuses to auto-publish outright rather than being denied here.
+    """
+    from clippyme.domain.publish_service import configured_publish_gate_token
+
+    expected = configured_publish_gate_token()
+    if expected is None:
+        return
+
+    supplied = request.headers.get("x-publish-gate-token", "").strip()
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=403, detail="Publishing requires Discord approval.")
+
+
 # --- in-process rate limiting ----------------------------------------------
 # Dependency-free per-client token bucket. Protects the compute-heavy endpoints
 # (process/batch/publish) from a flood that would exhaust the job queue or

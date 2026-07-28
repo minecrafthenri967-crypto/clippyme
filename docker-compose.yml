@@ -127,6 +127,11 @@ services:
       # for a deliberate LAN deployment: every API request must then carry
       # X-API-Token (the dashboard has a Settings field for it).
       - CLIPPYME_API_TOKEN=${CLIPPYME_API_TOKEN:-}
+      # Optional: route publishing through an external approval workflow (see
+      # .env.example). Unset (default) = publishing is open to any caller, as
+      # before this gate existed. Must match PUBLISH_GATE_TOKEN in whatever
+      # calls /api/publish (e.g. discordbot's .env.discord).
+      - PUBLISH_GATE_TOKEN=${PUBLISH_GATE_TOKEN:-}
     volumes:
       - .:/app
       - /app/__pycache__

@@ -1314,6 +1314,7 @@ class LiveMonitor:
         """Publish one consolidated entry ``{"job_id", "clip", "composed_path"}``
         — uploads the composed file directly (no re-compose), dedupes on the RAW
         clip path, and queues when paused."""
+        from clippyme.domain.publish_service import publish_gate_active
         from clippyme.integrations.social_publisher import ZernioError, publish_clip
 
         job_id = entry["job_id"]
@@ -1322,6 +1323,17 @@ class LiveMonitor:
         clip_path = os.path.join(self._output_dir, job_id, os.path.basename(video_url))
         # Dedupe on the BASE clip path (stable across compose/consolidate).
         if clip_path in self._published:
+            return
+        # PUBLISH_GATE_TOKEN routes publishing through an external approval
+        # caller (e.g. a Discord bot) that presents the token over HTTP. This
+        # loop has no HTTP request to attach a header to, so it can never
+        # satisfy the gate — refuse outright rather than queue forever. The
+        # clip's files are left on disk (finished, unpublished), which is
+        # exactly the state the external approval workflow looks for.
+        if publish_gate_active():
+            logger.info(
+                "LiveMonitor %s: publish gate active — leaving %s finished but "
+                "unpublished for external approval", self.id, clip_path)
             return
         # Paused: queue the entry (public metadata + composed path only) and
         # drain it on resume.

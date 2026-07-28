@@ -153,6 +153,7 @@ Runtime env overrides (rarely needed):
 |---|---|---|
 | `CLIPPYME_BIND` | `127.0.0.1` | Host interface both published ports (8000/5175) bind to. `0.0.0.0` exposes the app to the LAN — deliberate choice only. |
 | `CLIPPYME_API_TOKEN` | _(unset)_ | Optional shared-secret auth: when set, every `/api` request must carry it (`X-API-Token` or `Authorization: Bearer`). The dashboard stores it in Settings → API token. Unset = no-op. |
+| `PUBLISH_GATE_TOKEN` | _(unset)_ | Optional publish-only gate: when set, `POST /api/publish/{job}/{clip}` refuses every request without a matching `X-Publish-Gate-Token` header — the dashboard's Publish button included — and Live Monitor's auto-publish loop refuses outright. Routes all publishing through one external approval caller (e.g. a Discord bot). Unset = publishing stays open to any caller. |
 | `TRANSCRIPTION_PROVIDER` | `deepgram` | Or `elevenlabs` (Scribe), or `whisper` to force local. |
 | `ELEVENLABS_AUDIO_ISOLATION` | `false` | Run the ElevenLabs Voice Isolator before ASR to strip background noise/music on noisy sources. |
 | `CLIPPYME_TRANSCRIBE_AUDIO_ONLY` | `true` | Strip to audio-only FLAC before transcription; `false` sends the full video. |

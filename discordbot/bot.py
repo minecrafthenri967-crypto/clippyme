@@ -69,6 +69,12 @@ CLIPPYME_API = os.getenv("CLIPPYME_API_URL", "http://localhost:8000")
 CLIPPYME_PUBLIC_URL = (os.getenv("CLIPPYME_PUBLIC_URL", "") or "").rstrip("/")
 # Where finished clips live (ClippyMe's output/). Enables direct upload.
 CLIPPYME_OUTPUT_DIR = os.getenv("CLIPPYME_OUTPUT_DIR", "output")
+# Must match the backend's PUBLISH_GATE_TOKEN when that's set. That gate
+# refuses every /api/publish call without this header — including the
+# dashboard's own Publish button and Live Monitor auto-publish — so this bot
+# becomes the only path that can actually publish a clip. Leave both unset to
+# keep publishing open to any caller, as before this gate existed.
+PUBLISH_GATE_TOKEN = (os.getenv("PUBLISH_GATE_TOKEN", "") or "").strip()
 # Discord's per-server upload limit: 10 MB unboosted, 50 at level 2, 100 at 3.
 MAX_UPLOAD_MB = _int("MAX_UPLOAD_MB", 10)
 
@@ -432,8 +438,11 @@ async def handle_approval(message, user, job_id, clip_index):
     await message.reply(f"⏳ Publishing clip {clip_index} (job {job_id}) to {names}…")
 
     url = f"{CLIPPYME_API}/api/publish/{job_id}/{clip_index}"
+    headers = {"X-Publish-Gate-Token": PUBLISH_GATE_TOKEN} if PUBLISH_GATE_TOKEN else {}
     try:
-        async with aiohttp.ClientSession() as session, session.post(url, json=body) as resp:
+        async with aiohttp.ClientSession() as session, session.post(
+            url, json=body, headers=headers
+        ) as resp:
             text = await resp.text()
             status = resp.status
     except Exception as exc:

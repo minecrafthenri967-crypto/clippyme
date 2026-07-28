@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Optional
 
 from clippyme.domain.clip_resolve import ResolvedClip
 from clippyme.domain.compose import compose_layers
@@ -18,6 +19,36 @@ from clippyme.domain.errors import ClippyMeError, NotFoundError, ValidationError
 from clippyme.domain.job_artifacts import record_clip_publish
 
 logger = logging.getLogger("clippyme")
+
+
+# --- optional publish gate (external approval workflows, e.g. Discord) -----
+# Every publish path in this codebase funnels through
+# ``social_publisher.publish_clip``: this HTTP flow and Live Monitor's
+# ``_publish_one`` are the only two callers. Gating it here — one place —
+# covers both without the two call sites having to agree on anything beyond
+# reading the same env var.
+
+
+def configured_publish_gate_token() -> Optional[str]:
+    """Shared secret from ``PUBLISH_GATE_TOKEN``, or ``None`` when the gate is off.
+
+    Opt-in and unset by default, so an ungated install behaves exactly as
+    before this existed. Once set, ``api.security.enforce_publish_gate``
+    requires every ``/api/publish`` request to present it (e.g. an approval
+    bot that only calls publish after a human reacts), and
+    ``live_monitor.publish_gate_active`` refuses Live Monitor's own
+    auto-publish outright — it has no HTTP caller to attach a header to, so
+    "gate on" means its clips finish but stay unpublished for whatever
+    external workflow holds the token to pick up instead.
+    """
+    token = os.environ.get("PUBLISH_GATE_TOKEN", "").strip()
+    return token or None
+
+
+def publish_gate_active() -> bool:
+    """True when ``PUBLISH_GATE_TOKEN`` is set and direct/automatic publish
+    paths (Live Monitor auto-publish) must refuse to run."""
+    return configured_publish_gate_token() is not None
 
 
 async def publish_clip_flow(*, job_id: str, clip_index: int,
