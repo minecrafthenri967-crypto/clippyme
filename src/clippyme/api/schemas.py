@@ -381,6 +381,11 @@ class LiveMonitorStartRequest(BaseModel):
     catchup: str = Field("backfill", pattern=r"^(backfill|live_only)$")
     delete_after_publish: bool = True
     max_clips: int = Field(5, ge=1, le=50)
+    # Start with auto-publishing already paused, so an external approval step
+    # (e.g. a Discord gatekeeper calling /api/publish) decides what goes live.
+    # Omitted → keep whatever the restored snapshot had, which is how a restart
+    # of a deliberately paused monitor stays paused.
+    publishing_enabled: Optional[bool] = None
 
     @field_validator("timezone")
     @classmethod

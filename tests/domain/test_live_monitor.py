@@ -1283,6 +1283,98 @@ def test_registry_set_publishing_unknown_id_raises_not_found(tmp_path):
         reg.set_publishing("kick:nope", False)
 
 
+# --- start-time publishing_enabled ------------------------------------------
+#
+# The gatekeeper workflow (an external approver calling /api/publish decides
+# what goes live) needs a monitor that is paused from its very first clip —
+# pausing after start leaks whatever was published in between.
+
+
+def _publishing_registry(tmp_path, monkeypatch):
+    from clippyme.domain import live_monitor as lm
+    from clippyme.storage import config_store
+
+    monkeypatch.setattr(config_store, "load_persistent_config",
+                        lambda: {"GEMINI_API_KEY": "g"})
+    monkeypatch.setattr(config_store, "load_zernio_config",
+                        lambda: {"timezone": "UTC", "api_key": "z"})
+    monkeypatch.setattr(lm.LiveMonitor, "_make_strategy", lambda self, cfg, pc: object())
+    return LiveMonitorRegistry(
+        jobs={}, job_queue=None, output_dir=str(tmp_path),
+        state_path=str(tmp_path / "state.json"))
+
+
+def test_start_can_begin_paused(tmp_path, monkeypatch):
+    reg = _publishing_registry(tmp_path, monkeypatch)
+    reg.start(_base_cfg(slug="foo", publishing_enabled=False))
+    assert reg._monitors["kick:foo"].publishing_enabled is False
+
+
+def test_start_defaults_to_publishing_enabled(tmp_path, monkeypatch):
+    reg = _publishing_registry(tmp_path, monkeypatch)
+    reg.start(_base_cfg(slug="foo"))
+    assert reg._monitors["kick:foo"].publishing_enabled is True
+
+
+def test_start_without_the_field_keeps_a_restored_pause(tmp_path, monkeypatch):
+    """Restarting a deliberately paused monitor must not silently resume it."""
+    reg = _publishing_registry(tmp_path, monkeypatch)
+    reg._snapshots["kick:foo"] = {"publishing_enabled": False}
+    reg.start(_base_cfg(slug="foo"))
+    assert reg._monitors["kick:foo"].publishing_enabled is False
+
+
+def test_start_can_explicitly_resume_a_restored_pause(tmp_path, monkeypatch):
+    reg = _publishing_registry(tmp_path, monkeypatch)
+    reg._snapshots["kick:foo"] = {"publishing_enabled": False}
+    reg.start(_base_cfg(slug="foo", publishing_enabled=True))
+    assert reg._monitors["kick:foo"].publishing_enabled is True
+
+
+def test_publishing_enabled_never_enters_persisted_config(tmp_path, monkeypatch):
+    """auto_resume() replays cfg verbatim. If publishing_enabled lived there, a
+    process restart would re-enable publishing on a monitor the user paused."""
+    reg = _publishing_registry(tmp_path, monkeypatch)
+    reg.start(_base_cfg(slug="foo", publishing_enabled=False))
+    assert "publishing_enabled" not in reg._monitors["kick:foo"].cfg
+
+
+def test_auto_resume_preserves_paused_state(tmp_path, monkeypatch):
+    """End-to-end of the rule above: a paused monitor stays paused across a
+    full process restart."""
+    import asyncio
+    import json
+
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({
+        "monitors": {
+            "kick:foo": {
+                "platform": "kick", "mode": "live", "channel": "foo",
+                "config": {
+                    "platform": "kick", "mode": "live", "channel": "foo", "slug": "foo",
+                    "platforms": [{"platform": "tiktok", "accountId": "a1"}],
+                    "loop": True, "timezone": "UTC",
+                },
+                "resume_on_start": True,
+                "publishing_enabled": False,
+            }
+        }
+    }), encoding="utf-8")
+
+    # Patches the credential/strategy lookups; the registry it returns is
+    # discarded because this test needs one bound to the state file above.
+    _publishing_registry(tmp_path, monkeypatch)
+    reg = LiveMonitorRegistry(
+        jobs={}, job_queue=None, output_dir=str(tmp_path), state_path=str(state))
+
+    async def _scenario():
+        await reg.auto_resume()
+        assert reg._monitors["kick:foo"].publishing_enabled is False
+        await reg.shutdown()
+
+    asyncio.run(_scenario())
+
+
 def test_restored_monitor_with_pending_and_enabled_drains_on_start(tmp_path, monkeypatch):
     """Regression for I2: a snapshot taken mid-drain (publishing_enabled=True,
     non-empty pending) must not sit stuck after restart until someone toggles

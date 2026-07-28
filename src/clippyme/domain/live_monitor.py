@@ -641,13 +641,21 @@ class LiveMonitor:
             snap.get("backfill_baseline_ready", False))
         self.resume_on_start = bool(snap.get("resume_on_start", False))
 
-    def start(self, cfg: dict) -> dict:
+    def start(self, cfg: dict, *, publishing_enabled: bool | None = None) -> dict:
         """Resolve secrets, build the platform strategy, and launch the task.
 
         ``cfg`` is already validated by :func:`validate_monitor_config`.
+
+        ``publishing_enabled`` is deliberately NOT part of ``cfg``: cfg is
+        persisted and replayed by ``registry.auto_resume()``, so a value stored
+        there would silently re-enable publishing on every process restart of a
+        monitor the user had paused. Passing it separately keeps the restored
+        runtime state authoritative unless a caller explicitly overrides it.
         """
         if self.is_running():
             raise ConflictError(f"monitor already running: {self.id}")
+        if publishing_enabled is not None:
+            self.publishing_enabled = bool(publishing_enabled)
 
         from clippyme.storage.config_store import load_persistent_config, load_zernio_config
         pc = load_persistent_config() or {}
@@ -1495,8 +1503,17 @@ class LiveMonitorRegistry:
             publish_lock=self._publish_lock, on_state_change=self.persist)
         mon.restore(self._snapshots.get(mid) or {})
         self._monitors[mid] = mon
+        # Read off the RAW payload, not cfg: validate_monitor_config does not
+        # carry it, precisely so auto_resume can never replay it (see
+        # LiveMonitor.start). None = "leave the restored value alone".
+        want_publishing = config.get("publishing_enabled")
         try:
-            status = mon.start(cfg)
+            status = mon.start(
+                cfg,
+                publishing_enabled=(
+                    None if want_publishing is None else bool(want_publishing)
+                ),
+            )
         except Exception:
             self._monitors.pop(mid, None)
             raise
