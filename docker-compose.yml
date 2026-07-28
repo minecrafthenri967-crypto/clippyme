@@ -154,3 +154,37 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+
+  # Discord approval gatekeeper. Opt-in via a profile so `docker compose up`
+  # stays exactly as it was for anyone not using it:
+  #   docker compose --profile discord up --build
+  # It needs .env.discord to exist; without the profile flag compose never
+  # looks at this service, so a missing file is not an error for other users.
+  discordbot:
+    build: ./discordbot
+    container_name: clippyme-discordbot
+    image: clippyme-discordbot
+    profiles: ["discord"]
+    env_file:
+      - .env.discord
+    environment:
+      # Reach the backend over the compose network by service name. This
+      # overrides whatever .env.discord says, because a localhost value copied
+      # from a standalone setup would resolve to the BOT's own container here
+      # and silently fail every API call.
+      - CLIPPYME_API_URL=http://backend:8000
+      # Matches the read-only mount below, so clips upload straight to Discord
+      # without the backend needing to be publicly reachable.
+      - CLIPPYME_OUTPUT_DIR=/app/output
+      # On the mounted volume, so a container restart does not re-post every
+      # clip that was already sent for approval.
+      - DISCORD_STATE_FILE=/app/state/discord_posted.json
+    volumes:
+      # Read-only: the bot only ever uploads clips, never writes to output/.
+      - ./output:/app/output:ro
+      - ./data/discordbot:/app/state
+    networks:
+      - clippyme-net
+    restart: unless-stopped
+    depends_on:
+      - backend

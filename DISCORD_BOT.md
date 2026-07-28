@@ -1,297 +1,196 @@
-# Discord Bot — Clip-Genehmigungssystem
+# Discord Bot — Clip-Freigabe vor der Veröffentlichung
 
-Automatisiertes Gatekeeper-System: neue Clips landen im Discord-Channel, du genehmigst sie mit ✅/❌ Reaktionen, genehmigte Clips gehen automatisch zu TikTok/Instagram/YouTube.
-
-## Übersicht
+Neue Clips landen als Video in einem Discord-Channel. Du reagierst mit ✅ oder ❌
+— genehmigte Clips gehen automatisch zu TikTok/Instagram/YouTube.
 
 ```
-ClippyMe (YouTube Upload)
+Video verarbeitet (Create-Tab oder Live Monitor)
     ↓
-Live Monitor erkennt neues Video
+Bot postet den Clip in Discord (Video direkt im Chat)
     ↓
-Alle 7 Phasen laufen ab (transcribe, rank, cut, reframe, render, export)
-    ↓
-Bot postet Clip im Discord mit Vorschau
-    ↓
-Du reagierst: ✅ (genehmigt) oder ❌ (abgelehnt)
-    ↓
-✅ → Auto-Publish zu TikTok/Instagram/YouTube
-❌ → In Archiv verschieben, nicht veröffentlichen
+✅ → wird veröffentlicht (mit Untertiteln + Hook eingebrannt)
+❌ → passiert nichts, Clip bleibt liegen
 ```
 
-## Setup
+---
 
-### 1. Discord Developer Portal
+## Einrichtung auf dem Server (netcup)
 
-1. Gehe zu https://discord.com/developers/applications
-2. Klicke **"New Application"**
-3. Name: `ClippyMe Bot` (oder was dir gefällt)
-4. Gehe zu **Bot** (linkes Menü)
-5. Klicke **"Add Bot"**
-6. Unter **TOKEN**, klicke **Copy** → in `.env.discord` als `DISCORD_BOT_TOKEN=` einfügen
-7. Aktiviere diese **Privileged Gateway Intents**:
-   - ✅ Message Content Intent (um Nachrichteninhalte zu lesen)
-   - ✅ Server Members Intent (um Nutzer zu identifizieren)
-8. Gehe zu **General Information**
-9. Kopiere **Application ID** → in `.env.discord` als `DISCORD_APP_ID=` einfügen
+### 1. Discord-Bot anlegen (einmalig)
 
-### 2. Bot zum Server einladen
+1. https://discord.com/developers/applications → **New Application**
+2. Links **Bot** → **Add Bot** → **Reset Token** → Token kopieren
+3. Bei **Privileged Gateway Intents** einschalten:
+   - ✅ **Message Content Intent**
+   - ✅ **Server Members Intent**
+4. Falls **"Requires OAuth2 Code Grant"** an ist: **ausschalten**
+   (sonst kommt beim Einladen „integration requires code grant")
+5. Links **General Information** → **Application ID** kopieren
 
-Verwende diese URL (ersetze `DEINE_APP_ID`):
+### 2. Bot auf deinen Server einladen
+
+Diese URL öffnen, `DEINE_APP_ID` ersetzen:
 
 ```
 https://discord.com/oauth2/authorize?client_id=DEINE_APP_ID&permissions=274877959168&scope=bot
 ```
 
-Permissions (automatisch aktiviert):
-- Send Messages
-- Read Message History
-- Add Reactions
-- Manage Messages
-
 ### 3. Channel vorbereiten
 
-1. Erstelle einen neuen Channel in Discord: `#clip-approvals`
-2. Rechtsklick auf Channel → **Copy Channel ID** → in `.env.discord` als `DISCORD_CHANNEL_ID=` einfügen
-3. Developer Mode aktivieren:
-   - User Settings → **Advanced** → **Developer Mode** → **ON**
+1. In Discord: **User Settings → Advanced → Developer Mode → ON**
+2. Channel anlegen, z.B. `#clip-freigabe`
+3. Rechtsklick auf den Channel → **ID kopieren**
 
-### 4. .env.discord konfigurieren
+### 4. Konfiguration anlegen
+
+Auf dem Server, im ClippyMe-Ordner:
 
 ```bash
-# Kopiere .env.discord.example zu .env.discord
 cp .env.discord.example .env.discord
-
-# Öffne und fülle aus:
-DISCORD_BOT_TOKEN=dein_token
-DISCORD_APP_ID=deine_app_id
-DISCORD_CHANNEL_ID=dein_channel_id
-DISCORD_USER_ID=deine_user_id
-DISCORD_GUILD_ID=dein_server_id
-CLIPPYME_API_URL=http://localhost:8000
+nano .env.discord
 ```
 
-## Bot-Code
+Nur diese zwei Felder sind zwingend:
 
-Speichere als `discord_bot.py` im Hauptverzeichnis:
-
-```python
-import os
-import json
-import discord
-from discord.ext import commands
-import aiohttp
-from dotenv import load_dotenv
-
-# .env.discord laden
-load_dotenv(".env.discord")
-
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
-USER_ID = int(os.getenv("DISCORD_USER_ID"))
-CLIPPYME_API = os.getenv("CLIPPYME_API_URL", "http://localhost:8000")
-
-APPROVE_EMOJI = os.getenv("APPROVE_EMOJI", "✅")
-REJECT_EMOJI = os.getenv("REJECT_EMOJI", "❌")
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.reactions = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-@bot.event
-async def on_ready():
-    print(f"✅ Bot angemeldet als {bot.user}")
-    channel = bot.get_channel(CHANNEL_ID)
-    if channel:
-        print(f"📢 Überwache Channel: #{channel.name}")
-    else:
-        print(f"⚠️ Channel {CHANNEL_ID} nicht gefunden!")
-
-@bot.event
-async def on_reaction_add(reaction, user):
-    """Reagiere auf ✅/❌ Reaktionen"""
-    if user.bot:
-        return
-    
-    # Nur der konfigurierte Channel
-    if reaction.message.channel.id != CHANNEL_ID:
-        return
-    
-    # Nur unsere Reaktionen
-    if reaction.emoji not in (APPROVE_EMOJI, REJECT_EMOJI):
-        return
-    
-    message = reaction.message
-    
-    # Extrahiere job_id und clip_index aus Nachrichteninhalt
-    # Format: "Job: {job_id} | Clip {clip_index}"
-    try:
-        content = message.content or ""
-        if "Job:" not in content or "Clip" not in content:
-            await message.reply("❌ Format falsch — erwartete: 'Job: {id} | Clip {n}'")
-            return
-        
-        job_id = content.split("Job: ")[1].split(" |")[0].strip()
-        clip_index = int(content.split("Clip ")[1].split()[0].strip())
-        
-        if reaction.emoji == APPROVE_EMOJI:
-            await handle_approval(message, user, job_id, clip_index)
-        elif reaction.emoji == REJECT_EMOJI:
-            await handle_rejection(message, user, job_id, clip_index)
-    
-    except (IndexError, ValueError) as e:
-        await message.reply(f"❌ Fehler beim Parsen: {e}")
-
-async def handle_approval(message, user, job_id, clip_index):
-    """Genehmigt Clip und veröffentlicht zu Plattformen"""
-    try:
-        platforms = os.getenv("PUBLISH_PLATFORMS", "tiktok,instagram,youtube").split(",")
-        platforms = [p.strip() for p in platforms]
-        
-        await message.reply(f"⏳ Veröffentliche Clip {clip_index} von Job {job_id} zu {', '.join(platforms)}...")
-        
-        async with aiohttp.ClientSession() as session:
-            for platform in platforms:
-                try:
-                    url = f"{CLIPPYME_API}/api/publish/{job_id}/{clip_index}"
-                    async with session.post(url, json={"platform": platform}) as resp:
-                        if resp.status == 200:
-                            print(f"✅ {platform.upper()}: Clip {clip_index} veröffentlicht")
-                        else:
-                            print(f"⚠️ {platform.upper()}: Status {resp.status}")
-                except Exception as e:
-                    print(f"❌ {platform.upper()}: Fehler {e}")
-        
-        await message.reply(f"✅ Clip genehmigt und veröffentlicht! (von {user.mention})")
-        
-    except Exception as e:
-        await message.reply(f"❌ Fehler beim Veröffentlichen: {e}")
-        print(f"Error: {e}")
-
-async def handle_rejection(message, user, job_id, clip_index):
-    """Lehnt Clip ab"""
-    try:
-        await message.reply(f"❌ Clip {clip_index} abgelehnt (von {user.mention})")
-        # Optional: zu Archiv-Channel verschieben oder markieren
-        print(f"Clip {clip_index} von Job {job_id} wurde abgelehnt")
-    except Exception as e:
-        await message.reply(f"❌ Fehler: {e}")
-
-@bot.command()
-async def ping(ctx):
-    """Bot-Status"""
-    await ctx.send(f"🏓 Pong! Bot läuft. (Channel: {CHANNEL_ID})")
-
-@bot.command()
-async def status(ctx):
-    """Zeige aktuelle Bot-Status"""
-    status_msg = f"""
-📊 **Bot Status**
-• **Name:** {bot.user}
-• **Channel:** <#{CHANNEL_ID}>
-• **API:** {CLIPPYME_API}
-• **Approve:** {APPROVE_EMOJI}
-• **Reject:** {REJECT_EMOJI}
-"""
-    await ctx.send(status_msg)
-
-if __name__ == "__main__":
-    bot.run(TOKEN)
+```
+DISCORD_BOT_TOKEN=dein_token_aus_schritt_1
+DISCORD_CHANNEL_ID=deine_channel_id_aus_schritt_3
 ```
 
-## Installation & Start
+Alles andere hat sinnvolle Standardwerte. `CLIPPYME_API_URL` und
+`CLIPPYME_OUTPUT_DIR` musst du **nicht** anfassen — die setzt Docker selbst.
+
+### 5. Starten
 
 ```bash
-# Dependencies installieren
-pip install discord.py aiohttp python-dotenv
-
-# Bot starten
-python discord_bot.py
+docker compose --profile discord up --build -d
 ```
 
-Du solltest sehen:
-```
-✅ Bot angemeldet als ClippyMe Bot
-📢 Überwache Channel: #clip-approvals
-```
+Der Bot läuft ab jetzt dauerhaft mit und startet nach einem Server-Neustart
+automatisch wieder (`restart: unless-stopped`).
 
-## Workflow
-
-### 1. Clip wird gepostet
-Live Monitor erkennt neue YouTube-Upload → Bot postet in #clip-approvals:
-```
-**Neuer Clip: "Viral Moment"**
-Job: abc123xyz | Clip 1
-Länge: 15 Sekunden
-[Vorschau-Link]
+**Logs anschauen:**
+```bash
+docker compose logs -f discordbot
 ```
 
-### 2. Du genehmigst
-Reagiere mit ✅ → Bot veröffentlicht automatisch zu:
-- TikTok
-- Instagram
-- YouTube Shorts
-
-Reagiere mit ❌ → Clip wird archiviert, nicht veröffentlicht
-
-### 3. Status in Discord
-Bot antwortet mit Status:
+Erwartete Ausgabe:
 ```
-✅ Clip genehmigt und veröffentlicht!
+Logged in as ClippyMe Gatekeeper#2642
+Watching channel: #clip-freigabe
+Clip uploads from: /app/output (up to 10 MB)
+Zernio accounts: instagram, tiktok, youtube
+Burned in at publish: subtitles, hook
 ```
 
-## Umgebungsvariablen (Referenz)
+**Testen:** Tippe `!ping` im Channel — der Bot antwortet mit „Pong".
+Mit `!status` zeigt er seine komplette Konfiguration.
 
-| Variable | Beispiel | Beschreibung |
-|----------|----------|-------------|
-| `DISCORD_BOT_TOKEN` | `MTk4Ni...` | Bot-Authentifizierung |
-| `DISCORD_APP_ID` | `1234567890` | OAuth2 Invite-Link |
-| `DISCORD_CHANNEL_ID` | `9876543210` | #clip-approvals Channel |
-| `DISCORD_USER_ID` | `1111111111` | Deine Discord User ID |
-| `DISCORD_GUILD_ID` | `2222222222` | Dein Discord Server |
-| `APPROVE_EMOJI` | `✅` | Emoji für Genehmigung |
-| `REJECT_EMOJI` | `❌` | Emoji für Ablehnung |
-| `PUBLISH_PLATFORMS` | `tiktok,instagram` | Plattformen für Auto-Publish |
-| `CLIPPYME_API_URL` | `http://localhost:8000` | ClippyMe Backend |
+---
 
-## Fehlerbehebung
+## Wichtig: Live Monitor
 
-### Bot antwortet nicht auf Reaktionen
-- [ ] Developer Mode in Discord aktiviert?
-- [ ] Channel ID korrekt in `.env.discord`?
-- [ ] Bot hat "Add Reactions" Berechtigung?
-- [ ] Bot läuft? (`python discord_bot.py`)
+Wenn ein Live Monitor läuft, muss dessen **eigenes Publishing pausiert bleiben**
+— sonst veröffentlicht ClippyMe selbst, bevor du in Discord reagieren konntest.
 
-### "Token invalid"
-- [ ] Token aus Developer Portal kopiert (nicht Application ID)?
-- [ ] Token korrekt in `.env.discord` ohne Leerzeichen/Anführungszeichen?
+Beim Starten des Monitors mitgeben:
+```json
+{ "publishing_enabled": false }
+```
 
-### Bot sieht keine Nachrichten
-- [ ] Message Content Intent aktiviert in Developer Portal?
-- [ ] Privileged Gateway Intents angeschaltet?
+Oder nachträglich:
+```bash
+curl -X POST http://localhost:8000/api/live-monitor/DEINE_MONITOR_ID/publishing \
+  -H "Content-Type: application/json" -d '{"enabled": false}'
+```
 
-### ClippyMe API nicht erreichbar
-- [ ] Backend läuft? (`docker compose up --build`)
-- [ ] `CLIPPYME_API_URL` stimmt mit tatsächlicher URL überein?
+⚠️ **Diese Pause nicht wieder aufheben.** Die pausierten Clips sammeln sich in
+einer Warteschlange, die beim Fortsetzen alles nachträglich veröffentlicht —
+auch Clips, die du hier schon live gestellt hast (Doppel-Posts).
 
-## Nächste Schritte
+---
 
-1. **Erweiterte Genehmigung:**
-   - Bestimmte Nutzer als "Approver" definieren
-   - Thread pro Clip für Diskussionen
-   - Auto-Reply mit Publishing-Status
+## Einstellungen
 
-2. **Statistiken:**
-   - Täglich im Discord: "X Clips genehmigt, Y veröffentlicht"
-   - Fehler-Tracking
-   - Performance-Metriken
+Alle in `.env.discord`, danach `docker compose --profile discord up -d --build`.
 
-3. **Whop Integration:**
-   - Whop-Upload-Link im Discord posten
-   - Benutzer laden manuell hoch statt Auto-Publish
+| Variable | Standard | Bedeutung |
+|----------|----------|-----------|
+| `DISCORD_BOT_TOKEN` | — | **Pflicht.** Bot-Token aus dem Developer Portal |
+| `DISCORD_CHANNEL_ID` | — | **Pflicht.** Channel für die Freigaben |
+| `PUBLISH_PLATFORMS` | `tiktok,instagram,youtube` | Wohin genehmigte Clips gehen. Plattformen ohne verbundenes Zernio-Konto werden übersprungen |
+| `BURN_SUBTITLES` | `true` | Untertitel beim Veröffentlichen einbrennen |
+| `BURN_HOOK` | `true` | Text-Hook einbrennen |
+| `BURN_SMARTCUT` | `false` | Stille/Füllwörter entfernen |
+| `SUBTITLE_PRESET` | `hormozi_bold` | Untertitel-Stil |
+| `MAX_UPLOAD_MB` | `10` | Discord-Limit deines Servers (ohne Boost 10, Stufe 2 = 50, Stufe 3 = 100) |
+| `CLIPPYME_PUBLIC_URL` | _(leer)_ | Öffentliche Adresse für zu große Clips, z.B. `https://clips.deinedomain.de` |
+| `POLL_SECONDS` | `60` | Wie oft nach neuen Clips geschaut wird |
+| `STATS_CHANNEL_ID` | _(leer)_ | Optionaler Channel für „X genehmigt, Y abgelehnt" |
 
-4. **Smart Scheduling:**
-   - Clips nicht sofort, sondern zu optimalen Zeiten veröffentlichen
-   - Zernio SmartScheduler Integration
+---
+
+## Wie das Video in Discord landet
+
+Drei Stufen, in dieser Reihenfolge:
+
+1. **Direkter Upload** aus `output/` — funktioniert auch, wenn das Backend nur
+   auf localhost lauscht. Das Video ist direkt im Chat abspielbar.
+2. **Öffentlicher Link** über `CLIPPYME_PUBLIC_URL` — falls der Clip größer ist
+   als Discords Limit.
+3. **Kein Video**, dafür ein Hinweis, was zu konfigurieren ist.
+
+Ein `localhost`-Link wird nie gepostet: der würde auf den Rechner des
+*Betrachters* zeigen, nicht auf den Server, und wäre damit immer tot.
+
+---
+
+## Untertitel & Hooks
+
+ClippyMe rendert Clips zunächst **roh** — Untertitel und Hook werden erst beim
+Veröffentlichen eingebrannt. Der Bot schickt deshalb `compose_first` mit.
+
+Das heißt: **die Vorschau in Discord ist der rohe Clip**, der veröffentlichte
+hat Untertitel und Hook. Über `BURN_SUBTITLES` / `BURN_HOOK` steuerbar.
+
+---
+
+## Fehlersuche
+
+**Bot startet nicht:**
+```bash
+docker compose logs discordbot
+```
+- `DISCORD_BOT_TOKEN is not set` → `.env.discord` fehlt oder ist leer
+- `LoginFailure` → Token falsch, im Developer Portal neu generieren
+
+**Bot läuft, aber postet nichts:**
+- `WARNING: channel ... not found` → Bot ist nicht auf dem Server (Schritt 2)
+- Keine fertigen Clips vorhanden? Prüfe den Verlauf im Dashboard
+- Clips schon veröffentlicht? Die werden übersprungen
+
+**„No connected Zernio account":**
+- In ClippyMe → Einstellungen → Zernio ein Konto verbinden
+- Dann `!zernio` im Channel tippen (lädt neu, ohne Neustart)
+
+**Bot reagiert nicht auf ✅:**
+- Message Content Intent im Developer Portal aktiviert?
+- Reagierst du im richtigen Channel (`DISCORD_CHANNEL_ID`)?
+
+---
+
+## Ohne Docker starten (Alternative)
+
+```bash
+pip install -r discordbot/requirements.txt
+python discordbot/bot.py
+```
+
+Dann in `.env.discord` zusätzlich setzen:
+```
+CLIPPYME_API_URL=http://localhost:8000
+CLIPPYME_OUTPUT_DIR=output
+```
+
+⚠️ Auf einem Server stirbt der Prozess, sobald du die SSH-Verbindung schließt.
+Der Docker-Weg oben ist deshalb die bessere Wahl.
