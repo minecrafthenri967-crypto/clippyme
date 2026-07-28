@@ -47,6 +47,7 @@ from clippyme.api.schemas import (
     BatchRequest,
     ComposeRequest,
     EditAIRequest,
+    LiveMonitorProbeRequest,
     LiveMonitorPublishingRequest,
     LiveMonitorStartRequest,
     LiveMonitorStopRequest,
@@ -907,6 +908,20 @@ async def live_monitor_status(request: Request, monitor_id: Optional[str] = None
     """One monitor's status (``?monitor_id=``) or ``{"monitors": [...]}`` for all."""
     require_trusted_config_request(request)
     return live_monitor.status(monitor_id)
+
+
+@app.post("/api/live-monitor/probe")
+async def live_monitor_probe(req: LiveMonitorProbeRequest, request: Request):
+    """Connectivity + detection check for a channel — no monitor started, no
+    transcription/ranking budget spent. Answers "would a monitor see this
+    channel's content" before committing to a real run."""
+    require_trusted_config_request(request)
+    enforce_rate_limit(request, "livemonitor", capacity=10, refill_per_sec=10 / 60)
+    from clippyme.domain.live_monitor import probe_channel
+    from clippyme.storage.config_store import load_persistent_config
+
+    pc = load_persistent_config() or {}
+    return await probe_channel(req.platform, req.channel, req.mode, pc)
 
 
 @app.post("/api/history/{job_id}/restore")

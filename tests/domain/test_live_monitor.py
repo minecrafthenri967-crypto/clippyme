@@ -465,6 +465,105 @@ def test_two_monitors_share_one_picked_slots_store():
     assert len(shared) == 2
 
 
+# --- probe_channel (connectivity/detection check, no monitor started) ------
+
+
+class _FakeStrategy:
+    """Stands in for Kick/Twitch/Youtube strategy objects — probe_channel only
+    ever calls these three methods, dispatched through build_strategy."""
+
+    def __init__(self, live=False, url=None, started_at=None, vods=None, fail=None):
+        self._live = live
+        self._url = url
+        self._started_at = started_at
+        self._vods = vods if vods is not None else []
+        self._fail = fail
+        self.resolved = False
+
+    def get_live_state(self):
+        if self._fail:
+            raise self._fail
+        return self._live, self._url, self._started_at
+
+    def fetch_vods(self):
+        if self._fail:
+            raise self._fail
+        return self._vods
+
+    def resolve(self):
+        self.resolved = True
+
+
+def _patched_probe(monkeypatch, strategy):
+    from clippyme.domain import live_monitor as lm
+    monkeypatch.setattr(lm, "build_strategy", lambda platform, channel, pc: strategy)
+    return lm.probe_channel
+
+
+def test_probe_live_mode_reports_live_state(monkeypatch):
+    import asyncio
+    started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    probe_channel = _patched_probe(monkeypatch, _FakeStrategy(live=True, started_at=started))
+    result = asyncio.run(probe_channel("kick", "foo", "live", {}))
+    assert result == {
+        "ok": True, "mode": "live", "platform": "kick", "channel": "foo",
+        "live": True, "started_at": started.isoformat(),
+    }
+
+
+def test_probe_vod_mode_reports_count_and_sample(monkeypatch):
+    import asyncio
+    vods = [{"id": str(i), "url": f"u{i}", "created_at": ""} for i in range(7)]
+    probe_channel = _patched_probe(monkeypatch, _FakeStrategy(vods=vods))
+    result = asyncio.run(probe_channel("kick", "foo", "vod", {}))
+    assert result["ok"] is True
+    assert result["count"] == 7
+    assert len(result["sample"]) == 5  # a preview, not the whole feed
+    assert result["sample"] == vods[:5]
+
+
+def test_probe_vod_mode_resolves_youtube_channel_first(monkeypatch):
+    import asyncio
+    strategy = _FakeStrategy(vods=[])
+    probe_channel = _patched_probe(monkeypatch, strategy)
+    asyncio.run(probe_channel("youtube", "@someone", "vod", {}))
+    assert strategy.resolved is True
+
+
+def test_probe_rejects_youtube_live_mode(monkeypatch):
+    import asyncio
+    probe_channel = _patched_probe(monkeypatch, _FakeStrategy())
+    with pytest.raises(ValidationError):
+        asyncio.run(probe_channel("youtube", "@someone", "live", {}))
+
+
+def test_probe_rejects_invalid_channel(monkeypatch):
+    import asyncio
+    probe_channel = _patched_probe(monkeypatch, _FakeStrategy())
+    with pytest.raises(ValidationError):
+        asyncio.run(probe_channel("kick", "not a valid slug!", "live", {}))
+
+
+def test_probe_missing_twitch_credentials_raises(monkeypatch):
+    """build_strategy itself gates on credentials — a probe must see the same
+    failure a real monitor start would, not report a false "reachable"."""
+    import asyncio
+    from clippyme.domain.live_monitor import probe_channel
+    with pytest.raises(ValidationError, match="TWITCH_CLIENT"):
+        asyncio.run(probe_channel("twitch", "foo", "live", {}))
+
+
+def test_probe_network_failure_is_reported_not_raised(monkeypatch):
+    """A transient network/API failure is actionable information for the
+    caller to display, not a 500 — the endpoint stays a safe thing to click."""
+    import asyncio
+    probe_channel = _patched_probe(
+        monkeypatch, _FakeStrategy(fail=ConnectionError("dns lookup failed")))
+    result = asyncio.run(probe_channel("kick", "foo", "live", {}))
+    assert result["ok"] is False
+    assert "dns lookup failed" in result["error"]
+
+
 # --- registry --------------------------------------------------------------
 
 def test_registry_rejects_duplicate(tmp_path):

@@ -477,6 +477,82 @@ class YoutubeStrategy:
         return parse_feed(fetch_feed(feed_url(pid)))
 
 
+def build_strategy(platform: str, channel: str, pc: dict):
+    """Construct the per-platform strategy object.
+
+    Shared by ``LiveMonitor._make_strategy`` and :func:`probe_channel` so
+    credential lookup/validation (Twitch needs an app token) lives in exactly
+    one place — a probe that skipped this check could report "reachable" on a
+    channel a real monitor would then fail to start on.
+    """
+    if platform == "kick":
+        return KickStrategy(channel)
+    if platform == "twitch":
+        cid = pc.get("TWITCH_CLIENT_ID") or os.environ.get("TWITCH_CLIENT_ID")
+        secret = pc.get("TWITCH_CLIENT_SECRET") or os.environ.get("TWITCH_CLIENT_SECRET")
+        if not cid or not secret:
+            raise ValidationError(
+                "Twitch monitoring requires TWITCH_CLIENT_ID and "
+                "TWITCH_CLIENT_SECRET (set them in Settings or the environment)")
+        from clippyme.integrations.twitch_client import TwitchClient
+        return TwitchStrategy(channel, TwitchClient(cid, secret))
+    if platform == "youtube":
+        return YoutubeStrategy(channel)
+    raise ValidationError(f"unsupported platform: {platform}")
+
+
+async def probe_channel(platform: str, channel: str, mode: str, pc: dict) -> dict:
+    """Detection check: can the channel be reached, and what does it currently
+    hold — WITHOUT starting a monitor or spending any transcription/ranking
+    budget. Runs the exact strategy code a real monitor uses for detection, so
+    a positive result means the real monitor would see the same thing.
+
+    ``live`` mode answers "is it live right now" (kick/twitch only — youtube
+    has no live mode). ``vod`` mode answers "what would catchup=backfill find"
+    by fetching the real feed/VOD list, unfiltered by any seen-ids baseline.
+
+    Raises ``ValidationError`` for a bad platform/channel/mode/missing Twitch
+    credentials (mirrors :func:`validate_monitor_config`). A reachable-but-
+    empty or transiently-failing platform is NOT an error — it is reported as
+    ``{"ok": False, "error": ...}`` so the caller can display it, since a
+    channel with zero VODs yet is a normal, actionable state, not a bug.
+    """
+    platform = str(platform or "").strip().lower()
+    channel = _validate_channel(platform, channel)
+    mode = str(mode or "live").strip().lower()
+    if mode not in ("live", "vod"):
+        raise ValidationError("mode must be 'live' or 'vod'")
+    if platform == "youtube" and mode == "live":
+        raise ValidationError("live mode not supported for youtube (use mode='vod')")
+
+    strategy = build_strategy(platform, channel, pc)
+    try:
+        if mode == "live":
+            live, _, started_at = await asyncio.to_thread(strategy.get_live_state)
+            return {
+                "ok": True, "mode": "live", "platform": platform, "channel": channel,
+                "live": live,
+                "started_at": started_at.isoformat() if started_at else None,
+            }
+        if platform == "youtube":
+            await asyncio.to_thread(strategy.resolve)
+        items = list(await asyncio.to_thread(strategy.fetch_vods) or [])
+        return {
+            "ok": True, "mode": "vod", "platform": platform, "channel": channel,
+            "count": len(items),
+            # A handful, not the whole feed — this answers "does detection
+            # work", not "list everything".
+            "sample": items[:5],
+        }
+    except ValidationError:
+        raise
+    except Exception as exc:
+        logger.warning("probe_channel failed for %s:%s (%s): %s",
+                       platform, channel, mode, exc, exc_info=True)
+        return {"ok": False, "mode": mode, "platform": platform, "channel": channel,
+                "error": str(exc)}
+
+
 # ---------------------------------------------------------------------------
 # LiveMonitor — one asyncio task per (platform, channel)
 # ---------------------------------------------------------------------------
@@ -716,21 +792,7 @@ class LiveMonitor:
         return {k: new_cfg.get(k) for k in _SNAPSHOT_CONFIG_FIELDS}
 
     def _make_strategy(self, cfg: dict, pc: dict):
-        platform, channel = cfg["platform"], cfg["channel"]
-        if platform == "kick":
-            return KickStrategy(channel)
-        if platform == "twitch":
-            cid = pc.get("TWITCH_CLIENT_ID") or os.environ.get("TWITCH_CLIENT_ID")
-            secret = pc.get("TWITCH_CLIENT_SECRET") or os.environ.get("TWITCH_CLIENT_SECRET")
-            if not cid or not secret:
-                raise ValidationError(
-                    "Twitch monitoring requires TWITCH_CLIENT_ID and "
-                    "TWITCH_CLIENT_SECRET (set them in Settings or the environment)")
-            from clippyme.integrations.twitch_client import TwitchClient
-            return TwitchStrategy(channel, TwitchClient(cid, secret))
-        if platform == "youtube":
-            return YoutubeStrategy(channel)
-        raise ValidationError(f"unsupported platform: {platform}")
+        return build_strategy(cfg["platform"], cfg["channel"], pc)
 
     async def stop(self) -> dict:
         """Signal the loop, kill any in-flight capture, and await teardown."""

@@ -430,6 +430,21 @@ class LiveMonitorStartRequest(BaseModel):
         return validate_publish_platforms(value)
 
 
+class LiveMonitorProbeRequest(BaseModel):
+    """Body for POST /api/live-monitor/probe.
+
+    A connectivity + detection check: runs the exact per-platform strategy
+    code a real monitor uses (channel reachable? live now? what does the feed
+    currently hold?) without starting a monitor or spending any transcription/
+    ranking budget — the "does it even see this channel" question, answerable
+    before committing to a real run.
+    """
+
+    platform: str = Field("kick", pattern=r"^(kick|twitch|youtube)$")
+    channel: str = Field(..., min_length=1, max_length=256)
+    mode: str = Field("live", pattern=r"^(live|vod)$")
+
+
 class ZernioConfigRequest(BaseModel):
     api_key: Optional[str] = Field(None, max_length=512)
     accounts: Optional[dict] = None

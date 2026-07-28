@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { Hero } from './chrome';
 import { Icon, Panel, Btn, Badge, Switch, Segmented, PlatPill, PLATFORMS } from './primitives';
-import { getZernio, startLiveMonitor, stopLiveMonitor, updateMonitorConfig, setMonitorPublishing } from './realApi';
+import { getZernio, startLiveMonitor, stopLiveMonitor, updateMonitorConfig, setMonitorPublishing, probeLiveMonitor } from './realApi';
 import { PLAT } from './publish';
 import { validateSlug, buildPlatformTargets, classifyStartError, clampMonitorTimings } from '../lib/liveMonitorForm';
 import { buildMonitorBannerPayload } from '../lib/liveMonitorBanner';
@@ -204,6 +204,32 @@ function MonitorCard({ monitor, onStop, stopping, onApplySettings, applyingSetti
   );
 }
 
+// Renders a probeLiveMonitor() result: reachability + what a monitor would
+// actually see, so "Test connection" answers the "does it even detect this
+// channel's content" question before the user commits to Start.
+function ProbeResultBanner({ result }) {
+  if (result.ok === false) {
+    return <div className="od" style={{ color: 'var(--danger)' }}>Could not detect: {result.error}</div>;
+  }
+  if (result.mode === 'live') {
+    return (
+      <div className="od" style={{ color: result.live ? 'var(--brand-teal)' : 'var(--fg-3)' }}>
+        {result.live
+          ? 'Live right now — a monitor would start capturing immediately.'
+          : 'Reachable, but not live right now — a monitor would wait for it to go live.'}
+      </div>
+    );
+  }
+  const latest = result.sample?.[0];
+  return (
+    <div className="od" style={{ color: 'var(--brand-teal)' }}>
+      {result.count > 0
+        ? `Detected ${result.count} item(s) — most recent: ${latest?.url || latest?.id || ''}`
+        : 'Reachable, but no items found yet.'}
+    </div>
+  );
+}
+
 export function LiveMonitorView({ pushToast }) {
   const [zernio, setZernio] = useState(null);
   const [platform, setPlatform] = useState('kick');
@@ -229,6 +255,8 @@ export function LiveMonitorView({ pushToast }) {
   const [stoppingId, setStoppingId] = useState(null);
   const [applyingSettingsId, setApplyingSettingsId] = useState(null);
   const [togglingPublishingId, setTogglingPublishingId] = useState(null);
+  const [probing, setProbing] = useState(false);
+  const [probeResult, setProbeResult] = useState(null);
 
   const [monitors, refreshMonitors] = useLiveMonitorStatus();
 
@@ -236,6 +264,11 @@ export function LiveMonitorView({ pushToast }) {
 
   // YouTube has no "live" concept for this monitor (clips new uploads only).
   useEffect(() => { if (platform === 'youtube' && mode !== 'vod') setMode('vod'); }, [platform, mode]);
+
+  // A probe result is only meaningful for the exact platform/channel/mode it
+  // was run against — clear it the moment any of those changes so a stale
+  // "reachable" can't linger under a different channel the user just typed.
+  useEffect(() => { setProbeResult(null); }, [platform, slug, mode]);
 
   const accounts = zernio?.accounts || {};
   const toggle = (k) => setPlats((p) => ({ ...p, [k]: !p[k] }));
@@ -273,6 +306,26 @@ export function LiveMonitorView({ pushToast }) {
       else pushToast?.('error', 'Start failed: ' + String(e.message || e).slice(0, 80));
     } finally {
       setStarting(false);
+    }
+  };
+
+  // Connectivity/detection check: does ClippyMe actually see this channel's
+  // content, before spending anything on a real run? Reuses the exact
+  // platform code a started monitor would run for detection.
+  const onProbe = async () => {
+    setTouched(true);
+    if (slugError) return;
+    setProbing(true);
+    setProbeResult(null);
+    try {
+      const channel = platform === 'youtube' ? slug.trim() : slug.trim().toLowerCase();
+      const probeMode = platform === 'youtube' ? 'vod' : mode;
+      const result = await probeLiveMonitor({ platform, channel, mode: probeMode });
+      setProbeResult(result);
+    } catch (e) {
+      setProbeResult({ ok: false, error: String(e.message || e) });
+    } finally {
+      setProbing(false);
     }
   };
 
@@ -355,6 +408,14 @@ export function LiveMonitorView({ pushToast }) {
             aria-label="Channel" placeholder={SLUG_PLACEHOLDER[platform]}
             value={slug} onChange={(e) => setSlug(e.target.value)} onBlur={() => setTouched(true)} />
           {touched && slugError && <div className="od" style={{ color: 'var(--danger)' }}>{slugError}</div>}
+          <div style={{ marginTop: 8 }}>
+            <Btn variant="secondary" size="sm" icon="satellite-dish"
+              disabled={probing || !slug.trim() || !!(touched && slugError)}
+              onClick={onProbe}>
+              {probing ? 'Testing…' : 'Test connection'}
+            </Btn>
+          </div>
+          {probeResult && <ProbeResultBanner result={probeResult} />}
         </div>
 
         <div className="field">

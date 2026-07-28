@@ -17,6 +17,7 @@ vi.mock('./realApi', () => ({
   updateMonitorConfig: vi.fn(async () => ({ monitor: {} })),
   setMonitorPublishing: vi.fn(async () => ({ publishing_enabled: true })),
   listFonts: vi.fn(async () => ({ fonts: [] })),
+  probeLiveMonitor: vi.fn(async () => ({ ok: true, mode: 'live', live: true })),
 }));
 
 beforeEach(() => {
@@ -86,6 +87,59 @@ test('selecting YouTube forces VOD mode and hides live-only fields', async () =>
   await waitFor(() => expect(screen.queryByLabelText('Segment minutes')).toBeNull());
   expect(screen.queryByLabelText('Prelive skip minutes')).toBeNull();
   expect(screen.getByText(/YouTube: clips every new long-form upload/)).toBeInTheDocument();
+});
+
+test('test connection is disabled until a channel is entered', async () => {
+  render(<LiveMonitorView />);
+  await screen.findByLabelText('Channel');
+  expect(screen.getByRole('button', { name: /Test connection/ })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: /Test connection/ })).not.toBeDisabled());
+});
+
+test('test connection reports live state without starting a monitor', async () => {
+  const { probeLiveMonitor, startLiveMonitor } = await import('./realApi');
+  probeLiveMonitor.mockResolvedValueOnce({ ok: true, mode: 'live', live: true });
+  render(<LiveMonitorView />);
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  fireEvent.click(screen.getByRole('button', { name: /Test connection/ }));
+  expect(await screen.findByText(/Live right now/)).toBeInTheDocument();
+  expect(probeLiveMonitor).toHaveBeenCalledWith({ platform: 'kick', channel: 'xqc', mode: 'live' });
+  expect(startLiveMonitor).not.toHaveBeenCalled();
+});
+
+test('test connection reports detected VOD items', async () => {
+  const { probeLiveMonitor } = await import('./realApi');
+  probeLiveMonitor.mockResolvedValueOnce({
+    ok: true, mode: 'vod', count: 3,
+    sample: [{ id: 'v1', url: 'https://kick.com/video/v1', created_at: '' }],
+  });
+  render(<LiveMonitorView />);
+  fireEvent.click(screen.getByRole('button', { name: 'YouTube' }));
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: '@someone' } });
+  fireEvent.click(screen.getByRole('button', { name: /Test connection/ }));
+  expect(await screen.findByText(/Detected 3 item\(s\)/)).toBeInTheDocument();
+});
+
+test('test connection surfaces a failure without crashing the form', async () => {
+  const { probeLiveMonitor } = await import('./realApi');
+  probeLiveMonitor.mockRejectedValueOnce(new Error('Twitch not configured'));
+  render(<LiveMonitorView />);
+  fireEvent.click(screen.getByRole('button', { name: 'Twitch' }));
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  fireEvent.click(screen.getByRole('button', { name: /Test connection/ }));
+  expect(await screen.findByText(/Could not detect: Twitch not configured/)).toBeInTheDocument();
+});
+
+test('changing the channel clears a stale probe result', async () => {
+  const { probeLiveMonitor } = await import('./realApi');
+  probeLiveMonitor.mockResolvedValueOnce({ ok: true, mode: 'live', live: true });
+  render(<LiveMonitorView />);
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  fireEvent.click(screen.getByRole('button', { name: /Test connection/ }));
+  expect(await screen.findByText(/Live right now/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'someoneelse' } });
+  expect(screen.queryByText(/Live right now/)).toBeNull();
 });
 
 test('duplicate monitor (409) shows a warning toast', async () => {

@@ -377,6 +377,26 @@ export async function setMonitorPublishing(monitorId, enabled) {
   return res.json();
 }
 
+// Connectivity + detection check for a channel — runs the same platform code
+// a real monitor would use, WITHOUT starting one or spending any
+// transcription/ranking budget. Lets the setup form answer "does it even see
+// this channel" before the user commits to Start.
+export async function probeLiveMonitor({ platform, channel, mode }) {
+  const res = await apiFetch(getApiUrl('/api/live-monitor/probe'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, channel, mode }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const detail = Array.isArray(err.detail)
+      ? err.detail.map((d) => `${(d.loc || []).slice(1).join('.')}: ${d.msg}`).join('; ')
+      : err.detail;
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 // Map the redesign's flat `opts` into the preselections shape the existing
 // hooks + seedClipParams expect (subtitles/hook as truthy objects).
 export function optsToPreselections(opts) {
