@@ -147,6 +147,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   const [logoOn, setLogoOn] = useState(false);
   const [fonts, setFonts] = useState([]);
   const [provider, setProvider] = useState('deepgram');
+  const [maxHeight, setMaxHeight] = useState('1080');
   const [model, setModel] = useState('');
   const [models, setModels] = useState(FALLBACK_MODELS);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -180,6 +181,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
       twitchId: !!c.TWITCH_CLIENT_ID, twitchSecret: !!c.TWITCH_CLIENT_SECRET,
     });
     if (c.TRANSCRIPTION_PROVIDER) setProvider(c.TRANSCRIPTION_PROVIDER);
+    if (c.CLIPPYME_MAX_DOWNLOAD_HEIGHT) setMaxHeight(c.CLIPPYME_MAX_DOWNLOAD_HEIGHT);
     if (c.GEMINI_MODEL) setModel(c.GEMINI_MODEL);
   };
 
@@ -383,7 +385,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
       </Panel>
 
       <Panel title={t('settings.downloads.title')} sub={t('settings.downloads.sub')} icon="cookie">
-        <div className="opt" style={{ borderBottom: 0 }}>
+        <div className="opt">
           <div className="oico"><Icon n="cookie" /></div>
           <div className="otxt"><div className="ot">{t('settings.cookies.title')}</div><div className="od">{cookies ? t('settings.cookies.descOn') : t('settings.cookies.descOff')}</div></div>
           <div className="r" style={{ gap: 8 }}>
@@ -393,6 +395,18 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
             </label>
             {cookies && <Btn variant="ghost" size="sm" icon="trash-2" onClick={removeCookies}>{t('settings.remove')}</Btn>}
           </div>
+        </div>
+        <div className="opt" style={{ borderBottom: 0 }}>
+          <div className="oico"><Icon n="download" /></div>
+          <div className="otxt"><div className="ot">{t('settings.quality.title')}</div><div className="od">{t('settings.quality.desc')}</div></div>
+          <div className="r"><Segmented value={maxHeight}
+            onChange={(id) => { setMaxHeight(id); saveKeys({ CLIPPYME_MAX_DOWNLOAD_HEIGHT: id }); }}
+            options={[
+              { id: '720', label: t('settings.quality.720') },
+              { id: '1080', label: t('settings.quality.1080') },
+              { id: '1440', label: t('settings.quality.1440') },
+              { id: '0', label: t('settings.quality.best') },
+            ]} /></div>
         </div>
       </Panel>
     </div>

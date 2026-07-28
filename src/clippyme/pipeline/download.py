@@ -130,14 +130,53 @@ def _resolve_cookies_path(explicit: str | None) -> str | None:
     return None
 
 
-# Video format ladder. avc1 (H.264) first so downstream ffmpeg/x264 passes
-# never have to transcode VP9/AV1; the generic tail stops AV1/VP9-only serves
-# from hard-failing when no avc1 rendition exists.
-_FORMAT_LADDER = (
-    'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/'
-    'bestvideo[vcodec^=avc1]+bestaudio/'
-    'best[ext=mp4]/bestvideo*+bestaudio/best'
-)
+# Video format ladder. avc1 (H.264) first, since it's the cheapest to decode
+# on a CPU-only box (GPU_RUNTIME=cpu is the documented default) — but capped
+# to the SAME height as every later rung, not left unbounded. Many YouTube
+# uploads only serve 1080p+ as VP9/AV1, with avc1 topping out around 720p; a
+# ladder that tries unbounded avc1 first and only falls back to other codecs
+# once avc1 fails outright never reaches that fallback, because a 720p avc1
+# rendition typically DOES exist — it just silently ends up much smaller than
+# what the video actually offers. That matters beyond the download itself:
+# reframe.py sets the pipeline's OUTPUT_HEIGHT to the SOURCE height, so a
+# download quietly capped at 720p caps every rendered clip at 720p too.
+_DEFAULT_MAX_DOWNLOAD_HEIGHT = 1080
+# 0 = uncapped ("true best" — can be 4K+, slower and much bigger; more crop
+# headroom for reframe's subject-tracking zoom). Settings' "Download quality"
+# control persists one of these via CLIPPYME_MAX_DOWNLOAD_HEIGHT (same
+# env-write path as every other Settings key — config_store.save_persistent_config).
+_VALID_MAX_DOWNLOAD_HEIGHTS = (720, 1080, 1440, 2160, 0)
+
+
+def resolve_max_download_height() -> int:
+    """The configured download-quality cap in pixels of height (0 = uncapped)."""
+    raw = (os.environ.get("CLIPPYME_MAX_DOWNLOAD_HEIGHT") or "").strip()
+    if not raw:
+        return _DEFAULT_MAX_DOWNLOAD_HEIGHT
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_DOWNLOAD_HEIGHT
+    return value if value in _VALID_MAX_DOWNLOAD_HEIGHTS else _DEFAULT_MAX_DOWNLOAD_HEIGHT
+
+
+def build_format_ladder(max_height: int) -> str:
+    """yt-dlp format selector for a given height cap (0 = uncapped).
+
+    Every rung shares the SAME cap — the fix over the old ladder, which capped
+    only the avc1 rungs and left the tail truly unbounded, so avc1 could win
+    at a much lower resolution than the video actually has available in
+    another codec. ``bestvideo*`` collapsed for one whole-formats fallback
+    at the bottom (Kick/Twitch VODs are sometimes only offered pre-muxed).
+    """
+    h = f'[height<={max_height}]' if max_height else ''
+    return (
+        f'bestvideo{h}[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/'
+        f'bestvideo{h}[vcodec^=avc1]+bestaudio/'
+        f'bestvideo{h}[ext=mp4]+bestaudio/'
+        f'bestvideo{h}+bestaudio/'
+        f'best{h}'
+    )
 
 # Player-client fallback chain (mid-2026 verified bot-resistance order).
 _DEFAULT_PLAYER_CLIENTS = ("default", "tv+tv_embedded", "web_safari")
@@ -296,7 +335,7 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
 
             ydl_opts = {
                 **attempt_opts,
-                'format': _FORMAT_LADDER,
+                'format': build_format_ladder(resolve_max_download_height()),
                 'outtmpl': output_template,
                 'merge_output_format': 'mp4',
                 'overwrites': True,

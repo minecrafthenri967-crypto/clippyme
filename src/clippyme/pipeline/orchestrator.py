@@ -571,16 +571,22 @@ def _cleanup_completed(
     output_dir: str,
     state: RuntimeState,
     input_video: str,
-    is_url: bool,
     keep_original: bool,
     all_clips_ready: bool,
 ) -> None:
-    if is_url and not keep_original and _valid_file(input_video):
+    # Applies whether input_video came from a URL download or a local upload:
+    # both are the pipeline's disposable working copy, distinct from the
+    # per-clip source_<clip>.mp4 slices preserved below. A local upload used
+    # to be exempted here (kept indefinitely until the retention sweep or a
+    # manual History delete), which was an inconsistency rather than a
+    # deliberate choice — nothing else in the job depends on the original
+    # file surviving past a successful run.
+    if not keep_original and _valid_file(input_video):
         try:
             os.remove(input_video)
-            print("🗑️ Cleaned downloaded source after successful completion", flush=True)
+            print("🗑️ Cleaned source media after successful completion", flush=True)
         except OSError as exc:
-            print(f"⚠️ Could not clean downloaded source: {exc}", flush=True)
+            print(f"⚠️ Could not clean source media: {exc}", flush=True)
     if not all_clips_ready or _enabled("CLIPPYME_KEEP_CHECKPOINTS", "0"):
         return
     # Preserve source_<clip>.mp4: POST /api/reframe needs these slices
@@ -630,7 +636,6 @@ def run(argv: list[str] | None = None) -> int:
                 output_dir=output_dir,
                 state=state,
                 input_video=input_video,
-                is_url=bool(args.url),
                 keep_original=args.keep_original,
                 all_clips_ready=True,
             )
@@ -677,7 +682,6 @@ def run(argv: list[str] | None = None) -> int:
             output_dir=output_dir,
             state=state,
             input_video=input_video,
-            is_url=bool(args.url),
             keep_original=args.keep_original,
             all_clips_ready=ready == len(clips),
         )

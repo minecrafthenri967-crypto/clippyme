@@ -108,6 +108,12 @@ export const en = {
   'settings.cookies.title': 'YouTube cookies',
   'settings.cookies.descOn': 'Configured · restricted videos OK',
   'settings.cookies.descOff': 'Not set · public videos only',
+  'settings.quality.title': 'Download quality',
+  'settings.quality.desc': 'Caps the source resolution — clips render at this height too',
+  'settings.quality.720': '720p',
+  'settings.quality.1080': '1080p',
+  'settings.quality.1440': '1440p',
+  'settings.quality.best': 'Best',
 
   'settings.toast.keyStatusFailed': 'Could not refresh key status',
   'settings.toast.saved': 'Saved',

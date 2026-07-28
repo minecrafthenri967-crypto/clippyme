@@ -188,3 +188,53 @@ def test_classify_fatal(msg):
 def test_classify_bot_wall_beats_any_incidental_403():
     msg = "Sign in to confirm you're not a bot (HTTP Error 403)"
     assert dl.classify_download_error(msg) == "fatal"
+
+
+# --- download quality: format ladder + its env-configured cap --------------
+
+def test_format_ladder_applies_the_same_cap_to_every_rung():
+    ladder = dl.build_format_ladder(1080)
+    rungs = ladder.split('/')
+    assert len(rungs) == 5
+    # Every rung mentions the SAME height cap — the bug being fixed is a
+    # ladder where only the early (avc1) rungs were capped and a later rung
+    # was unbounded, silently capping a video's avc1 rendition far below what
+    # the video actually offers in another codec.
+    for rung in rungs:
+        assert '[height<=1080]' in rung
+    assert rungs[-1] == 'best[height<=1080]'
+
+
+def test_format_ladder_uncapped_when_height_is_zero():
+    ladder = dl.build_format_ladder(0)
+    assert '[height<=' not in ladder
+    assert ladder.endswith('/best')
+
+
+def test_format_ladder_still_prefers_avc1_first_for_cheap_cpu_decode():
+    rungs = dl.build_format_ladder(1080).split('/')
+    assert 'vcodec^=avc1' in rungs[0]
+    assert 'vcodec^=avc1' in rungs[1]
+    # ...but rungs beyond that accept any codec, so a video whose 1080p only
+    # exists as vp9/av1 still gets the resolution rather than falling all the
+    # way to a lower-resolution avc1 rendition.
+    assert 'vcodec' not in rungs[2]
+
+
+@pytest.mark.parametrize("raw,expected", [
+    (None, 1080),        # unset → default
+    ("", 1080),          # blank → default
+    ("1080", 1080),
+    ("720", 720),
+    ("1440", 1440),
+    ("2160", 2160),
+    ("0", 0),            # explicit uncapped
+    ("not a number", 1080),
+    ("900", 1080),       # not one of the offered choices → default, not clamped
+])
+def test_resolve_max_download_height(monkeypatch, raw, expected):
+    if raw is None:
+        monkeypatch.delenv("CLIPPYME_MAX_DOWNLOAD_HEIGHT", raising=False)
+    else:
+        monkeypatch.setenv("CLIPPYME_MAX_DOWNLOAD_HEIGHT", raw)
+    assert dl.resolve_max_download_height() == expected
