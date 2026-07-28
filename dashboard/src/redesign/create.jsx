@@ -8,8 +8,10 @@ import { SubtitleControls } from './subtitleControls';
 import { LogoControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
 import { validateCreateOptions } from '../lib/createValidation';
+import { useT } from '../i18n/context.jsx';
 
 function PresetCards({ presets, active, defaultId, onPick, onSetDefault, onDelete, onSaveCurrent }) {
+  const t = useT();
   const corner = { position: 'absolute', top: 12, left: 12, display: 'flex', gap: 8, zIndex: 2 };
   return (
     <div className="preset-row">
@@ -23,35 +25,36 @@ function PresetCards({ presets, active, defaultId, onPick, onSetDefault, onDelet
           <span className="pcheck"><Icon n="check" /></span>
           <span style={corner}>
             <button type="button" className="picon-btn"
-              title={defaultId === p.id ? 'Default (click to unset)' : 'Set as default'}
-              aria-label={defaultId === p.id ? 'Unset default preset' : 'Set as default preset'}
+              title={defaultId === p.id ? t('create.preset.unsetTitle') : t('create.preset.setDefaultTitle')}
+              aria-label={defaultId === p.id ? t('create.preset.unsetAria') : t('create.preset.setDefaultAria')}
               onClick={(e) => { e.stopPropagation(); onSetDefault(p.id); }}
               style={{ color: defaultId === p.id ? 'var(--brand-amber)' : 'var(--fg-4)' }}>
               <Icon n="star" style={{ width: 14, height: 14 }} />
             </button>
             {p.user && (
-              <button type="button" className="picon-btn" title="Delete preset" aria-label="Delete preset"
+              <button type="button" className="picon-btn" title={t('create.preset.delete')} aria-label={t('create.preset.delete')}
                 onClick={(e) => { e.stopPropagation(); onDelete(p.id); }} style={{ color: 'var(--fg-4)' }}>
                 <Icon n="trash-2" style={{ width: 14, height: 14 }} />
               </button>
             )}
           </span>
           <span className="pico"><Icon n={p.icon} /></span>
-          <span className="pt">{p.title}{defaultId === p.id && <span style={{ color: 'var(--brand-amber)', fontSize: 11, marginLeft: 6 }}>· default</span>}</span>
+          <span className="pt">{p.title}{defaultId === p.id && <span style={{ color: 'var(--brand-amber)', fontSize: 11, marginLeft: 6 }}>{t('create.preset.defaultBadge')}</span>}</span>
           <span className="pd">{p.desc}</span>
         </div>
       ))}
       <button type="button" className="preset" onClick={onSaveCurrent}
         style={{ borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
         <span className="pico"><Icon n="plus" /></span>
-        <span className="pt">Save current</span>
-        <span className="pd">Store these settings as your own preset</span>
+        <span className="pt">{t('create.preset.saveCurrent')}</span>
+        <span className="pd">{t('create.preset.saveCurrentDesc')}</span>
       </button>
     </div>
   );
 }
 
 function SourcePanel({ opts, set }) {
+  const t = useT();
   const [drag, setDrag] = useState(false);
   const fileInput = useRef(null);
   const batchInput = useRef(null);
@@ -60,20 +63,20 @@ function SourcePanel({ opts, set }) {
   const totalQueued = batchLines.length + batchFileCount;
   const pickFile = (f) => f && set({ file: f, fileName: f.name });
   return (
-    <Panel title="Source" sub="Paste a link or drop a file" icon="link"
+    <Panel title={t('create.source.title')} sub={t('create.source.sub')} icon="link"
       headRight={
         <Segmented value={opts.mode} onChange={(id) => set({ mode: id })}
-          options={[{ id: 'single', label: 'Single', icon: 'square' }, { id: 'batch', label: 'Batch', icon: 'layers' }]} />
+          options={[{ id: 'single', label: t('create.source.mode.single'), icon: 'square' }, { id: 'batch', label: t('create.source.mode.batch'), icon: 'layers' }]} />
       }>
       {opts.mode === 'single' ? (
         <div>
           <Segmented full value={opts.source} onChange={(id) => set({ source: id })}
-            options={[{ id: 'url', label: 'URL', icon: 'globe' }, { id: 'file', label: 'Upload', icon: 'file-up' }]} />
+            options={[{ id: 'url', label: t('create.source.type.url'), icon: 'globe' }, { id: 'file', label: t('create.source.type.upload'), icon: 'file-up' }]} />
           <div style={{ height: 14 }} />
           {opts.source === 'url' ? (
             <div className="input">
               <Icon n="link" />
-              <input value={opts.url} placeholder="Paste a video link (YouTube, Twitch, or Kick)"
+              <input value={opts.url} placeholder={t('create.source.urlPlaceholder')}
                 onChange={(e) => set({ url: e.target.value })} />
               <button type="button" className="paste" onClick={async () => {
                 try {
@@ -83,13 +86,13 @@ function SourcePanel({ opts, set }) {
                   /* clipboard blocked (no permission / insecure context) — no-op */
                 }
               }}>
-                <Icon n="clipboard" />Paste
+                <Icon n="clipboard" />{t('create.source.pasteBtn')}
               </button>
             </div>
           ) : (
             <div className={'dropzone' + (opts.file ? ' has' : drag ? ' drag' : '')}
               role="button" tabIndex={0}
-              aria-label={opts.file ? 'Remove selected video' : 'Choose a video file'}
+              aria-label={opts.file ? t('create.source.removeVideoAria') : t('create.source.chooseVideoAria')}
               onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
               onDragLeave={() => setDrag(false)}
               onDrop={(e) => { e.preventDefault(); setDrag(false); pickFile(e.dataTransfer.files?.[0]); }}
@@ -101,10 +104,10 @@ function SourcePanel({ opts, set }) {
                 onChange={(e) => pickFile(e.target.files?.[0])} />
               <div className="dz-ico"><Icon n={opts.file ? 'file-video' : 'upload'} /></div>
               {opts.file ? (
-                <div><b>{opts.fileName}</b><div className="label" style={{ marginTop: 6 }}>Ready · click to remove</div></div>
+                <div><b>{opts.fileName}</b><div className="label" style={{ marginTop: 6 }}>{t('create.source.readyLabel')}</div></div>
               ) : (
-                <div>Drop a video or <b style={{ color: 'var(--brand-blue)' }}>browse</b>
-                  <div className="label" style={{ marginTop: 6, textTransform: 'none', letterSpacing: 0 }}>MP4 · MOV · WEBM · up to 16&nbsp;GB</div></div>
+                <div>{t('create.source.dropPrefix')} <b style={{ color: 'var(--brand-blue)' }}>{t('create.source.browse')}</b>
+                  <div className="label" style={{ marginTop: 6, textTransform: 'none', letterSpacing: 0 }}>{t('create.source.fileHint')}</div></div>
               )}
             </div>
           )}
@@ -112,21 +115,21 @@ function SourcePanel({ opts, set }) {
       ) : (
         <div>
           <div className="field">
-            <span className="field-label"><Icon n="globe" /> URLs · one per line</span>
+            <span className="field-label"><Icon n="globe" /> {t('create.batch.urlsLabel')}</span>
             <textarea className="ta mono" rows="4" value={opts.batch}
               placeholder={'https://youtube.com/watch?v=a1\nhttps://youtube.com/watch?v=b2'}
               onChange={(e) => set({ batch: e.target.value })}></textarea>
           </div>
           <div className="field" style={{ marginBottom: 0 }}>
             <div className="dropzone" style={{ padding: 18 }}
-              role="button" tabIndex={0} aria-label="Add video files to the batch"
+              role="button" tabIndex={0} aria-label={t('create.batch.addFilesAria')}
               onClick={() => batchInput.current?.click()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); batchInput.current?.click(); }
               }}>
               <input ref={batchInput} type="file" accept="video/*,.mp4,.mov,.webm,.mkv,.m4v,.avi" hidden multiple
                 onChange={(e) => set({ batchFiles: [...(opts.batchFiles || []), ...Array.from(e.target.files || [])] })} />
-              <Icon n="plus" style={{ width: 16, height: 16 }} /> &nbsp;Add files to the batch
+              <Icon n="plus" style={{ width: 16, height: 16 }} /> {t('create.batch.addFiles')}
             </div>
           </div>
           {batchFileCount > 0 && (
@@ -134,11 +137,11 @@ function SourcePanel({ opts, set }) {
               {(opts.batchFiles || []).map((f, i) => (
                 <span key={i} className="chip">{f.name.slice(0, 22)}</span>
               ))}
-              <button type="button" className="chip" style={{ cursor: 'pointer', color: 'var(--danger)', background: 'none', border: 'none', font: 'inherit' }} onClick={() => set({ batchFiles: [] })}>clear files</button>
+              <button type="button" className="chip" style={{ cursor: 'pointer', color: 'var(--danger)', background: 'none', border: 'none', font: 'inherit' }} onClick={() => set({ batchFiles: [] })}>{t('create.batch.clearFiles')}</button>
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line-1)' }}>
-            <span className="label">Queued</span>
+            <span className="label">{t('create.batch.queuedLabel')}</span>
             <span className="label tnum" style={{ color: totalQueued > 20 ? 'var(--danger)' : totalQueued ? 'var(--brand-amber)' : 'var(--fg-4)' }}>
               {String(totalQueued).padStart(2, '0')} / 20
             </span>
@@ -148,9 +151,9 @@ function SourcePanel({ opts, set }) {
 
       <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--line-1)' }}>
         <div className="field" style={{ marginBottom: 0 }}>
-          <span className="field-label"><Icon n="sparkles" style={{ color: 'var(--brand-blue)' }} /> AI instructions · optional</span>
+          <span className="field-label"><Icon n="sparkles" style={{ color: 'var(--brand-blue)' }} /> {t('create.ai.instructionsLabel')}</span>
           <textarea className="ta" rows="2" value={opts.instructions}
-            placeholder="e.g. “Find the funniest moments” or “Skip the intro, focus on the demo”"
+            placeholder={t('create.ai.instructionsPlaceholder')}
             onChange={(e) => set({ instructions: e.target.value })}></textarea>
         </div>
       </div>
@@ -159,6 +162,7 @@ function SourcePanel({ opts, set }) {
 }
 
 function OptRow({ icon, label, desc, on, set, onConfig, configActive }) {
+  const t = useT();
   return (
     <div className={'opt' + (on ? ' on' : '')}>
       <div className="oico"><Icon n={icon} /></div>
@@ -168,7 +172,7 @@ function OptRow({ icon, label, desc, on, set, onConfig, configActive }) {
       </div>
       <div className="r">
         {onConfig && on && (
-          <button type="button" className={'cfg' + (configActive ? ' active' : '')} onClick={onConfig} aria-label={'Configure ' + label}>
+          <button type="button" className={'cfg' + (configActive ? ' active' : '')} onClick={onConfig} aria-label={t('create.configureAria', { label })}>
             <Icon n="sliders-horizontal" />
           </button>
         )}
@@ -211,20 +215,21 @@ function SubConfig({ opts, set }) {
 }
 
 function HookConfig({ opts, set }) {
+  const t = useT();
   const hs = opts.hookStyle || HOOK_STYLE_DEFAULT;
   const setStyle = (partial) => set({ hookStyle: { ...HOOK_STYLE_DEFAULT, ...hs, ...partial } });
   return (
     <div className="cfg-drawer fade-in">
-      <HookPreview text="Your hook text" style={hs} />
+      <HookPreview text={t('create.hook.previewText')} style={hs} />
       <div className="cf-row" style={{ marginTop: 12 }}>
-        <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>Position</span>
+        <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>{t('create.hook.positionLabel')}</span>
         <Segmented full value={opts.hookPos} onChange={(id) => set({ hookPos: id })}
-          options={[{ id: 'top', label: 'Top' }, { id: 'center', label: 'Center' }, { id: 'bottom', label: 'Bottom' }]} />
+          options={[{ id: 'top', label: t('create.hook.pos.top') }, { id: 'center', label: t('create.hook.pos.center') }, { id: 'bottom', label: t('create.hook.pos.bottom') }]} />
       </div>
       <div className="cf-row">
-        <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>Size</span>
+        <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>{t('create.hook.sizeLabel')}</span>
         <Segmented full value={opts.hookSize} onChange={(id) => set({ hookSize: id })}
-          options={[{ id: 'S', label: 'Small' }, { id: 'M', label: 'Medium' }, { id: 'L', label: 'Large' }]} />
+          options={[{ id: 'S', label: t('create.hook.size.small') }, { id: 'M', label: t('create.hook.size.medium') }, { id: 'L', label: t('create.hook.size.large') }]} />
       </div>
       <HookStyleControls style={hs} set={setStyle} />
     </div>
@@ -232,12 +237,13 @@ function HookConfig({ opts, set }) {
 }
 
 function LogoConfig({ opts, set }) {
+  const t = useT();
   return (
     <div className="cfg-drawer fade-in">
       <LogoControls position={opts.logoPos || 'top-right'} size={opts.logoSize || 'M'}
         onChange={(p) => set(p.position !== undefined
           ? { logoPos: p.position } : { logoSize: p.size })} />
-      <div className="od" style={{ marginTop: 2 }}>Upload your logo PNG in Settings → Brand logo.</div>
+      <div className="od" style={{ marginTop: 2 }}>{t('create.logo.uploadHint')}</div>
     </div>
   );
 }
@@ -263,40 +269,41 @@ function BannerConfig({ opts, set }) {
 }
 
 function OptionsPanel({ opts, set }) {
+  const t = useT();
   const [subCfg, setSubCfg] = useState(false);
   const [hookCfg, setHookCfg] = useState(false);
   const [logoCfg, setLogoCfg] = useState(false);
   const [bannerCfg, setBannerCfg] = useState(false);
   return (
-    <Panel title="Recipe" sub="What ClippyMe makes from each video" icon="sliders-horizontal">
-      <div className="label" style={{ marginBottom: 4 }}>Output</div>
+    <Panel title={t('create.recipe.title')} sub={t('create.recipe.sub')} icon="sliders-horizontal">
+      <div className="label" style={{ marginBottom: 4 }}>{t('create.recipe.outputLabel')}</div>
       <div className="opt">
         <div className="oico"><Icon n="scissors" /></div>
         <div className="otxt">
-          <div className="ot">Clips per video</div>
-          <div className="od">{opts.clipsAuto ? 'Auto · ClippyMe picks the best number for the video' : 'Aim for a rough target (a hint, not a hard cap)'}</div>
+          <div className="ot">{t('create.clips.label')}</div>
+          <div className="od">{opts.clipsAuto ? t('create.clips.descAuto') : t('create.clips.descCustom')}</div>
         </div>
         <div className="r" style={{ gap: 9 }}>
           {!opts.clipsAuto && <Stepper value={opts.clips} set={(v) => set({ clips: v })} />}
           <Segmented value={opts.clipsAuto ? 'auto' : 'custom'}
             onChange={(id) => set({ clipsAuto: id === 'auto' })}
-            options={[{ id: 'auto', label: 'Auto' }, { id: 'custom', label: 'Set' }]} />
+            options={[{ id: 'auto', label: t('create.clips.auto') }, { id: 'custom', label: t('create.clips.set') }]} />
         </div>
       </div>
       <div className="opt">
         <div className="oico"><Icon n="crop" /></div>
-        <div className="otxt"><div className="ot">Aspect ratio</div><div className="od">9:16 vertical · 1:1 square · 16:9 horizontal</div></div>
+        <div className="otxt"><div className="ot">{t('create.aspect.label')}</div><div className="od">{t('create.aspect.desc')}</div></div>
         <div className="r"><Segmented value={opts.aspect} onChange={(id) => set({ aspect: id })}
           options={[{ id: '9:16', label: '9:16' }, { id: '1:1', label: '1:1' }, { id: '16:9', label: '16:9' }]} /></div>
       </div>
 
-      <div className="label" style={{ margin: '16px 0 4px' }}>AI &amp; reframe</div>
-      <OptRow icon="sparkles" label="Find viral moments" desc="Gemini scores the transcript · off = whole video"
+      <div className="label" style={{ margin: '16px 0 4px' }}>{t('create.section.aiReframe')}</div>
+      <OptRow icon="sparkles" label={t('create.detect.label')} desc={t('create.detect.desc')}
         on={opts.detect} set={(v) => set({ detect: v })} />
       {opts.detect && (
         <div className="opt">
           <div className="oico"><Icon n="sparkles" /></div>
-          <div className="otxt" style={{ flex: 1 }}><div className="ot">Gemini model</div><div className="od">Override for this job · blank uses the Settings default</div></div>
+          <div className="otxt" style={{ flex: 1 }}><div className="ot">{t('create.model.label')}</div><div className="od">{t('create.model.desc')}</div></div>
           <div className="r" style={{ flex: '0 0 184px' }}>
             <select className="sel" value={opts.model || ''} onChange={(e) => set({ model: e.target.value })}>
               {GEMINI_MODELS.map(([v, l]) => <option key={v || 'default'} value={v}>{l}</option>)}
@@ -306,17 +313,17 @@ function OptionsPanel({ opts, set }) {
       )}
       <div className="opt">
         <div className="oico"><Icon n="scan-face" /></div>
-        <div className="otxt"><div className="ot">Reframe</div><div className="od">Auto face-track · Subject FrameShift crop · Off letterbox bands</div></div>
+        <div className="otxt"><div className="ot">{t('create.reframe.label')}</div><div className="od">{t('create.reframe.desc')}</div></div>
         <div className="r"><Segmented value={(opts.reframeMode === 'object' ? 'subject' : opts.reframeMode) || (opts.reframe === false ? 'disabled' : 'auto')} onChange={(id) => set({ reframeMode: id })}
-          options={[{ id: 'auto', label: 'Auto' }, { id: 'subject', label: 'Subject' }, { id: 'disabled', label: 'Off' }]} /></div>
+          options={[{ id: 'auto', label: t('create.reframe.auto') }, { id: 'subject', label: t('create.reframe.subject') }, { id: 'disabled', label: t('create.reframe.off') }]} /></div>
       </div>
-      <OptRow icon="scissors" label="Smart cut" desc="Remove silence & filler words"
+      <OptRow icon="scissors" label={t('create.smartcut.label')} desc={t('create.smartcut.desc')}
         on={opts.smartcut} set={(v) => set({ smartcut: v })} />
-      <OptRow icon="zoom-in" label="Subtle zoom" desc="Gentle Ken Burns motion (1.0→1.05x)"
+      <OptRow icon="zoom-in" label={t('create.zoom.label')} desc={t('create.zoom.desc')}
         on={opts.zoom} set={(v) => set({ zoom: v })} />
       <div className="opt">
         <div className="oico"><Icon n="languages" /></div>
-        <div className="otxt" style={{ flex: 1 }}><div className="ot">Spoken language</div><div className="od">Single language boosts accuracy</div></div>
+        <div className="otxt" style={{ flex: 1 }}><div className="ot">{t('create.language.label')}</div><div className="od">{t('create.language.desc')}</div></div>
         <div className="r" style={{ flex: '0 0 184px' }}>
           <select className="sel" value={opts.language} onChange={(e) => set({ language: e.target.value })}>
             {LANGUAGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -324,22 +331,22 @@ function OptionsPanel({ opts, set }) {
         </div>
       </div>
 
-      <div className="label" style={{ margin: '16px 0 4px' }}>Captions &amp; hooks</div>
-      <OptRow icon="captions" label="Subtitles" desc="Burn karaoke or classic captions"
+      <div className="label" style={{ margin: '16px 0 4px' }}>{t('create.section.captionsHooks')}</div>
+      <OptRow icon="captions" label={t('create.subtitles.label')} desc={t('create.subtitles.desc')}
         on={opts.subtitles} set={(v) => set({ subtitles: v })} onConfig={() => setSubCfg(!subCfg)} configActive={subCfg} />
       {opts.subtitles && subCfg && <SubConfig opts={opts} set={set} />}
-      <OptRow icon="type" label="Text hooks" desc="Add a scroll-stopping opener"
+      <OptRow icon="type" label={t('create.hooks.label')} desc={t('create.hooks.desc')}
         on={opts.hooks} set={(v) => set({ hooks: v })} onConfig={() => setHookCfg(!hookCfg)} configActive={hookCfg} />
       {opts.hooks && hookCfg && <HookConfig opts={opts} set={set} />}
-      <OptRow icon="stamp" label="Brand logo" desc="Burn your logo onto every clip"
+      <OptRow icon="stamp" label={t('create.logo.label')} desc={t('create.logo.desc')}
         on={opts.logo} set={(v) => set({ logo: v })} onConfig={() => setLogoCfg(!logoCfg)} configActive={logoCfg} />
       {opts.logo && logoCfg && <LogoConfig opts={opts} set={set} />}
-      <OptRow icon="rss" label="Attribution banner" desc="Platform logo + handle burned bottom of clip"
+      <OptRow icon="rss" label={t('create.banner.label')} desc={t('create.banner.desc')}
         on={opts.banner} set={(v) => set({ banner: v })} onConfig={() => setBannerCfg(!bannerCfg)} configActive={bannerCfg} />
       {opts.banner && bannerCfg && <BannerConfig opts={opts} set={set} />}
       <div className="opt">
         <div className="oico"><Icon n="palette" /></div>
-        <div className="otxt"><div className="ot">Colour grade</div><div className="od">Cinematic colour pass on every clip</div></div>
+        <div className="otxt"><div className="ot">{t('create.grade.label')}</div><div className="od">{t('create.grade.desc')}</div></div>
         <div className="r"><GradeControls withOff full={false} preset={opts.gradePreset || 'none'}
           onChange={(p) => set({ gradePreset: p.preset })} /></div>
       </div>
@@ -348,46 +355,54 @@ function OptionsPanel({ opts, set }) {
 }
 
 function SummaryBar({ opts, ready, count, onCreate, error }) {
+  const t = useT();
   const chips = [
     opts.aspect || '9:16',
-    opts.clipsAuto ? 'auto clips' : `~${opts.clips} clips`,
-    opts.detect ? 'viral detect' : 'whole video',
-    (() => { const m = opts.reframeMode || (opts.reframe === false ? 'disabled' : 'auto'); return (m === 'subject' || m === 'object') ? 'subject crop' : m === 'disabled' ? 'letterbox' : 'reframe'; })(),
-    opts.smartcut && 'smart-cut',
-    opts.subtitles && (opts.subMode + ' subs'),
-    opts.hooks && 'hooks',
+    opts.clipsAuto ? t('create.summary.chip.autoClips') : t('create.summary.chip.clipsCount', { count: opts.clips }),
+    opts.detect ? t('create.summary.chip.viralDetect') : t('create.summary.chip.wholeVideo'),
+    (() => { const m = opts.reframeMode || (opts.reframe === false ? 'disabled' : 'auto'); return (m === 'subject' || m === 'object') ? t('create.summary.chip.subjectCrop') : m === 'disabled' ? t('create.summary.chip.letterbox') : t('create.summary.chip.reframe'); })(),
+    opts.smartcut && t('create.summary.chip.smartCut'),
+    opts.subtitles && t('create.summary.chip.subsSuffix', { mode: opts.subMode }),
+    opts.hooks && t('create.summary.chip.hooks'),
   ].filter(Boolean);
   return (
     <div className="summary">
       <div>
-        <div className="s-main">{ready ? (opts.clipsAuto ? 'ClippyMe will pick the best clips' : `Aiming for about ${count} clip${count === 1 ? '' : 's'}`) : 'Add a source to get started'}</div>
+        <div className="s-main">
+          {ready
+            ? (opts.clipsAuto
+              ? t('create.summary.autoMain')
+              : `${t('create.summary.aimingFor')} ${count} ${count === 1 ? t('create.summary.clipSingular') : t('create.summary.clipPlural')}`)
+            : t('create.summary.noSource')}
+        </div>
         <div className="s-sub">
           {chips.map((c) => <span key={c} className="chip">{c}</span>)}
         </div>
         {error && <div className="field-error" role="alert">{error}</div>}
       </div>
       <div className="s-right">
-        <Btn variant="grad" size="lg" icon="wand-sparkles" onClick={onCreate} disabled={!ready}>Create clips</Btn>
+        <Btn variant="grad" size="lg" icon="wand-sparkles" onClick={onCreate} disabled={!ready}>{t('create.summary.createBtn')}</Btn>
       </div>
     </div>
   );
 }
 
 export function CreateView({ opts, set, onPickPreset, onCreate, presets, defaultId, onSetDefault, onDelete, onSaveCurrent }) {
+  const t = useT();
   const validation = validateCreateOptions(opts);
   const ready = validation.valid;
   const nSources = Math.max(1, validation.sourceCount);
   const count = opts.detect ? opts.clips * nSources : nSources;
   return (
     <div className="container fade-in">
-      <Hero eyebrow="Drop a link · get scroll-stopping shorts" line1="Long videos in." grad="Viral shorts out."
-        sub="Drop a link from YouTube, Twitch, or Kick (or upload a file) and ClippyMe does the rest: transcribes it, finds the best moments, reframes and trims them, and queues the top clips to post." />
+      <Hero eyebrow={t('create.hero.eyebrow')} line1={t('create.hero.line1')} grad={t('create.hero.grad')}
+        sub={t('create.hero.sub')} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {/* Order: pick a source first, then optionally start from a preset,
             then fine-tune the recipe by hand. */}
         <SourcePanel opts={opts} set={set} />
         <div>
-          <div className="label" style={{ marginBottom: 12 }}>Start from a preset, or set everything by hand below</div>
+          <div className="label" style={{ marginBottom: 12 }}>{t('create.presets.introLabel')}</div>
           <PresetCards presets={presets} active={opts.preset} defaultId={defaultId}
             onPick={onPickPreset} onSetDefault={onSetDefault} onDelete={onDelete} onSaveCurrent={onSaveCurrent} />
         </div>
