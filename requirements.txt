@@ -18,7 +18,7 @@ faster-whisper==1.2.1
 # release of the SDK (gemini_service / gemini_parser depend on the 1.x API).
 google-genai>=1.70.0,<2.0.0
 python-dotenv==1.2.2
-mediapipe==0.10.14
+mediapipe==
 fastapi==0.135.3
 # Explicit Starlette floor: 1.0.1 fixes CVE-2026-48710 ("BadHost" — a malformed
 # Host header reparse let request.url.path diverge from the routed path, an
