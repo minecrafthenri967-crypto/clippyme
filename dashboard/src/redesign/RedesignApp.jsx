@@ -18,6 +18,7 @@ import { optsToPreselections, restoreJob, listBackendJobIds, cancelJob, pauseJob
 import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, deleteUserPreset, setDefaultPreset } from './presets';
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
+import { planAutoCompose } from '../lib/autoCompose';
 import { runApplyEdit } from '../lib/applyEdit';
 
 import { useJobSubmission } from '../hooks/useJobSubmission';
@@ -363,6 +364,31 @@ export default function RedesignApp() {
     };
     await Promise.all(Array.from({ length: Math.min(limit, plan.length) }, worker));
   };
+
+  // Burn the Create recipe into freshly finished clips right away, so the
+  // preview shows captions/hook/grade instead of the raw render. Before this,
+  // the burn only happened at download/publish time, which made a ticked
+  // "captions" box look like it did nothing. Composing writes a SEPARATE
+  // composed file, so editing, reframing and re-composing all still work.
+  const autoComposedRef = useRef(new Set());
+  // Indices are per-job — a new job starts from a clean slate.
+  useEffect(() => { autoComposedRef.current = new Set(); }, [jobId]);
+  useEffect(() => {
+    if (status !== 'complete') return;
+    const plan = planAutoCompose({
+      clips: results?.clips || [], clipStates, preselections,
+      done: autoComposedRef.current,
+    });
+    if (!plan.length) return;
+    // Claim the indices BEFORE awaiting: composing writes clip state, which
+    // re-runs this effect, and an unclaimed index would be planned twice.
+    plan.forEach(({ idx }) => autoComposedRef.current.add(idx));
+    pushToast('info', `Rendering layers into ${plan.length} clip${plan.length === 1 ? '' : 's'}…`);
+    runBulk(plan);
+    // `results` rather than the derived `clips` array: the latter is rebuilt
+    // every render and would re-fire this on each one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, results, clipStates, preselections]);
 
   // "Apply to all": take one clip's saved settings (or the global seeds if it
   // was never edited) and reprocess every OTHER visible clip with them. Manual

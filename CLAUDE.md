@@ -245,8 +245,14 @@ grade runs first so overlays keep authored colour; logo sits on top; the
 attribution banner (`banner.py`: platform logo + handle, `attach` mode pins it
 under the letterbox band when `reframe_mode == disabled`) renders topmost as a
 separate pass. Grade+subtitles and hook+logo are pass-fused (one encode each)
-when possible. Toggles are UI-only state; composition happens at
-download/publish time. Serialised per clip via `clip_locks.clip_lock`.
+when possible. Serialised per clip via `clip_locks.clip_lock`.
+The pipeline renders clips RAW — every layer is compose-time. The dashboard
+auto-composes on job completion (`lib/autoCompose.js` plans, `RedesignApp`
+feeds the plan to the same bounded runner as bulk-apply), so the preview
+already shows the Create recipe; download/publish compose too, so a clip is
+never uploaded raw. Compose writes a SEPARATE `composed_clip_N` file and never
+touches the raw clip or the preserved `source_*` slice, which is what keeps
+post-hoc editing and reframe switching working.
 Hook overlay shows only the first 4s of the clip, EXCEPT
 `reframe_mode == disabled` where it stays for the whole clip.
 
