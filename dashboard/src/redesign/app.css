@@ -62,6 +62,10 @@ h1, h2, h3, h4, h5, h6 {
 .tab.active{background:var(--bg-4);color:var(--fg-1)}
 .tab svg{width:15px;height:15px}
 .nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.lang-switch{display:inline-flex;border:1px solid var(--line-1);border-radius:var(--r-pill);padding:2px;gap:2px}
+.lang-pill{border:0;background:none;color:var(--fg-3);font-family:var(--font-mono);font-size:var(--text-3xs);letter-spacing:.08em;padding:4px 9px;border-radius:var(--r-pill);cursor:pointer}
+.lang-pill.active{background:var(--bg-3);color:var(--fg-1)}
+.lang-pill:hover:not(.active){color:var(--fg-2)}
 .avatar{width:32px;height:32px;border-radius:50%;background:var(--grad-viral);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:var(--text-xs);color:#fff;flex:none}
 .status-dot{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:var(--text-3xs);letter-spacing:.14em;text-transform:uppercase;color:var(--fg-3);padding:6px 11px;border:1px solid var(--line-1);border-radius:var(--r-pill)}
 .status-dot i{width:6px;height:6px;border-radius:50%;background:var(--brand-teal);box-shadow:0 0 0 3px rgba(2,197,191,.16)}
