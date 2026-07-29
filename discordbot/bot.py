@@ -10,17 +10,22 @@ environment either way — compose injects it via ``env_file: .env.discord``, an
 the standalone path loads that same file directly.
 
 HOW THE VIDEO REACHES DISCORD (three tiers, in order):
-  1. Direct file upload from CLIPPYME_OUTPUT_DIR — works even when the backend
-     only listens on loopback, and shows the clip inline. This is the normal
-     case when bot and backend share a host (or a compose volume).
+  1. Compose (subtitles/hook — same recipe as publish, see below) via
+     ``POST /api/compose``, then ffmpeg-shrink that result (DISCORD_PREVIEW_*)
+     purely so it fits Discord's upload limit; the publish step re-composes at
+     full quality from the untouched source, so the shrink never touches what
+     actually gets uploaded to TikTok/YouTube. Falls back to the raw clip
+     (marked as such in the message) if compose or the shrink fails.
   2. A public link via CLIPPYME_PUBLIC_URL, for clips over Discord's limit.
   3. No video, plus a message saying exactly what to configure.
 A localhost URL is never posted: it would resolve on the *viewer's* machine,
-so it is always dead.
+so it is always dead. Requires ffmpeg in this container's image (the backend
+does every real render/compose pass — this is only for the shrink step).
 
 CAPTIONS AND HOOKS: the pipeline renders clips raw and burns overlays at
-publish time, so this sends ``compose_first`` with the toggles below —
-otherwise a clip reaches TikTok with no subtitles.
+publish time, so both the preview compose and the publish body send
+``compose_first`` with the toggles below — otherwise a clip reaches TikTok
+with no subtitles, and Discord shows something different from what publishes.
 
 LIVE MONITOR: if one is running for the same channel, keep its publishing
 paused (``POST /api/live-monitor/{id}/publishing {"enabled": false}``, or start
@@ -28,6 +33,7 @@ it with ``publishing_enabled: false``). Resuming it later drains a queue that
 would re-publish clips already approved here.
 """
 
+import asyncio
 import json
 import os
 
@@ -77,6 +83,11 @@ CLIPPYME_OUTPUT_DIR = os.getenv("CLIPPYME_OUTPUT_DIR", "output")
 PUBLISH_GATE_TOKEN = (os.getenv("PUBLISH_GATE_TOKEN", "") or "").strip()
 # Discord's per-server upload limit: 10 MB unboosted, 50 at level 2, 100 at 3.
 MAX_UPLOAD_MB = _int("MAX_UPLOAD_MB", 10)
+# The composed (subtitles/hook burned in) file is re-encoded at THIS size for
+# the Discord preview only — a 2K/4K source composes well past Discord's
+# limit, and the actual publish upload is untouched, always full quality.
+DISCORD_PREVIEW_MAX_HEIGHT = _int("DISCORD_PREVIEW_MAX_HEIGHT", 960)
+DISCORD_PREVIEW_CRF = _int("DISCORD_PREVIEW_CRF", 30)
 
 APPROVE_EMOJI = os.getenv("APPROVE_EMOJI", "✅")
 REJECT_EMOJI = os.getenv("REJECT_EMOJI", "❌")
@@ -180,6 +191,40 @@ async def _fetch_zernio_accounts() -> dict:
     return data.get("accounts") or {}
 
 
+def _build_compose_toggles(hook_text: str):
+    """The layer toggles + params shared by the publish body and the
+    Discord-preview compose call — same recipe either way, so what gets
+    approved in Discord is what gets published, just at a smaller file size."""
+    toggles = {
+        "smartcut": BURN_SMARTCUT,
+        "subtitles": BURN_SUBTITLES,
+        # An empty hook text makes the backend skip the layer anyway.
+        "hook": BURN_HOOK and bool(hook_text),
+        "logo": False,
+        "grade": False,
+        "banner": False,
+    }
+    hook_params = (
+        {"text": hook_text, "position": HOOK_POSITION, "size": "S", "offset_y": 0}
+        if toggles["hook"] else {}
+    )
+    subtitle_params = (
+        {
+            "preset": SUBTITLE_PRESET,
+            "mode": "karaoke",
+            "display_mode": "word_group",
+            "font": SUBTITLE_FONT,
+            "position": SUBTITLE_POSITION,
+            "align": "center",
+            "font_color": "#FFFFFF",
+            "outline_color": "#000000",
+            "offset_y": 0,
+        }
+        if toggles["subtitles"] else {}
+    )
+    return toggles, hook_params, subtitle_params
+
+
 def _build_publish_body(title: str, hook_text: str):
     """Body for POST /api/publish/{job}/{clip}, or None if no account matches.
 
@@ -194,15 +239,7 @@ def _build_publish_body(title: str, hook_text: str):
     if not targets:
         return None
 
-    toggles = {
-        "smartcut": BURN_SMARTCUT,
-        "subtitles": BURN_SUBTITLES,
-        # An empty hook text makes the backend skip the layer anyway.
-        "hook": BURN_HOOK and bool(hook_text),
-        "logo": False,
-        "grade": False,
-        "banner": False,
-    }
+    toggles, hook_params, subtitle_params = _build_compose_toggles(hook_text)
 
     body = {
         "title": (title or "Clip")[:100],
@@ -225,30 +262,69 @@ def _build_publish_body(title: str, hook_text: str):
         body.update({
             "compose_first": True,
             "toggles": toggles,
-            "hook_params": (
-                {"text": hook_text, "position": HOOK_POSITION, "size": "S", "offset_y": 0}
-                if toggles["hook"] else {}
-            ),
-            "subtitle_params": (
-                {
-                    "preset": SUBTITLE_PRESET,
-                    "mode": "karaoke",
-                    "display_mode": "word_group",
-                    "font": SUBTITLE_FONT,
-                    "position": SUBTITLE_POSITION,
-                    "align": "center",
-                    "font_color": "#FFFFFF",
-                    "outline_color": "#000000",
-                    "offset_y": 0,
-                }
-                if toggles["subtitles"] else {}
-            ),
+            "hook_params": hook_params,
+            "subtitle_params": subtitle_params,
             "logo_params": {},
             "grade_params": {},
             "banner_params": {},
             "drop_ranges": [],
         })
     return body
+
+
+async def _compose_preview(job_id: str, idx: int, hook_text: str):
+    """Compose (subtitles/hook, same recipe as publish) then shrink the result
+    for Discord: a 2K/4K source composes to a file well over Discord's upload
+    limit, and a dead oversized-clip link isn't a preview. Returns a path to a
+    small temp file the caller must delete, or None if compose/shrink failed
+    (caller falls back to posting the raw clip)."""
+    toggles, hook_params, subtitle_params = _build_compose_toggles(hook_text)
+    if not any(toggles.values()):
+        return None  # nothing to burn in — raw clip already looks final
+
+    url = f"{CLIPPYME_API}/api/compose/{job_id}/{idx}"
+    payload = {
+        "toggles": toggles, "hook_params": hook_params, "subtitle_params": subtitle_params,
+        "logo_params": {}, "grade_params": {}, "banner_params": {}, "drop_ranges": [],
+    }
+    try:
+        async with aiohttp.ClientSession() as session, session.post(
+            url, json=payload, timeout=aiohttp.ClientTimeout(total=300)
+        ) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                print(f"Compose failed for {job_id}/{idx}: {resp.status} {text[:200]}", flush=True)
+                return None
+            composed = (await resp.json()).get("composed_url", "")
+    except Exception as exc:
+        print(f"Compose request failed for {job_id}/{idx}: {exc}", flush=True)
+        return None
+
+    composed_path = _local_clip_path(composed)
+    if not composed_path:
+        return None
+
+    preview_path = f"/tmp/preview_{job_id}_{idx}.mp4"
+    cmd = [
+        "ffmpeg", "-y", "-i", composed_path,
+        "-vf", f"scale=-2:{DISCORD_PREVIEW_MAX_HEIGHT}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(DISCORD_PREVIEW_CRF),
+        "-c:a", "aac", "-b:a", "96k",
+        preview_path,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode != 0 or not os.path.isfile(preview_path):
+            print(f"Preview shrink failed for {job_id}/{idx}: {stderr.decode(errors='replace')[-300:]}",
+                  flush=True)
+            return None
+        return preview_path
+    except Exception as exc:
+        print(f"Preview shrink failed for {job_id}/{idx}: {exc}", flush=True)
+        return None
 
 
 @bot.event
@@ -331,57 +407,74 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
         f"Job: {job_id} | Clip {idx}  (#{idx + 1} of {total})\n"
         f"Length: {duration}s\n"
     )
-    note = (
-        "_Preview is the raw clip — subtitles/hook are burned in on publish._\n\n"
-        f"{APPROVE_EMOJI} approve  ·  {REJECT_EMOJI} reject"
-    )
 
-    local_path = _local_clip_path(video_url)
+    # Preview shows subtitles/hook burned in — same recipe as publish, so
+    # approving here and what lands on TikTok/YouTube match. Shrunk to
+    # DISCORD_PREVIEW_MAX_HEIGHT/CRF purely for Discord's upload limit; the
+    # actual publish re-composes at full quality from the untouched source.
+    preview_path = await _compose_preview(job_id, idx, hook_text)
+    is_preview = preview_path is not None
+    local_path = preview_path or _local_clip_path(video_url)
+    note = (
+        ("_Preview: subtitles/hook burned in (shrunk for Discord — publish is full quality)._\n\n"
+         if is_preview else
+         "_Preview is the raw clip — subtitles/hook are burned in on publish._\n\n")
+        + f"{APPROVE_EMOJI} approve  ·  {REJECT_EMOJI} reject"
+    )
     attachment = None
     body = header
 
-    if local_path:
-        size_mb = os.path.getsize(local_path) / (1024 * 1024)
-        if size_mb <= MAX_UPLOAD_MB:
-            attachment = discord.File(local_path, filename=os.path.basename(local_path))
-            body += note
-        elif CLIPPYME_PUBLIC_URL:
-            body += (f"{CLIPPYME_PUBLIC_URL}{video_url}\n"
-                     f"_({size_mb:.1f} MB — too large to upload)_\n\n{note}")
-        else:
-            body += (f"_Clip is {size_mb:.1f} MB, over Discord's {MAX_UPLOAD_MB} MB limit. "
-                     f"Set CLIPPYME_PUBLIC_URL to link it instead._\n\n{note}")
-    elif CLIPPYME_PUBLIC_URL:
-        body += f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n{note}"
-    else:
-        body += ("_No video attached: file not found and no public URL set. "
-                 f"Check CLIPPYME_OUTPUT_DIR / CLIPPYME_PUBLIC_URL._\n\n{note}")
-
     try:
-        sent = (await channel.send(body, file=attachment) if attachment
-                else await channel.send(body))
-        await sent.add_reaction(APPROVE_EMOJI)
-        await sent.add_reaction(REJECT_EMOJI)
-    except discord.HTTPException as exc:
-        # Usually the file was over the server's real limit after all. Retry
-        # once without it so the clip can still be approved.
-        print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
-        if attachment is None:
-            return
-        fallback = header + (
-            f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n" if CLIPPYME_PUBLIC_URL
-            else "_Video upload to Discord failed (file too large?)._\n\n"
-        ) + note
+        if local_path:
+            size_mb = os.path.getsize(local_path) / (1024 * 1024)
+            if size_mb <= MAX_UPLOAD_MB:
+                attachment = discord.File(local_path, filename=os.path.basename(local_path))
+                body += note
+            elif CLIPPYME_PUBLIC_URL:
+                body += (f"{CLIPPYME_PUBLIC_URL}{video_url}\n"
+                         f"_({size_mb:.1f} MB — too large to upload)_\n\n{note}")
+            else:
+                body += (f"_Clip is {size_mb:.1f} MB, over Discord's {MAX_UPLOAD_MB} MB limit. "
+                         f"Set CLIPPYME_PUBLIC_URL to link it instead._\n\n{note}")
+        elif CLIPPYME_PUBLIC_URL:
+            body += f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n{note}"
+        else:
+            body += ("_No video attached: file not found and no public URL set. "
+                     f"Check CLIPPYME_OUTPUT_DIR / CLIPPYME_PUBLIC_URL._\n\n{note}")
+
         try:
-            sent = await channel.send(fallback)
+            sent = (await channel.send(body, file=attachment) if attachment
+                    else await channel.send(body))
             await sent.add_reaction(APPROVE_EMOJI)
             await sent.add_reaction(REJECT_EMOJI)
-        except Exception as exc2:
-            print(f"Fallback post also failed: {exc2}", flush=True)
+        except discord.HTTPException as exc:
+            # Usually the file was over the server's real limit after all. Retry
+            # once without it so the clip can still be approved.
+            print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
+            if attachment is None:
+                return
+            fallback = header + (
+                f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n" if CLIPPYME_PUBLIC_URL
+                else "_Video upload to Discord failed (file too large?)._\n\n"
+            ) + note
+            try:
+                sent = await channel.send(fallback)
+                await sent.add_reaction(APPROVE_EMOJI)
+                await sent.add_reaction(REJECT_EMOJI)
+            except Exception as exc2:
+                print(f"Fallback post also failed: {exc2}", flush=True)
+                return
+        except Exception as exc:
+            print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
             return
-    except Exception as exc:
-        print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
-        return
+    finally:
+        # The preview is a throwaway re-encode made just for this message —
+        # never leave it behind in the container's /tmp.
+        if is_preview:
+            try:
+                os.remove(preview_path)
+            except OSError:
+                pass
 
     _clip_meta[(job_id, idx)] = {"title": title, "hook_text": hook_text}
     _posted.add((job_id, idx))

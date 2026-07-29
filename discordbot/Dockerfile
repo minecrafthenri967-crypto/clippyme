@@ -1,7 +1,12 @@
 # Discord gatekeeper bot. Deliberately tiny and separate from the backend
-# image: it needs no ffmpeg, no CV stack, and no model weights — just an HTTP
-# client and discord.py — so it builds in seconds and restarts instantly.
+# image: no CV stack, no model weights — just an HTTP client, discord.py,
+# and ffmpeg (only for shrinking the composed preview to fit Discord's
+# upload limit; the backend does every real render/compose pass).
 FROM python:3.11-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
