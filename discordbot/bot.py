@@ -394,15 +394,28 @@ async def before_poll():
 
 
 @bot.event
-async def on_reaction_add(reaction, user):
-    if user.bot:
+async def on_raw_reaction_add(payload):
+    """Raw variant, not on_reaction_add: that one only fires for messages still
+    in discord.py's in-memory cache, which a bot restart empties — exactly what
+    happens here since a code/config change means recreating the container.
+    A raw event carries just IDs, so the message is always fetched fresh."""
+    if payload.channel_id != CHANNEL_ID:
         return
-    if reaction.message.channel.id != CHANNEL_ID:
+    if str(payload.emoji) not in (APPROVE_EMOJI, REJECT_EMOJI):
         return
-    if str(reaction.emoji) not in (APPROVE_EMOJI, REJECT_EMOJI):
+    if payload.member is not None and payload.member.bot:
         return
 
-    message = reaction.message
+    channel = bot.get_channel(payload.channel_id)
+    if channel is None:
+        return
+    try:
+        message = await channel.fetch_message(payload.message_id)
+    except discord.NotFound:
+        return
+
+    user = payload.member or bot.get_user(payload.user_id) or await bot.fetch_user(payload.user_id)
+
     content = message.content or ""
     if "Job:" not in content or "Clip" not in content:
         return
@@ -414,7 +427,7 @@ async def on_reaction_add(reaction, user):
         await message.reply(f"{REJECT_EMOJI} Could not parse this message: {exc}")
         return
 
-    if str(reaction.emoji) == APPROVE_EMOJI:
+    if str(payload.emoji) == APPROVE_EMOJI:
         await handle_approval(message, user, job_id, clip_index)
     else:
         await handle_rejection(message, user, job_id, clip_index)
