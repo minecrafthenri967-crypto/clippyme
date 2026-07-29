@@ -16,7 +16,7 @@
 set -e
 
 if [ "$(id -u)" = "0" ] && [ "${1:-}" = "uvicorn" ]; then
-    for d in /app/data /app/output /app/uploads; do
+    for d in /app/data /app/output /app/uploads /app/.config /app/.cache; do
         mkdir -p "$d"
     done
     # data/ is small (config, cookies, cache, fonts, bin) — safe to recurse.
@@ -24,6 +24,14 @@ if [ "$(id -u)" = "0" ] && [ "${1:-}" = "uvicorn" ]; then
     # output/ and uploads/ can be large; their contents are already
     # appuser-created, so only the top-level dir needs fixing.
     chown appuser:appuser /app/output /app/uploads 2>/dev/null || true
+    # .config/.cache hold library caches (matplotlib, ultralytics' YOLO
+    # weights, huggingface, torch, ...) built into the image at /app/.config
+    # during the build's pre-download step, but the dev bind mount (`.:/app`)
+    # shadows that baked-in cache with the host checkout — which has no such
+    # directory yet — so appuser (a build-time-only user, meaningless to the
+    # host) hits a permission-denied mkdir on first lazy-download at runtime.
+    # Safe to recurse: nothing here is user data.
+    chown -R appuser:appuser /app/.config /app/.cache 2>/dev/null || true
     exec gosu appuser "$@"
 fi
 
