@@ -116,3 +116,20 @@ def test_scan_history_surfaces_published_records(tmp_path):
     assert out[0]["clips"][0]["published"] == [{"platforms": ["tiktok"], "post_id": "p1"}]
     assert out[0]["clips"][1]["published"] == []
     assert out[0]["publishedCount"] == 1
+
+
+def test_scan_history_surfaces_hook_text(tmp_path):
+    # backfill_hook_text guarantees every clip a non-empty viral_hook_text;
+    # an external consumer (e.g. an approval bot compositing before publish)
+    # needs it exposed under the API's own field name, not the raw one.
+    clips = [{"start": 0, "end": 10, "viral_hook_text": "Wait for it"}]
+    _make_job(str(tmp_path), VALID_UUID, clips=clips)
+    out = hs.scan_history(str(tmp_path))
+    assert out[0]["clips"][0]["hook_text"] == "Wait for it"
+
+
+def test_scan_history_hook_text_defaults_empty(tmp_path):
+    clips = [{"start": 0, "end": 10}]
+    _make_job(str(tmp_path), VALID_UUID, clips=clips)
+    out = hs.scan_history(str(tmp_path))
+    assert out[0]["clips"][0]["hook_text"] == ""

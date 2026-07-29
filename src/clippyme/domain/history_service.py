@@ -67,6 +67,11 @@ def scan_history(output_dir: str) -> List[dict]:
                                 "start": clip.get("start", 0),
                                 "end": clip.get("end", 0),
                                 "published": clip.get("published", []),
+                                # backfill_hook_text guarantees every clip has this
+                                # non-empty; exposed so callers can burn the hook
+                                # layer without re-deriving it (e.g. an external
+                                # approval bot compositing before publish).
+                                "hook_text": clip.get("viral_hook_text", ""),
                             }
                         )
                 dir_mtime = os.path.getmtime(job_dir)
