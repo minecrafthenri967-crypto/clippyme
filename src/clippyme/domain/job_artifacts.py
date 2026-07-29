@@ -72,6 +72,49 @@ def record_clip_publish(job_id: str, clip_index: int, output_dir: str, record: d
         save_job_metadata(metadata_path, data)
 
 
+def _safe_remove(path: str) -> None:
+    try:
+        if path and os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def delete_clip_artifacts(job_id: str, clip_index: int, output_dir: str,
+                          clip_info: dict, clip_path: str) -> None:
+    """Remove one published clip's on-disk files: the raw render, its
+    preserved 16:9 source slice, cover image, and composed (subtitles/hook)
+    output. Marks the entry ``deleted_after_publish`` instead of removing it
+    from ``shorts`` — every per-clip endpoint keys clips by list position, so
+    dropping an entry would shift every later clip's index.
+
+    Best-effort and silent by design: call this only after a publish has
+    already succeeded, so a cleanup hiccup here must never surface as a
+    publish failure. Shared by the one-off publish flow and Live Monitor's
+    auto-publish so the two don't duplicate (and drift on) this logic.
+    """
+    try:
+        job_dir = os.path.join(output_dir, job_id)
+        clip_filename = os.path.basename(clip_path)
+        stem = os.path.splitext(clip_filename)[0]
+        from clippyme.domain.clip_resolve import composed_clip_basename
+        targets = [
+            clip_path,
+            os.path.join(job_dir, f"source_{clip_filename}"),
+            os.path.join(job_dir, f"{stem}_cover.jpg"),
+            os.path.join(job_dir, composed_clip_basename(clip_info, clip_index)),
+        ]
+        for path in targets:
+            _safe_remove(path)
+        metadata_path, data = load_job_metadata(job_id, output_dir)
+        shorts = data.get("shorts", [])
+        if 0 <= clip_index < len(shorts):
+            shorts[clip_index]["deleted_after_publish"] = True
+            save_job_metadata(metadata_path, data)
+    except Exception:
+        logger.warning("delete_clip_artifacts failed for %s/%d", job_id, clip_index, exc_info=True)
+
+
 def relocate_root_job_artifacts(job_id: str, job_output_dir: str, output_dir: str) -> bool:
     """Backward-compat rescue.
 

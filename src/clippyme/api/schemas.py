@@ -307,6 +307,7 @@ class PublishRequest(BaseModel):
     grade_params: Optional[dict] = None
     banner_params: Optional[dict] = None
     drop_ranges: Optional[list] = None
+    delete_after_publish: bool = True
 
     @field_validator("timezone")
     @classmethod

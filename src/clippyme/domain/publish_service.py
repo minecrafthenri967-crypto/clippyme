@@ -162,4 +162,18 @@ async def publish_clip_flow(*, job_id: str, clip_index: int,
     except Exception as e:
         logger.warning("publish: failed to persist publish record for %s/%d: %s", job_id, clip_index, e)
 
+    # Default on: once a clip is live on the platform, the local raw render,
+    # preserved 16:9 source slice, and composed file are disk space with no
+    # further purpose. Opt out per-request with delete_after_publish=False.
+    if req.get("delete_after_publish", True):
+        try:
+            from clippyme.domain.job_artifacts import delete_clip_artifacts
+            await asyncio.to_thread(
+                delete_clip_artifacts,
+                job_id, clip_index, os.path.dirname(job_dir),
+                resolved.clip_info, resolved.clip_path,
+            )
+        except Exception as e:
+            logger.warning("publish: artifact cleanup failed for %s/%d: %s", job_id, clip_index, e)
+
     return {"success": True, **result}
