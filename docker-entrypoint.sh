@@ -19,6 +19,14 @@ if [ "$(id -u)" = "0" ] && [ "${1:-}" = "uvicorn" ]; then
     for d in /app/data /app/output /app/uploads /app/.config /app/.cache; do
         mkdir -p "$d"
     done
+    # /app itself (the bind-mounted repo checkout) stays root-owned on the
+    # host, so appuser can traverse into it but can't create NEW entries
+    # there. Some libraries (ultralytics' YOLO('yolov8n.pt') among them)
+    # resolve a bare relative filename against the process's cwd — /app for
+    # uvicorn — and fail with a plain EACCES on the first lazy download.
+    # Non-recursive: this only grants "create new entries" on the directory
+    # itself, every existing file keeps its current ownership untouched.
+    chown appuser:appuser /app 2>/dev/null || true
     # data/ is small (config, cookies, cache, fonts, bin) — safe to recurse.
     chown -R appuser:appuser /app/data 2>/dev/null || true
     # output/ and uploads/ can be large; their contents are already
