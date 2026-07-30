@@ -119,6 +119,7 @@ Alle in `.env.discord`, danach `docker compose --profile discord up -d --build`.
 | `DISCORD_BOT_TOKEN` | — | **Pflicht.** Bot-Token aus dem Developer Portal |
 | `DISCORD_CHANNEL_ID` | — | **Pflicht.** Channel für die Freigaben |
 | `PUBLISH_PLATFORMS` | `tiktok,instagram,youtube` | Wohin genehmigte Clips gehen. Plattformen ohne verbundenes Zernio-Konto werden übersprungen |
+| `ZERNIO_PROFILE` | `default` | Welches benannte Zernio-Profil (Einstellungen → Zernio) dieser Bot benutzt. Für eine zweite Kampagne mit eigenem Konto: eigenes Profil in ClippyMe anlegen + einen zweiten Bot-Container mit eigener `.env.discord` starten |
 | `BURN_SUBTITLES` | `true` | Untertitel beim Veröffentlichen einbrennen |
 | `BURN_HOOK` | `true` | Text-Hook einbrennen |
 | `BURN_SMARTCUT` | `false` | Stille/Füllwörter entfernen |

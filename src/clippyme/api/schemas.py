@@ -308,6 +308,9 @@ class PublishRequest(BaseModel):
     banner_params: Optional[dict] = None
     drop_ranges: Optional[list] = None
     delete_after_publish: bool = True
+    # Which named Zernio account this publish uses (see ZernioProfileCreateRequest
+    # below). "default" reproduces pre-profile behavior for single-campaign installs.
+    zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
 
     @field_validator("timezone")
     @classmethod
@@ -388,6 +391,10 @@ class LiveMonitorStartRequest(BaseModel):
     # Omitted → keep whatever the restored snapshot had, which is how a restart
     # of a deliberately paused monitor stays paused.
     publishing_enabled: Optional[bool] = None
+    # Which named Zernio account this monitor auto-publishes through. An
+    # identity field (like platform/channel) — not runtime-patchable, see
+    # live_monitor._UPDATABLE_CONFIG_FIELDS.
+    zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
 
     @field_validator("timezone")
     @classmethod
@@ -477,3 +484,19 @@ class ZernioConfigRequest(BaseModel):
                     f"account id for {platform!r} must be a string <= 256 chars"
                 )
         return value
+
+
+class ZernioProfileCreateRequest(BaseModel):
+    id: str = Field(..., pattern=r"^[a-z0-9_-]{1,32}$")
+    label: Optional[str] = Field(None, max_length=64)
+
+    @field_validator("id")
+    @classmethod
+    def _reject_default(cls, value: str) -> str:
+        if value == "default":
+            raise ValueError("'default' already exists and cannot be recreated")
+        return value
+
+
+class ZernioProfileRenameRequest(BaseModel):
+    label: str = Field(..., min_length=1, max_length=64)

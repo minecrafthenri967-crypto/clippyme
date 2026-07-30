@@ -288,14 +288,14 @@ export async function deleteLogo() {
   return res.json().catch(() => ({}));
 }
 
-export async function getZernio() {
-  const res = await apiFetch(getApiUrl('/api/config/zernio'));
+export async function getZernio(profile = 'default') {
+  const res = await apiFetch(getApiUrl(`/api/config/zernio?profile=${encodeURIComponent(profile)}`));
   if (!res.ok) return { configured: false };
   return res.json();
 }
 
-export async function saveZernio(payload) {
-  const res = await apiFetch(getApiUrl('/api/config/zernio'), {
+export async function saveZernio(payload, profile = 'default') {
+  const res = await apiFetch(getApiUrl(`/api/config/zernio?profile=${encodeURIComponent(profile)}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -304,9 +304,45 @@ export async function saveZernio(payload) {
   return res.json().catch(() => ({}));
 }
 
-export async function discoverZernioAccounts() {
-  const res = await apiFetch(getApiUrl('/api/zernio/accounts'));
+export async function discoverZernioAccounts(profile = 'default') {
+  const res = await apiFetch(getApiUrl(`/api/zernio/accounts?profile=${encodeURIComponent(profile)}`));
   if (!res.ok) throw new Error('Discover failed');
+  return res.json();
+}
+
+// --- Zernio profiles (named accounts for separate campaigns) ---------------
+
+export async function getZernioProfiles() {
+  const res = await apiFetch(getApiUrl('/api/config/zernio/profiles'));
+  if (!res.ok) return { profiles: [{ id: 'default', label: 'Default', configured: false }] };
+  return res.json();
+}
+
+export async function createZernioProfile(id, label) {
+  const res = await apiFetch(getApiUrl('/api/config/zernio/profiles'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, label }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Create profile failed'); }
+  return res.json();
+}
+
+export async function renameZernioProfile(profileId, label) {
+  const res = await apiFetch(getApiUrl(`/api/config/zernio/profiles/${encodeURIComponent(profileId)}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Rename profile failed'); }
+  return res.json();
+}
+
+export async function deleteZernioProfile(profileId) {
+  const res = await apiFetch(getApiUrl(`/api/config/zernio/profiles/${encodeURIComponent(profileId)}`), {
+    method: 'DELETE',
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Delete profile failed'); }
   return res.json();
 }
 

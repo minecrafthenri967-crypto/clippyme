@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { Hero } from './chrome';
 import { Icon, Panel, Btn, Badge, Switch, Segmented, PlatPill, PLATFORMS } from './primitives';
-import { getZernio, startLiveMonitor, stopLiveMonitor, updateMonitorConfig, setMonitorPublishing, probeLiveMonitor } from './realApi';
+import { getZernio, getZernioProfiles, startLiveMonitor, stopLiveMonitor, updateMonitorConfig, setMonitorPublishing, probeLiveMonitor } from './realApi';
 import { PLAT } from './publish';
 import { validateSlug, buildPlatformTargets, classifyStartError, clampMonitorTimings } from '../lib/liveMonitorForm';
 import { buildMonitorBannerPayload } from '../lib/liveMonitorBanner';
@@ -153,6 +153,7 @@ function MonitorSettings({ monitor, onApply, applying }) {
 
 function MonitorCard({ monitor, onStop, stopping, onApplySettings, applyingSettings, onTogglePublishing, togglingPublishing }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const zernioProfile = monitor.config?.zernio_profile;
   return (
     <div className="opt" style={{ borderBottom: 0, flexDirection: 'column', alignItems: 'stretch' }}>
       <div style={{ display: 'flex', width: '100%' }}>
@@ -160,6 +161,9 @@ function MonitorCard({ monitor, onStop, stopping, onApplySettings, applyingSetti
           <div className="ot">
             <Badge tone="out">{PLATFORM_LABEL[monitor.platform] || monitor.platform}</Badge>{' '}
             <Badge tone={STATE_TONE[monitor.state] || 'out'}>{STATE_LABEL[monitor.state] || monitor.state || 'Unknown'}</Badge>
+            {zernioProfile && zernioProfile !== 'default' && (
+              <Badge tone="amber" icon="rss">{zernioProfile}</Badge>
+            )}
             <span style={{ marginLeft: 8, color: 'var(--fg-3)' }}>{monitor.channel || monitor.slug}</span>
             {monitor.mode === 'vod' && <span style={{ marginLeft: 8, color: 'var(--fg-4)' }}>VOD</span>}
           </div>
@@ -232,6 +236,8 @@ function ProbeResultBanner({ result }) {
 
 export function LiveMonitorView({ pushToast }) {
   const [zernio, setZernio] = useState(null);
+  const [zernioProfiles, setZernioProfiles] = useState([{ id: 'default', label: 'Default', configured: false }]);
+  const [zernioProfile, setZernioProfile] = useState('default');
   const [platform, setPlatform] = useState('kick');
   const [mode, setMode] = useState('live');
   const [slug, setSlug] = useState('');
@@ -260,7 +266,10 @@ export function LiveMonitorView({ pushToast }) {
 
   const [monitors, refreshMonitors] = useLiveMonitorStatus();
 
-  useEffect(() => { getZernio().then(setZernio).catch(() => setZernio({ configured: false })); }, []);
+  useEffect(() => { getZernioProfiles().then((r) => setZernioProfiles(r.profiles || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    getZernio(zernioProfile).then(setZernio).catch(() => setZernio({ configured: false }));
+  }, [zernioProfile]);
 
   // YouTube has no "live" concept for this monitor (clips new uploads only).
   useEffect(() => { if (platform === 'youtube' && mode !== 'vod') setMode('vod'); }, [platform, mode]);
@@ -286,6 +295,7 @@ export function LiveMonitorView({ pushToast }) {
         slug: platform === 'youtube' ? slug.trim() : slug.trim().toLowerCase(),
         platform,
         mode,
+        zernio_profile: zernioProfile,
         platforms: targets,
         ...clampMonitorTimings(segmentMin, preliveMin, minGapMin),
         loop,
@@ -382,6 +392,13 @@ export function LiveMonitorView({ pushToast }) {
       </Panel>
 
       <Panel title="Start monitor" sub="Requires Zernio configured in Settings" icon="wand-sparkles">
+        {zernioProfiles.length > 1 && (
+          <div className="field">
+            <span className="field-label">Zernio profile</span>
+            <Segmented value={zernioProfile} onChange={setZernioProfile}
+              options={zernioProfiles.map((p) => ({ id: p.id, label: p.label }))} />
+          </div>
+        )}
         <div className="field">
           <span className="field-label">Platform</span>
           <Segmented value={platform} onChange={setPlatform} options={PLATFORM_OPTIONS} />

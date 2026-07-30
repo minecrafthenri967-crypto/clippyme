@@ -36,6 +36,7 @@ would re-publish clips already approved here.
 import asyncio
 import json
 import os
+from urllib.parse import quote
 
 import aiohttp
 import discord
@@ -81,6 +82,13 @@ CLIPPYME_OUTPUT_DIR = os.getenv("CLIPPYME_OUTPUT_DIR", "output")
 # becomes the only path that can actually publish a clip. Leave both unset to
 # keep publishing open to any caller, as before this gate existed.
 PUBLISH_GATE_TOKEN = (os.getenv("PUBLISH_GATE_TOKEN", "") or "").strip()
+# Which named Zernio account this bot instance publishes through (see
+# storage.config_store's profile namespace on the backend). "default"
+# reproduces the single-account behavior every install had before profiles
+# existed. A second campaign (e.g. eBay Live) is run as a SECOND bot
+# container with its own .env.discord (own channel + ZERNIO_PROFILE) rather
+# than one bot juggling multiple profiles/channels.
+ZERNIO_PROFILE = (os.getenv("ZERNIO_PROFILE", "") or "default").strip().lower() or "default"
 # Discord's per-server upload limit: 10 MB unboosted, 50 at level 2, 100 at 3.
 MAX_UPLOAD_MB = _int("MAX_UPLOAD_MB", 10)
 # The composed (subtitles/hook burned in) file is re-encoded at THIS size for
@@ -173,10 +181,11 @@ def _local_clip_path(video_url: str):
 
 
 async def _fetch_zernio_accounts() -> dict:
-    """Fetch connected Zernio accounts (tiktok/instagram/youtube -> id)."""
+    """Fetch connected Zernio accounts (tiktok/instagram/youtube -> id) for
+    this bot's configured ZERNIO_PROFILE."""
     try:
         async with aiohttp.ClientSession() as session, session.get(
-            f"{CLIPPYME_API}/api/config/zernio"
+            f"{CLIPPYME_API}/api/config/zernio?profile={quote(ZERNIO_PROFILE)}"
         ) as resp:
             if resp.status != 200:
                 print(f"WARNING: /api/config/zernio returned {resp.status}", flush=True)
@@ -247,6 +256,7 @@ def _build_publish_body(title: str, hook_text: str):
         "platforms": targets,
         "schedule_mode": "now",
         "timezone": TIMEZONE,
+        "zernio_profile": ZERNIO_PROFILE,
     }
     if any(t["platform"] == "tiktok" for t in targets):
         body["tiktok_settings"] = {
@@ -348,9 +358,10 @@ async def on_ready():
 
     _zernio_accounts = await _fetch_zernio_accounts()
     if _zernio_accounts:
-        print(f"Zernio accounts: {', '.join(sorted(_zernio_accounts))}", flush=True)
+        print(f"Zernio profile '{ZERNIO_PROFILE}' accounts: {', '.join(sorted(_zernio_accounts))}", flush=True)
     else:
-        print("NOTE: no Zernio accounts — approving will explain why nothing posted.", flush=True)
+        print(f"NOTE: no Zernio accounts on profile '{ZERNIO_PROFILE}' — "
+              "approving will explain why nothing posted.", flush=True)
 
     burn = [n for n, on in (("subtitles", BURN_SUBTITLES), ("hook", BURN_HOOK),
                             ("smart-cut", BURN_SMARTCUT)) if on]
@@ -604,6 +615,7 @@ async def status(ctx):
         f"Channel: <#{CHANNEL_ID}>\n"
         f"API: {CLIPPYME_API}\n"
         f"Video in Discord: {video_mode}\n"
+        f"Zernio profile: {ZERNIO_PROFILE}\n"
         f"Zernio accounts: {accounts}\n"
         f"Burned in at publish: {', '.join(burn) if burn else 'nothing'}\n"
         f"Approved: {_stats['approved']} | Rejected: {_stats['rejected']}\n"
@@ -616,7 +628,10 @@ async def zernio_refresh(ctx):
     """Reload Zernio accounts without restarting the bot."""
     global _zernio_accounts
     _zernio_accounts = await _fetch_zernio_accounts()
-    await ctx.send(f"Zernio accounts: {', '.join(sorted(_zernio_accounts)) or 'none found'}")
+    await ctx.send(
+        f"Zernio profile '{ZERNIO_PROFILE}' accounts: "
+        f"{', '.join(sorted(_zernio_accounts)) or 'none found'}"
+    )
 
 
 if __name__ == "__main__":

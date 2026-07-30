@@ -7,6 +7,7 @@ import { Hero } from './chrome';
 import {
   getConfig, saveConfig, getModels, cookiesStatus, uploadCookies, deleteCookies,
   getZernio, saveZernio, discoverZernioAccounts,
+  getZernioProfiles, createZernioProfile,
   listFonts, uploadFont, deleteFont, logoStatus, uploadLogo, deleteLogo,
 } from './realApi';
 import { SUB_FONTS } from './data';
@@ -143,6 +144,14 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   const [zernio, setZernioState] = useState(null);
   const [zKey, setZKey] = useState('');
   const [accts, setAccts] = useState({ tiktok: '', instagram: '', youtube: '' });
+  // Named Zernio profiles (separate campaigns, each with its own account).
+  // "default" always exists implicitly — the picker itself only renders once
+  // a second profile is created, so a single-campaign install stays unchanged.
+  const [zernioProfiles, setZernioProfiles] = useState([{ id: 'default', label: 'Default', configured: false }]);
+  const [activeZernioProfile, setActiveZernioProfile] = useState('default');
+  const [addingProfile, setAddingProfile] = useState(false);
+  const [newProfileId, setNewProfileId] = useState('');
+  const [newProfileLabel, setNewProfileLabel] = useState('');
   const [cookies, setCookies] = useState(!!cookiesConfigured);
   const [logoOn, setLogoOn] = useState(false);
   const [fonts, setFonts] = useState([]);
@@ -187,13 +196,22 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
 
   useEffect(() => {
     refreshConfig().then(loadModels);
-    getZernio().then((z) => { setZernioState(z); if (z.accounts) setAccts({ tiktok: '', instagram: '', youtube: '', ...z.accounts }); }).catch(() => {});
+    getZernioProfiles().then((r) => setZernioProfiles(r.profiles || [])).catch(() => {});
     cookiesStatus().then((s) => setCookies(!!s.configured)).catch(() => {});
     logoStatus().then((s) => setLogoOn(!!s.configured)).catch(() => {});
     listFonts().then(({ fonts: f }) => setFonts(Array.isArray(f) ? f : [])).catch(() => {});
     // Mount-once bootstrap; loadModels reads the latest key via closure on call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-fetches on every profile switch (including the initial "default" one),
+  // so each named Zernio profile's own key/accounts load independently.
+  useEffect(() => {
+    getZernio(activeZernioProfile).then((z) => {
+      setZernioState(z);
+      setAccts({ tiktok: '', instagram: '', youtube: '', ...(z.accounts || {}) });
+    }).catch(() => {});
+  }, [activeZernioProfile]);
 
   const saveKeys = async (patch) => {
     try { await saveConfig(patch); pushToast?.('success', t('settings.toast.saved')); await refreshConfig(); }
@@ -204,7 +222,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
     try {
       const payload = { accounts: accts };
       if (zKey.trim()) payload.api_key = zKey.trim();
-      const z = await saveZernio(payload);
+      const z = await saveZernio(payload, activeZernioProfile);
       setZernioState(z); setZKey('');
       pushToast?.('success', t('settings.toast.zernioSaved'));
     } catch { pushToast?.('error', t('settings.toast.zernioSaveFailed')); }
@@ -214,8 +232,8 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
     try {
       // Discovery runs against the *saved* key, so persist a freshly-typed one
       // first — otherwise the backend 400s with "API key not configured".
-      if (zKey.trim()) { await saveZernio({ api_key: zKey.trim(), accounts: accts }); setZKey(''); }
-      const { accounts } = await discoverZernioAccounts();
+      if (zKey.trim()) { await saveZernio({ api_key: zKey.trim(), accounts: accts }, activeZernioProfile); setZKey(''); }
+      const { accounts } = await discoverZernioAccounts(activeZernioProfile);
       const next = { ...accts };
       (accounts || []).forEach((a) => {
         const p = (a.platform || '').toLowerCase();
@@ -227,6 +245,21 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
       setAccts(next);
       pushToast?.('success', t('settings.toast.discovered', { count: (accounts || []).length }));
     } catch { pushToast?.('error', t('settings.toast.discoverFailed')); }
+  };
+
+  const createProfile = async () => {
+    const id = newProfileId.trim().toLowerCase();
+    if (!id) return;
+    try {
+      const { profiles } = await createZernioProfile(id, newProfileLabel.trim() || undefined);
+      setZernioProfiles(profiles || []);
+      setActiveZernioProfile(id);
+      setAddingProfile(false);
+      setNewProfileId(''); setNewProfileLabel('');
+      pushToast?.('success', `Zernio profile "${id}" created`);
+    } catch (e) {
+      pushToast?.('error', String(e.message || 'Create profile failed').slice(0, 80));
+    }
   };
 
   const onCookieFile = async (e) => {
@@ -321,6 +354,27 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
       </Panel>
 
       <Panel title={t('settings.publishing.title')} sub={t('settings.publishing.sub')} icon="send" style={{ marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          {zernioProfiles.length > 1 && (
+            <Segmented value={activeZernioProfile} onChange={setActiveZernioProfile}
+              options={zernioProfiles.map((p) => ({ id: p.id, label: p.label }))} />
+          )}
+          <button type="button" className="mini" title="Add Zernio profile (e.g. for a second campaign)"
+            aria-label="Add Zernio profile" onClick={() => setAddingProfile((v) => !v)}>
+            <Icon n="plus" />
+          </button>
+        </div>
+        {addingProfile && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <input className="key-input" style={{ width: 'auto', flex: 1, minWidth: 140 }}
+              placeholder="profile id (e.g. ebay_live)" value={newProfileId}
+              onChange={(e) => setNewProfileId(e.target.value)} />
+            <input className="key-input" style={{ width: 'auto', flex: 1, minWidth: 140 }}
+              placeholder="Label (optional)" value={newProfileLabel}
+              onChange={(e) => setNewProfileLabel(e.target.value)} />
+            <Btn variant="primary" size="sm" icon="check" onClick={createProfile}>Create</Btn>
+          </div>
+        )}
         <div className="zernio-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <div className="zico"><Icon n="rss" /></div>

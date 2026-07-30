@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 
@@ -23,6 +24,14 @@ VALID_CONFIG_KEYS = (
     "CLIPPYME_MAX_DOWNLOAD_HEIGHT",
 )
 ZERNIO_CONFIG_NAMESPACE = "zernio"
+# Additional named Zernio accounts (multi-campaign / multi-profile setups)
+# live in this sibling namespace, keyed by profile id. The "default" profile
+# always reads/writes ZERNIO_CONFIG_NAMESPACE above — untouched — so a
+# single-campaign install never sees this key at all.
+ZERNIO_PROFILES_NAMESPACE = "zernio_profiles"
+DEFAULT_ZERNIO_PROFILE = "default"
+MAX_ZERNIO_PROFILES = 20
+_PROFILE_ID_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 _CONFIG_LOCK = threading.RLock()
 
 
@@ -93,11 +102,25 @@ def _write_raw_config(data: dict) -> bool:
                     os.remove(tmp_path)
 
 
-def load_zernio_config() -> dict:
+def _read_zernio_profile_entry(raw: dict, profile: str) -> dict:
+    """Return the raw (unvalidated) stored dict for ``profile``, `{}` if unset.
+
+    ``profile == "default"`` reads the original top-level ``zernio`` key —
+    byte-for-byte the same lookup as before profiles existed. Anything else
+    reads the ``zernio_profiles`` sibling namespace.
+    """
+    if profile == DEFAULT_ZERNIO_PROFILE:
+        entry = raw.get(ZERNIO_CONFIG_NAMESPACE) or {}
+    else:
+        profiles = raw.get(ZERNIO_PROFILES_NAMESPACE) or {}
+        entry = profiles.get(profile) if isinstance(profiles, dict) else None
+        entry = entry or {}
+    return entry if isinstance(entry, dict) else {}
+
+
+def load_zernio_config(profile: str = DEFAULT_ZERNIO_PROFILE) -> dict:
     raw = _read_raw_config()
-    zernio = raw.get(ZERNIO_CONFIG_NAMESPACE) or {}
-    if not isinstance(zernio, dict):
-        zernio = {}
+    zernio = _read_zernio_profile_entry(raw, profile)
     accounts = zernio.get("accounts", {})
     return {
         "api_key": zernio.get("api_key", ""),
@@ -106,13 +129,12 @@ def load_zernio_config() -> dict:
     }
 
 
-def save_zernio_config(api_key: str = None, accounts: dict = None, timezone: str = None) -> bool:
-    """Merge-update Zernio settings as one locked read-modify-write."""
+def save_zernio_config(api_key: str = None, accounts: dict = None, timezone: str = None, *,
+                        profile: str = DEFAULT_ZERNIO_PROFILE, label: str = None) -> bool:
+    """Merge-update one Zernio profile's settings as one locked read-modify-write."""
     with _CONFIG_LOCK:
         raw = _read_raw_config()
-        current = raw.get(ZERNIO_CONFIG_NAMESPACE) or {}
-        if not isinstance(current, dict):
-            current = {}
+        current = dict(_read_zernio_profile_entry(raw, profile))
         if api_key is not None:
             if api_key == "":
                 current.pop("api_key", None)
@@ -130,12 +152,21 @@ def save_zernio_config(api_key: str = None, accounts: dict = None, timezone: str
             current["accounts"] = merged
         if timezone is not None:
             current["timezone"] = timezone
-        raw[ZERNIO_CONFIG_NAMESPACE] = current
+        if label is not None:
+            current["label"] = label
+        if profile == DEFAULT_ZERNIO_PROFILE:
+            raw[ZERNIO_CONFIG_NAMESPACE] = current
+        else:
+            profiles = raw.get(ZERNIO_PROFILES_NAMESPACE) or {}
+            if not isinstance(profiles, dict):
+                profiles = {}
+            profiles[profile] = current
+            raw[ZERNIO_PROFILES_NAMESPACE] = profiles
         return _write_raw_config(raw)
 
 
-def zernio_config_status() -> dict:
-    cfg = load_zernio_config()
+def zernio_config_status(profile: str = DEFAULT_ZERNIO_PROFILE) -> dict:
+    cfg = load_zernio_config(profile=profile)
     api_key = cfg.get("api_key", "")
     masked = f"{api_key[:6]}...{api_key[-4:]}" if api_key and len(api_key) > 10 else ""
     return {
@@ -144,6 +175,68 @@ def zernio_config_status() -> dict:
         "accounts": cfg.get("accounts", {}),
         "timezone": cfg.get("timezone", "Europe/Rome"),
     }
+
+
+def list_zernio_profiles() -> list[dict]:
+    """Every configured Zernio profile, ``"default"`` always first."""
+    raw = _read_raw_config()
+    default_entry = _read_zernio_profile_entry(raw, DEFAULT_ZERNIO_PROFILE)
+    result = [{
+        "id": DEFAULT_ZERNIO_PROFILE,
+        "label": default_entry.get("label") or "Default",
+        "configured": bool(default_entry.get("api_key")),
+    }]
+    profiles = raw.get(ZERNIO_PROFILES_NAMESPACE) or {}
+    if isinstance(profiles, dict):
+        for profile_id in sorted(profiles):
+            entry = profiles[profile_id]
+            if not isinstance(entry, dict):
+                entry = {}
+            result.append({
+                "id": profile_id,
+                "label": entry.get("label") or profile_id,
+                "configured": bool(entry.get("api_key")),
+            })
+    return result
+
+
+def create_zernio_profile(profile: str, label: str = None) -> bool:
+    """Register a new, empty Zernio profile. Rejects ``"default"`` (already
+    exists implicitly) and duplicate/invalid ids."""
+    if profile == DEFAULT_ZERNIO_PROFILE:
+        raise ValueError("'default' already exists and cannot be recreated")
+    if not _PROFILE_ID_RE.match(profile or ""):
+        raise ValueError(
+            "profile id must match ^[a-z0-9_-]{1,32}$")
+    with _CONFIG_LOCK:
+        raw = _read_raw_config()
+        profiles = raw.get(ZERNIO_PROFILES_NAMESPACE) or {}
+        if not isinstance(profiles, dict):
+            profiles = {}
+        if profile in profiles:
+            raise ValueError(f"profile already exists: {profile}")
+        if len(profiles) >= MAX_ZERNIO_PROFILES:
+            raise ValueError(f"maximum of {MAX_ZERNIO_PROFILES} profiles reached")
+        entry = {}
+        if label:
+            entry["label"] = label
+        profiles[profile] = entry
+        raw[ZERNIO_PROFILES_NAMESPACE] = profiles
+        return _write_raw_config(raw)
+
+
+def delete_zernio_profile(profile: str) -> bool:
+    """Remove a non-default profile. Returns False if it did not exist."""
+    if profile == DEFAULT_ZERNIO_PROFILE:
+        raise ValueError("the 'default' profile cannot be deleted")
+    with _CONFIG_LOCK:
+        raw = _read_raw_config()
+        profiles = raw.get(ZERNIO_PROFILES_NAMESPACE) or {}
+        if not isinstance(profiles, dict) or profile not in profiles:
+            return False
+        del profiles[profile]
+        raw[ZERNIO_PROFILES_NAMESPACE] = profiles
+        return _write_raw_config(raw)
 
 
 def _normalize_incoming_keys(data: dict) -> dict:

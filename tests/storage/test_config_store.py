@@ -161,3 +161,107 @@ def test_concurrent_core_and_zernio_updates_do_not_lose_namespaces(tmp_config, m
     raw = json.loads(tmp_config.read_text())
     assert raw["GEMINI_API_KEY"].startswith("g")
     assert raw["zernio"]["api_key"].startswith("z")
+
+
+# --- Zernio profiles ---------------------------------------------------------
+
+
+def test_default_profile_is_byte_identical_to_legacy_zernio_key(tmp_config):
+    """profile='default' (the implicit default) must read/write the exact same
+    top-level 'zernio' key as before profiles existed — no migration needed."""
+    config_store.save_zernio_config(api_key="sk_default_key", timezone="Europe/Rome")
+    raw = json.loads(tmp_config.read_text())
+    assert raw["zernio"]["api_key"] == "sk_default_key"
+    assert "zernio_profiles" not in raw
+    assert config_store.load_zernio_config(profile="default")["api_key"] == "sk_default_key"
+
+
+def test_named_profile_isolated_from_default_and_from_each_other(tmp_config):
+    config_store.save_zernio_config(api_key="sk_default")
+    config_store.create_zernio_profile("ebay_live", label="eBay Live")
+    config_store.save_zernio_config(api_key="sk_ebay", profile="ebay_live")
+
+    assert config_store.load_zernio_config()["api_key"] == "sk_default"
+    assert config_store.load_zernio_config(profile="ebay_live")["api_key"] == "sk_ebay"
+    raw = json.loads(tmp_config.read_text())
+    assert raw["zernio"]["api_key"] == "sk_default"
+    assert raw["zernio_profiles"]["ebay_live"]["api_key"] == "sk_ebay"
+
+
+def test_save_zernio_config_for_unregistered_profile_creates_it_implicitly(tmp_config):
+    # save_zernio_config is content-only; profile *registration* (create/delete/
+    # list) is a separate concern layered on top, so saving to a profile id
+    # that was never explicitly created still works.
+    assert config_store.save_zernio_config(api_key="sk_x", profile="adhoc") is True
+    assert config_store.load_zernio_config(profile="adhoc")["api_key"] == "sk_x"
+
+
+def test_create_zernio_profile_rejects_default(tmp_config):
+    with pytest.raises(ValueError):
+        config_store.create_zernio_profile("default")
+
+
+def test_create_zernio_profile_rejects_invalid_id(tmp_config):
+    with pytest.raises(ValueError):
+        config_store.create_zernio_profile("Has Spaces")
+    with pytest.raises(ValueError):
+        config_store.create_zernio_profile("")
+
+
+def test_create_zernio_profile_rejects_duplicate(tmp_config):
+    config_store.create_zernio_profile("ebay_live")
+    with pytest.raises(ValueError):
+        config_store.create_zernio_profile("ebay_live")
+
+
+def test_create_zernio_profile_enforces_max_profiles(tmp_config, monkeypatch):
+    monkeypatch.setattr(config_store, "MAX_ZERNIO_PROFILES", 2)
+    config_store.create_zernio_profile("p1")
+    config_store.create_zernio_profile("p2")
+    with pytest.raises(ValueError):
+        config_store.create_zernio_profile("p3")
+
+
+def test_delete_zernio_profile_rejects_default(tmp_config):
+    with pytest.raises(ValueError):
+        config_store.delete_zernio_profile("default")
+
+
+def test_delete_zernio_profile_removes_it(tmp_config):
+    config_store.create_zernio_profile("ebay_live")
+    config_store.save_zernio_config(api_key="sk_ebay", profile="ebay_live")
+    assert config_store.delete_zernio_profile("ebay_live") is True
+    raw = json.loads(tmp_config.read_text())
+    assert "ebay_live" not in raw.get("zernio_profiles", {})
+
+
+def test_delete_zernio_profile_missing_returns_false(tmp_config):
+    assert config_store.delete_zernio_profile("nope") is False
+
+
+def test_list_zernio_profiles_always_includes_default_first(tmp_config):
+    profiles = config_store.list_zernio_profiles()
+    assert profiles == [{"id": "default", "label": "Default", "configured": False}]
+
+
+def test_list_zernio_profiles_includes_named_profiles(tmp_config):
+    config_store.save_zernio_config(api_key="sk_default")
+    config_store.create_zernio_profile("ebay_live", label="eBay Live")
+    config_store.create_zernio_profile("aaa_first")
+    profiles = config_store.list_zernio_profiles()
+    assert profiles[0] == {"id": "default", "label": "Default", "configured": True}
+    ids = [p["id"] for p in profiles]
+    assert ids == ["default", "aaa_first", "ebay_live"]  # non-default sorted
+    ebay = next(p for p in profiles if p["id"] == "ebay_live")
+    assert ebay["label"] == "eBay Live"
+    assert ebay["configured"] is False
+
+
+def test_zernio_config_status_accepts_profile(tmp_config):
+    config_store.create_zernio_profile("ebay_live")
+    config_store.save_zernio_config(api_key="sk_abcdef_longenough_key", profile="ebay_live")
+    status = config_store.zernio_config_status(profile="ebay_live")
+    assert status["configured"] is True
+    assert "..." in status["api_key_masked"]
+    # Default profile is untouched.
+    assert config_store.zernio_config_status()["configured"] is False

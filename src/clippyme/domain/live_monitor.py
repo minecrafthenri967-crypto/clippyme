@@ -13,8 +13,11 @@ two modes:
 
 Every monitor is one long-running asyncio task. Multiple monitors run
 concurrently, keyed by ``f"{platform}:{channel}"`` in a :class:`LiveMonitorRegistry`.
-Publish spacing is GLOBAL: all monitors share one ``picked_slots`` list and one
-publish lock, so the >=min_gap spacing holds across every clip from every monitor.
+Publish spacing is per Zernio profile (``cfg["zernio_profile"]``, default
+``"default"``): monitors sharing a profile share one ``picked_slots`` list and
+one publish lock, so the >=min_gap spacing holds across every clip from every
+monitor on that profile. Different profiles never block each other's slots —
+a slow/rate-limited campaign account cannot stall an unrelated one.
 
 Per-platform detection/capture/vod I/O is isolated in small strategy objects
 (``KickStrategy`` / ``TwitchStrategy`` / ``YoutubeStrategy``) whose network calls
@@ -177,8 +180,9 @@ class SharedGapScheduler(SmartScheduler):
     ``publish_clip`` feeds ``find_slot`` only the occupied list from Zernio's
     persisted posts for that single call, so back-to-back publishes wouldn't
     otherwise see each other. Merging ``picked_slots`` enforces the minimum gap
-    across every clip scheduled. The registry injects ONE shared ``picked_slots``
-    list into every monitor's scheduler so the gap is GLOBAL across monitors.
+    across every clip scheduled. The registry injects the shared ``picked_slots``
+    list for the monitor's Zernio profile into its scheduler, so the gap holds
+    across every monitor sharing that profile (see module docstring).
     """
     picked_slots: list = field(default_factory=list)
 
@@ -220,6 +224,17 @@ def _validate_bool(value, field: str) -> bool:
     if not isinstance(value, bool):
         raise ValidationError(f"{field} must be a boolean")
     return value
+
+
+_DEFAULT_ZERNIO_PROFILE = "default"
+_ZERNIO_PROFILE_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
+
+
+def _validate_zernio_profile(value) -> str:
+    profile = str(value or _DEFAULT_ZERNIO_PROFILE).strip().lower()
+    if not _ZERNIO_PROFILE_RE.match(profile):
+        raise ValidationError("zernio_profile must match ^[a-z0-9_-]{1,32}$")
+    return profile
 
 
 def validate_monitor_config(config: dict, default_timezone: str = "Europe/Rome") -> dict:
@@ -291,6 +306,10 @@ def validate_monitor_config(config: dict, default_timezone: str = "Europe/Rome")
         # Max clips kept per segment (top-N by viral_score) — bounds a
         # publish-limited monitor's output. Clamped to [1, 50], default 5.
         "max_clips": _clamp_int(config.get("max_clips"), 5, 1, 50),
+        # Which named Zernio account this monitor publishes through (see
+        # storage.config_store's profile namespace). Identity field, not
+        # runtime-patchable — see _UPDATABLE_CONFIG_FIELDS below.
+        "zernio_profile": _validate_zernio_profile(config.get("zernio_profile")),
     }
 
 
@@ -310,6 +329,7 @@ _SNAPSHOT_CONFIG_FIELDS = (
     "prelive_skip_seconds", "min_gap_seconds", "poll_interval", "loop",
     "instructions", "caption_template", "title_template", "timezone",
     "banner", "compose", "catchup", "delete_after_publish", "max_clips",
+    "zernio_profile",
 )
 
 
@@ -738,7 +758,8 @@ class LiveMonitor:
         self._gemini_key = pc.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
         if not self._gemini_key:
             raise ValidationError("Gemini API key not configured")
-        self._zernio_key = load_zernio_config().get("api_key")
+        self._zernio_key = load_zernio_config(
+            profile=cfg.get("zernio_profile", _DEFAULT_ZERNIO_PROFILE)).get("api_key")
         if not self._zernio_key:
             raise ValidationError("Zernio API key not configured")
 
@@ -1539,8 +1560,9 @@ class LiveMonitor:
 class LiveMonitorRegistry:
     """Registry of concurrent monitors keyed by ``platform:channel``.
 
-    Owns the one shared ``picked_slots`` list + publish lock (global spacing) and
-    the single persisted state file (``data/live_monitor.json``).
+    Owns one shared ``picked_slots`` list + publish lock PER ZERNIO PROFILE
+    (spacing holds within a profile, never across profiles — see the module
+    docstring) and the single persisted state file (``data/live_monitor.json``).
     """
 
     def __init__(self, *, jobs: dict, job_queue, output_dir: str,
@@ -1554,16 +1576,24 @@ class LiveMonitorRegistry:
         self._state_path = state_path
 
         self._monitors: dict[str, LiveMonitor] = {}
-        self._picked_slots: list = []
-        self._publish_lock = asyncio.Lock()
+        self._picked_slots: dict[str, list] = {}
+        self._publish_locks: dict[str, asyncio.Lock] = {}
         self._snapshots: dict[str, dict] = {}  # restored, not-yet-started state
         self._load_state()
+
+    def _slots_for(self, profile: str) -> list:
+        return self._picked_slots.setdefault(profile, [])
+
+    def _lock_for(self, profile: str) -> asyncio.Lock:
+        return self._publish_locks.setdefault(profile, asyncio.Lock())
 
     # -- public API ------------------------------------------------------
 
     def start(self, config: dict) -> dict:
         from clippyme.storage.config_store import load_zernio_config
-        cfg = validate_monitor_config(config, default_timezone=load_zernio_config().get("timezone"))
+        profile_hint = str(config.get("zernio_profile") or _DEFAULT_ZERNIO_PROFILE)
+        cfg = validate_monitor_config(
+            config, default_timezone=load_zernio_config(profile=profile_hint).get("timezone"))
         mid = monitor_id_for(cfg["platform"], cfg["channel"])
 
         existing = self._monitors.get(mid)
@@ -1573,8 +1603,8 @@ class LiveMonitorRegistry:
         mon = LiveMonitor(
             id=mid, jobs=self._jobs, job_queue=self._job_queue,
             output_dir=self._output_dir, upload_dir=self._upload_dir,
-            on_job_change=self._on_job_change, picked_slots=self._picked_slots,
-            publish_lock=self._publish_lock, on_state_change=self.persist)
+            on_job_change=self._on_job_change, picked_slots=self._slots_for(cfg["zernio_profile"]),
+            publish_lock=self._lock_for(cfg["zernio_profile"]), on_state_change=self.persist)
         mon.restore(self._snapshots.get(mid) or {})
         self._monitors[mid] = mon
         # Read off the RAW payload, not cfg: validate_monitor_config does not
@@ -1663,11 +1693,13 @@ class LiveMonitorRegistry:
             cfg = snap.get("config")
             if not isinstance(cfg, dict):
                 continue
+            # Older snapshots (pre-profile) have no zernio_profile key at all.
+            profile = cfg.get("zernio_profile") or _DEFAULT_ZERNIO_PROFILE
             mon = LiveMonitor(
                 id=mid, jobs=self._jobs, job_queue=self._job_queue,
                 output_dir=self._output_dir, upload_dir=self._upload_dir,
-                on_job_change=self._on_job_change, picked_slots=self._picked_slots,
-                publish_lock=self._publish_lock,
+                on_job_change=self._on_job_change, picked_slots=self._slots_for(profile),
+                publish_lock=self._lock_for(profile),
                 on_state_change=self.persist)
             mon.restore(snap)
             try:
@@ -1724,7 +1756,10 @@ class LiveMonitorRegistry:
             snapshots.setdefault(mid, snap)
         data = {
             "monitors": snapshots,
-            "picked_slots": [d.isoformat() for d in self._picked_slots],
+            "picked_slots": {
+                profile: [d.isoformat() for d in slots]
+                for profile, slots in self._picked_slots.items()
+            },
             "updated_at": datetime.now().isoformat(),
         }
         try:
@@ -1762,8 +1797,23 @@ class LiveMonitorRegistry:
             else:
                 normalized[old_mid] = snap
         self._snapshots = normalized
-        for iso in data.get("picked_slots") or []:
-            try:
-                self._picked_slots.append(datetime.fromisoformat(iso))
-            except (ValueError, TypeError):
-                continue
+        raw_slots = data.get("picked_slots")
+        if isinstance(raw_slots, dict):
+            # Current shape: {profile: [iso, ...]}.
+            for profile, isos in raw_slots.items():
+                if not isinstance(isos, list):
+                    continue
+                bucket = self._slots_for(str(profile))
+                for iso in isos:
+                    try:
+                        bucket.append(datetime.fromisoformat(iso))
+                    except (ValueError, TypeError):
+                        continue
+        elif isinstance(raw_slots, list):
+            # Legacy pre-profile shape: a flat list — migrate into "default".
+            bucket = self._slots_for(_DEFAULT_ZERNIO_PROFILE)
+            for iso in raw_slots:
+                try:
+                    bucket.append(datetime.fromisoformat(iso))
+                except (ValueError, TypeError):
+                    continue

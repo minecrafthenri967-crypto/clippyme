@@ -45,7 +45,12 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   persisted pending queue that auto-drains on resume/restart; after a
   confirmed Zernio publish the clip's artifacts are deleted and its metadata
   entry marked `deleted_after_publish` — positions in `shorts` stay stable,
-  consumers pass `original_index`),
+  consumers pass `original_index`; each monitor's `cfg["zernio_profile"]`
+  (default `"default"`) selects which named Zernio account it publishes
+  through — `picked_slots`/the publish `asyncio.Lock` are scoped PER PROFILE
+  in the registry, not global, so a rate-limited campaign account can't stall
+  an unrelated one; a pre-profile `data/live_monitor.json` migrates its flat
+  `picked_slots` list into the `"default"` bucket transparently on load),
   `grade.py`, `clip_qa.py`, `clip_edit_ai.py`, `history_service.py`,
   `encode.py` (single source of x264 settings for every render pass),
   `errors.py` (domain exceptions mapped to HTTP by one app-level handler).
@@ -76,7 +81,11 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   rotation), `twitch_client.py` (Helix app-token client: streams/users/videos),
   `youtube_feed.py` (UULF long-form RSS polling — Shorts structurally
   excluded).
-- `storage/` — `config_store.py` (persisted config in `data/config.json`).
+- `storage/` — `config_store.py` (persisted config in `data/config.json`;
+  Zernio settings support named profiles — `profile="default"` reproduces the
+  original single-account `zernio` key byte-for-byte, any other profile id
+  reads/writes a sibling `zernio_profiles` namespace, so a multi-campaign
+  install can hold several independent Zernio accounts side by side).
 
 A second, independent package lives under `src/clipper_pro/` — the AI-Clipper
 Pro pipeline. It is CLI-driven (`clipper-pro` / `python -m clipper_pro`), one
@@ -325,6 +334,8 @@ through verbatim (the frontend parses per-platform 429 daily limits).
 | POST | `/api/reframe/{job_id}/{clip_index}` | Switch reframe mode post-hoc |
 | POST | `/api/publish/{job_id}/{clip_index}` | Upload + schedule via Zernio |
 | GET/POST/DELETE | `/api/config*` | Keys, cookies, logo, fonts, Zernio (trusted clients) |
+| GET/POST | `/api/config/zernio/profiles` | List / create named Zernio profiles (`?profile=` on the routes above selects one, default `"default"`) |
+| PATCH/DELETE | `/api/config/zernio/profiles/{profile_id}` | Rename a profile's label / delete a non-default profile |
 | GET | `/api/history` · POST `/api/history/{id}/restore` · DELETE `/api/history/{id}` | Past jobs |
 
 ## Configuration

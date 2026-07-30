@@ -611,7 +611,7 @@ def test_loop_monitor_snapshot_marks_resume_on_start(tmp_path, monkeypatch):
     from clippyme.storage import config_store
 
     monkeypatch.setattr(config_store, "load_persistent_config", lambda: {"GEMINI_API_KEY": "g"})
-    monkeypatch.setattr(config_store, "load_zernio_config", lambda: {"timezone": "UTC", "api_key": "z"})
+    monkeypatch.setattr(config_store, "load_zernio_config", lambda profile="default": {"timezone": "UTC", "api_key": "z"})
     monkeypatch.setattr(lm.LiveMonitor, "_make_strategy", lambda self, cfg, pc: object())
 
     reg = LiveMonitorRegistry(
@@ -717,7 +717,7 @@ def test_registry_auto_resume_starts_marked_snapshots_and_preserves_guards(tmp_p
         }
     }), encoding="utf-8")
     monkeypatch.setattr(config_store, "load_persistent_config", lambda: {"GEMINI_API_KEY": "fresh"})
-    monkeypatch.setattr(config_store, "load_zernio_config", lambda: {"timezone": "UTC", "api_key": "z"})
+    monkeypatch.setattr(config_store, "load_zernio_config", lambda profile="default": {"timezone": "UTC", "api_key": "z"})
     monkeypatch.setattr(lm.LiveMonitor, "_make_strategy", lambda self, cfg, pc: object())
 
     reg = LiveMonitorRegistry(
@@ -768,7 +768,7 @@ def test_registry_auto_resume_failure_is_visible_in_status(tmp_path, monkeypatch
         }
     }), encoding="utf-8")
     monkeypatch.setattr(config_store, "load_persistent_config", lambda: {})
-    monkeypatch.setattr(config_store, "load_zernio_config", lambda: {"timezone": "UTC"})
+    monkeypatch.setattr(config_store, "load_zernio_config", lambda profile="default": {"timezone": "UTC"})
     reg = LiveMonitorRegistry(
         jobs={}, job_queue=None, output_dir=str(tmp_path), state_path=str(state))
 
@@ -797,6 +797,121 @@ def test_registry_migrates_legacy_state(tmp_path):
     assert "kick:oldchan" in reg._snapshots
     assert reg._snapshots["kick:oldchan"]["published"] == ["/a.mp4"]
     assert len(reg._picked_slots) == 1
+
+
+def test_registry_migrates_legacy_flat_picked_slots_into_default_profile(tmp_path):
+    """Pre-profile state.json had a flat picked_slots list. It must land wholly
+    under the "default" profile bucket, not get dropped or split."""
+    import json
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({
+        "monitors": {},
+        "picked_slots": ["2026-07-21T10:00:00", "2026-07-21T11:00:00"],
+    }), encoding="utf-8")
+    reg = LiveMonitorRegistry(
+        jobs={}, job_queue=None, output_dir=str(tmp_path), state_path=str(state))
+    assert list(reg._picked_slots.keys()) == ["default"]
+    assert len(reg._picked_slots["default"]) == 2
+
+
+def test_registry_loads_current_per_profile_picked_slots_shape(tmp_path):
+    import json
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({
+        "monitors": {},
+        "picked_slots": {
+            "default": ["2026-07-21T10:00:00"],
+            "ebay_live": ["2026-07-21T09:00:00", "2026-07-21T09:30:00"],
+        },
+    }), encoding="utf-8")
+    reg = LiveMonitorRegistry(
+        jobs={}, job_queue=None, output_dir=str(tmp_path), state_path=str(state))
+    assert len(reg._picked_slots["default"]) == 1
+    assert len(reg._picked_slots["ebay_live"]) == 2
+    # Untouched profile buckets are independent objects.
+    assert reg._picked_slots["default"] is not reg._picked_slots["ebay_live"]
+
+
+def test_registry_persist_writes_picked_slots_keyed_by_profile(tmp_path):
+    import json
+    state = tmp_path / "state.json"
+    reg = LiveMonitorRegistry(
+        jobs={}, job_queue=None, output_dir=str(tmp_path), state_path=str(state))
+    reg._slots_for("default").append(datetime(2026, 7, 21, 10, 0, 0))
+    reg._slots_for("ebay_live").append(datetime(2026, 7, 21, 9, 0, 0))
+    reg.persist()
+    written = json.loads(state.read_text())
+    assert written["picked_slots"]["default"] == ["2026-07-21T10:00:00"]
+    assert written["picked_slots"]["ebay_live"] == ["2026-07-21T09:00:00"]
+
+
+def test_registry_start_scopes_picked_slots_and_lock_to_the_monitor_profile(tmp_path, monkeypatch):
+    """Two monitors on different Zernio profiles must get independent
+    picked_slots lists and locks; same-profile monitors must share them."""
+    from clippyme.domain import live_monitor as lm
+    from clippyme.storage import config_store
+
+    monkeypatch.setattr(config_store, "load_zernio_config",
+                        lambda profile="default": {"timezone": "UTC", "api_key": "z"})
+    monkeypatch.setattr(lm.LiveMonitor, "_make_strategy", lambda self, cfg, pc: object())
+    monkeypatch.setattr(config_store, "load_persistent_config",
+                        lambda: {"GEMINI_API_KEY": "g"})
+
+    reg = LiveMonitorRegistry(
+        jobs={}, job_queue=None, output_dir=str(tmp_path),
+        state_path=str(tmp_path / "state.json"))
+
+    reg.start(_base_cfg(slug="chanA", zernio_profile="default"))
+    reg.start(_base_cfg(slug="chanB", zernio_profile="ebay_live"))
+    reg.start(_base_cfg(slug="chanC", zernio_profile="default"))
+
+    mon_a = reg._monitors[lm.monitor_id_for("kick", "chana")]
+    mon_b = reg._monitors[lm.monitor_id_for("kick", "chanb")]
+    mon_c = reg._monitors[lm.monitor_id_for("kick", "chanc")]
+
+    assert mon_a._picked_slots is mon_c._picked_slots
+    assert mon_a._picked_slots is not mon_b._picked_slots
+    assert mon_a._publish_lock is mon_c._publish_lock
+    assert mon_a._publish_lock is not mon_b._publish_lock
+
+
+def test_auto_resume_missing_zernio_profile_falls_back_to_default(tmp_path, monkeypatch):
+    """A snapshot persisted before this feature existed has no zernio_profile
+    key in its config at all — auto_resume must not KeyError, and must fall
+    back to sharing the "default" profile's scheduling state."""
+    import asyncio
+    import json
+    from clippyme.domain import live_monitor as lm
+    from clippyme.storage import config_store
+
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({
+        "monitors": {
+            "kick:foo": {
+                "platform": "kick", "mode": "live", "channel": "foo",
+                "config": {
+                    "platform": "kick", "mode": "live", "channel": "foo", "slug": "foo",
+                    "platforms": [{"platform": "tiktok", "accountId": "a1"}], "loop": True,
+                    "min_gap_seconds": 900,
+                    # deliberately no "zernio_profile" key
+                },
+                "resume_on_start": True,
+            }
+        }
+    }), encoding="utf-8")
+    monkeypatch.setattr(config_store, "load_persistent_config",
+                        lambda: {"GEMINI_API_KEY": "g"})
+    monkeypatch.setattr(config_store, "load_zernio_config",
+                        lambda profile="default": {"timezone": "UTC", "api_key": "z"})
+    monkeypatch.setattr(lm.LiveMonitor, "_make_strategy", lambda self, cfg, pc: object())
+    reg = LiveMonitorRegistry(
+        jobs={}, job_queue=None, output_dir=str(tmp_path), state_path=str(state))
+
+    result = asyncio.run(reg.auto_resume())
+
+    assert result["resumed"] == ["kick:foo"]
+    mon = reg._monitors["kick:foo"]
+    assert mon._picked_slots is reg._slots_for("default")
 
 
 # --- _hhmmss ---------------------------------------------------------------
@@ -1396,7 +1511,7 @@ def _publishing_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(config_store, "load_persistent_config",
                         lambda: {"GEMINI_API_KEY": "g"})
     monkeypatch.setattr(config_store, "load_zernio_config",
-                        lambda: {"timezone": "UTC", "api_key": "z"})
+                        lambda profile="default": {"timezone": "UTC", "api_key": "z"})
     monkeypatch.setattr(lm.LiveMonitor, "_make_strategy", lambda self, cfg, pc: object())
     return LiveMonitorRegistry(
         jobs={}, job_queue=None, output_dir=str(tmp_path),
@@ -1488,7 +1603,7 @@ def test_restored_monitor_with_pending_and_enabled_drains_on_start(tmp_path, mon
     (job_dir / "c.mp4").write_bytes(b"x")
 
     monkeypatch.setattr(config_store, "load_persistent_config", lambda: {"GEMINI_API_KEY": "g"})
-    monkeypatch.setattr(config_store, "load_zernio_config", lambda: {"timezone": "UTC", "api_key": "z"})
+    monkeypatch.setattr(config_store, "load_zernio_config", lambda profile="default": {"timezone": "UTC", "api_key": "z"})
     monkeypatch.setattr(lm.LiveMonitor, "_make_strategy", lambda self, cfg, pc: object())
 
     mon, calls = _publishing_monitor(tmp_path, monkeypatch)

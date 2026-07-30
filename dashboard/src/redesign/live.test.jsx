@@ -11,6 +11,9 @@ vi.mock('./realApi', () => ({
     configured: true,
     accounts: { tiktok: 'tt-1', instagram: '', youtube: '' },
   })),
+  getZernioProfiles: vi.fn(async () => ({
+    profiles: [{ id: 'default', label: 'Default', configured: true }],
+  })),
   startLiveMonitor: vi.fn(async () => ({ id: 'kick:xqc', running: true, state: 'waiting_live' })),
   stopLiveMonitor: vi.fn(async () => ({ running: false, state: 'idle' })),
   getLiveMonitorStatus: (...args) => mockStatus(...args),
@@ -218,6 +221,36 @@ test('catchup defaults to backfill', async () => {
   fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
   await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
   expect(startLiveMonitor.mock.calls[0][0].catchup).toBe('backfill');
+});
+
+test('single Zernio profile: picker stays hidden and "default" rides the start payload', async () => {
+  const { startLiveMonitor } = await import('./realApi');
+  render(<LiveMonitorView />);
+  await screen.findByLabelText('Channel');
+  expect(screen.queryByText('Zernio profile')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
+  await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
+  expect(startLiveMonitor.mock.calls[0][0].zernio_profile).toBe('default');
+});
+
+test('multiple Zernio profiles: picker appears and the selection rides the start payload', async () => {
+  const { startLiveMonitor, getZernioProfiles } = await import('./realApi');
+  getZernioProfiles.mockResolvedValueOnce({
+    profiles: [
+      { id: 'default', label: 'Default', configured: true },
+      { id: 'ebay_live', label: 'eBay Live', configured: true },
+    ],
+  });
+  render(<LiveMonitorView />);
+  await screen.findByText('Zernio profile');
+  fireEvent.click(screen.getByRole('button', { name: 'eBay Live' }));
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
+  await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
+  expect(startLiveMonitor.mock.calls[0][0].zernio_profile).toBe('ebay_live');
 });
 
 test('subtitle override section untouched → start payload has no compose key', async () => {

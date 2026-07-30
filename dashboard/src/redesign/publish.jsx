@@ -3,9 +3,9 @@
 // for the old sequential stall — each row showing live queued→uploading→
 // live/error status. Per-clip compose_first honours the clip's toggles.
 import { useState, useEffect, useRef } from 'react';
-import { Icon, Social, Btn, Switch, PlatPill, PLATFORMS } from './primitives';
+import { Icon, Social, Btn, Switch, Segmented, PlatPill, PLATFORMS } from './primitives';
 import { clipVideoSrc } from './realApi';
-import { publishClip, getZernio } from './realApi';
+import { publishClip, getZernio, getZernioProfiles } from './realApi';
 import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBannerParams } from '../lib/seedClipParams';
 import { localDatePlus } from '../lib/scheduleDates';
 import { useModalA11y } from './useModalA11y';
@@ -56,13 +56,18 @@ function PubRow({ clip, idx, st, plats }) {
 export function PublishModal({ clips, jobId, clipStates = {}, preselections, onClose, onPublished, pushToast }) {
   const all = clips.length > 1;
   const [zernio, setZernio] = useState(null);
+  const [zernioProfiles, setZernioProfiles] = useState([{ id: 'default', label: 'Default', configured: false }]);
+  const [zernioProfile, setZernioProfile] = useState('default');
   const [plats, setPlats] = useState({ tiktok: true, ig: true, yt: false });
   const [schedule, setSchedule] = useState(true);
   const [caption, setCaption] = useState(clips[0]?.tiktok_caption || clips[0]?.video_title_for_youtube_short || '');
   const [stage, setStage] = useState('setup'); // setup | uploading | done
   const [progress, setProgress] = useState({});
 
-  useEffect(() => { getZernio().then(setZernio).catch(() => setZernio({ configured: false })); }, []);
+  useEffect(() => { getZernioProfiles().then((r) => setZernioProfiles(r.profiles || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    getZernio(zernioProfile).then(setZernio).catch(() => setZernio({ configured: false }));
+  }, [zernioProfile]);
 
   // Accessibility: focus trap + Escape-to-close + focus restore.
   const panelRef = useModalA11y(onClose);
@@ -98,6 +103,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
       title,
       caption: (caption && caption.trim()) || title,
       platforms: targets,
+      zernio_profile: zernioProfile,
       schedule_mode: schedule ? 'auto' : 'now',
       ...(schedule ? { start_date: localDatePlus(batchPos) } : {}),
       timezone: zernio?.timezone || 'Europe/Rome',
@@ -169,6 +175,13 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
                 </div>
               ) : (
                 <>
+                  {zernioProfiles.length > 1 && (
+                    <div className="field">
+                      <span className="field-label">Zernio profile</span>
+                      <Segmented value={zernioProfile} onChange={setZernioProfile}
+                        options={zernioProfiles.map((p) => ({ id: p.id, label: p.label }))} />
+                    </div>
+                  )}
                   <div className="field">
                     <span className="field-label">Platforms</span>
                     <div className="plats">

@@ -18,18 +18,31 @@ import struct
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Header, HTTPException, Path, Query, Request, UploadFile
 
-from clippyme.api.schemas import ConfigUpdateRequest, ZernioConfigRequest
+from clippyme.api.schemas import (
+    ConfigUpdateRequest,
+    ZernioConfigRequest,
+    ZernioProfileCreateRequest,
+    ZernioProfileRenameRequest,
+)
 from clippyme.api.security import require_trusted_config_request
 from clippyme.pipeline.gemini_service import list_available_models
 from clippyme.storage.config_store import (
+    create_zernio_profile,
+    delete_zernio_profile,
+    list_zernio_profiles,
     load_persistent_config,
     load_zernio_config,
     save_persistent_config,
     save_zernio_config,
     zernio_config_status,
 )
+
+# Regex a profile id (path/query param) must match — mirrors config_store's
+# own validation so a malformed id 400s at the API boundary, before it ever
+# reaches the storage layer.
+_PROFILE_ID_PATTERN = r"^[a-z0-9_-]{1,32}$"
 
 # Custom fonts (e.g. a licensed Stratos TTF the client needs).
 from clippyme.domain.subtitles import (
@@ -332,32 +345,40 @@ async def delete_logo(request: Request):
 
 
 @router.get("/api/config/zernio")
-async def get_zernio_config(request: Request):
-    """Return persisted Zernio settings (api_key masked)."""
+async def get_zernio_config(
+    request: Request, profile: str = Query("default", pattern=_PROFILE_ID_PATTERN)
+):
+    """Return persisted Zernio settings (api_key masked) for one profile."""
     require_trusted_config_request(request)
-    return await asyncio.to_thread(zernio_config_status)
+    return await asyncio.to_thread(zernio_config_status, profile=profile)
 
 
 @router.post("/api/config/zernio")
-async def update_zernio_config(req: ZernioConfigRequest, request: Request):
-    """Update Zernio API key + accounts + timezone (merge semantics)."""
+async def update_zernio_config(
+    req: ZernioConfigRequest, request: Request,
+    profile: str = Query("default", pattern=_PROFILE_ID_PATTERN),
+):
+    """Update Zernio API key + accounts + timezone (merge semantics) for one profile."""
     require_trusted_config_request(request)
     ok = await asyncio.to_thread(
         save_zernio_config,
         api_key=req.api_key,
         accounts=req.accounts,
         timezone=req.timezone,
+        profile=profile,
     )
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to save Zernio config")
-    return await asyncio.to_thread(zernio_config_status)
+    return await asyncio.to_thread(zernio_config_status, profile=profile)
 
 
 @router.get("/api/zernio/accounts")
-async def list_zernio_accounts(request: Request):
-    """Discovery: list connected social accounts via Zernio API."""
+async def list_zernio_accounts(
+    request: Request, profile: str = Query("default", pattern=_PROFILE_ID_PATTERN)
+):
+    """Discovery: list connected social accounts via Zernio API for one profile."""
     require_trusted_config_request(request)
-    cfg = await asyncio.to_thread(load_zernio_config)
+    cfg = await asyncio.to_thread(load_zernio_config, profile=profile)
     api_key = cfg.get("api_key")
     if not api_key:
         raise HTTPException(status_code=400, detail="Zernio API key not configured")
@@ -368,3 +389,52 @@ async def list_zernio_accounts(request: Request):
     except ZernioError as e:
         raise HTTPException(status_code=502, detail=f"Zernio API error: {e}")
     return {"accounts": accounts}
+
+
+@router.get("/api/config/zernio/profiles")
+async def get_zernio_profiles(request: Request):
+    """List every configured Zernio profile ('default' always first)."""
+    require_trusted_config_request(request)
+    return {"profiles": await asyncio.to_thread(list_zernio_profiles)}
+
+
+@router.post("/api/config/zernio/profiles")
+async def create_zernio_profile_route(req: ZernioProfileCreateRequest, request: Request):
+    """Register a new, empty Zernio profile — e.g. a second campaign's account."""
+    require_trusted_config_request(request)
+    try:
+        await asyncio.to_thread(create_zernio_profile, req.id, req.label)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"profiles": await asyncio.to_thread(list_zernio_profiles)}
+
+
+@router.patch("/api/config/zernio/profiles/{profile_id}")
+async def rename_zernio_profile_route(
+    req: ZernioProfileRenameRequest, request: Request,
+    profile_id: str = Path(..., pattern=_PROFILE_ID_PATTERN),
+):
+    """Rename a profile's display label. The id itself is immutable."""
+    require_trusted_config_request(request)
+    existing_ids = {p["id"] for p in await asyncio.to_thread(list_zernio_profiles)}
+    if profile_id not in existing_ids:
+        raise HTTPException(status_code=404, detail="profile not found")
+    ok = await asyncio.to_thread(save_zernio_config, profile=profile_id, label=req.label)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to rename profile")
+    return {"profiles": await asyncio.to_thread(list_zernio_profiles)}
+
+
+@router.delete("/api/config/zernio/profiles/{profile_id}")
+async def delete_zernio_profile_route(
+    request: Request, profile_id: str = Path(..., pattern=_PROFILE_ID_PATTERN)
+):
+    """Delete a non-default Zernio profile."""
+    require_trusted_config_request(request)
+    try:
+        removed = await asyncio.to_thread(delete_zernio_profile, profile_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not removed:
+        raise HTTPException(status_code=404, detail="profile not found")
+    return {"profiles": await asyncio.to_thread(list_zernio_profiles)}

@@ -215,6 +215,76 @@ def test_zernio_config_roundtrip(client):
 
 def test_zernio_accounts_requires_key(client, monkeypatch):
     # No key configured (fresh tmp cwd) → 400 before any network call.
-    monkeypatch.setattr(config_module, "load_zernio_config", lambda: {})
+    monkeypatch.setattr(config_module, "load_zernio_config", lambda profile="default": {})
     r = client.get("/api/zernio/accounts")
+    assert r.status_code == 400
+
+
+# --- zernio profiles ----------------------------------------------------------
+
+
+def test_zernio_profiles_list_starts_with_default_only(client):
+    r = client.get("/api/config/zernio/profiles")
+    assert r.status_code == 200
+    assert r.json()["profiles"] == [{"id": "default", "label": "Default", "configured": False}]
+
+
+def test_zernio_profiles_create_then_configure_isolated(client):
+    r = client.post("/api/config/zernio/profiles", json={"id": "ebay_live", "label": "eBay Live"})
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.json()["profiles"]]
+    assert ids == ["default", "ebay_live"]
+
+    r = client.post(
+        "/api/config/zernio?profile=ebay_live",
+        json={"api_key": "zk_ebay_secret", "timezone": "Europe/Rome"},
+    )
+    assert r.status_code == 200
+    assert r.json()["configured"] is True
+
+    # Default profile is untouched by the write to "ebay_live".
+    default_status = client.get("/api/config/zernio").json()
+    assert default_status["configured"] is False
+    ebay_status = client.get("/api/config/zernio?profile=ebay_live").json()
+    assert ebay_status["configured"] is True
+
+
+def test_zernio_profiles_create_rejects_default(client):
+    r = client.post("/api/config/zernio/profiles", json={"id": "default"})
+    assert r.status_code == 422  # schema-level rejection
+
+
+def test_zernio_profiles_create_duplicate_is_400(client):
+    client.post("/api/config/zernio/profiles", json={"id": "ebay_live"})
+    r = client.post("/api/config/zernio/profiles", json={"id": "ebay_live"})
+    assert r.status_code == 400
+
+
+def test_zernio_profiles_rename_updates_label(client):
+    client.post("/api/config/zernio/profiles", json={"id": "ebay_live", "label": "Old"})
+    r = client.patch("/api/config/zernio/profiles/ebay_live", json={"label": "New Label"})
+    assert r.status_code == 200
+    ebay = next(p for p in r.json()["profiles"] if p["id"] == "ebay_live")
+    assert ebay["label"] == "New Label"
+
+
+def test_zernio_profiles_rename_missing_profile_is_404(client):
+    r = client.patch("/api/config/zernio/profiles/ghost", json={"label": "New"})
+    assert r.status_code == 404
+
+
+def test_zernio_profiles_delete_removes_it(client):
+    client.post("/api/config/zernio/profiles", json={"id": "ebay_live"})
+    r = client.delete("/api/config/zernio/profiles/ebay_live")
+    assert r.status_code == 200
+    assert [p["id"] for p in r.json()["profiles"]] == ["default"]
+
+
+def test_zernio_profiles_delete_missing_is_404(client):
+    r = client.delete("/api/config/zernio/profiles/ghost")
+    assert r.status_code == 404
+
+
+def test_zernio_profiles_delete_default_is_400(client):
+    r = client.delete("/api/config/zernio/profiles/default")
     assert r.status_code == 400

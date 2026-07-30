@@ -19,6 +19,10 @@ vi.mock('./realApi', () => ({
   getZernio: vi.fn(async () => ({ configured: false })),
   saveZernio: vi.fn(),
   discoverZernioAccounts: vi.fn(),
+  getZernioProfiles: vi.fn(async () => ({
+    profiles: [{ id: 'default', label: 'Default', configured: false }],
+  })),
+  createZernioProfile: vi.fn(),
   listFonts: vi.fn(async () => ({ fonts: [] })),
   uploadFont: vi.fn(),
   deleteFont: vi.fn(),
@@ -109,6 +113,50 @@ test('Twitch client id/secret rows show empty when unset', async () => {
   mount();
   const idRow = () => screen.getByLabelText('Twitch client ID').closest('.keyrow');
   await waitFor(() => expect(within(idRow()).getByText('empty')).toBeInTheDocument());
+});
+
+// --- Zernio profiles: picker visibility + create flow -----------------------
+
+test('single Zernio profile: picker hidden, add-profile button present', async () => {
+  getConfig.mockResolvedValue(EMPTY_CONFIG);
+  mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add Zernio profile' })).toBeInTheDocument());
+  expect(screen.queryByRole('button', { name: 'Default' })).not.toBeInTheDocument();
+});
+
+test('multiple Zernio profiles: picker appears and switching profile refetches getZernio for it', async () => {
+  getConfig.mockResolvedValue(EMPTY_CONFIG);
+  const { getZernio, getZernioProfiles } = await import('./realApi');
+  getZernioProfiles.mockResolvedValueOnce({
+    profiles: [
+      { id: 'default', label: 'Default', configured: true },
+      { id: 'ebay_live', label: 'eBay Live', configured: false },
+    ],
+  });
+  mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'eBay Live' })).toBeInTheDocument());
+  getZernio.mockClear();
+  fireEvent.click(screen.getByRole('button', { name: 'eBay Live' }));
+  await waitFor(() => expect(getZernio).toHaveBeenCalledWith('ebay_live'));
+});
+
+test('creating a new Zernio profile switches the active profile to it', async () => {
+  getConfig.mockResolvedValue(EMPTY_CONFIG);
+  const { createZernioProfile, getZernio } = await import('./realApi');
+  createZernioProfile.mockResolvedValue({
+    profiles: [
+      { id: 'default', label: 'Default', configured: false },
+      { id: 'ebay_live', label: 'eBay Live', configured: false },
+    ],
+  });
+  mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add Zernio profile' })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole('button', { name: 'Add Zernio profile' }));
+  fireEvent.change(screen.getByPlaceholderText('profile id (e.g. ebay_live)'), { target: { value: 'ebay_live' } });
+  fireEvent.change(screen.getByPlaceholderText('Label (optional)'), { target: { value: 'eBay Live' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+  await waitFor(() => expect(createZernioProfile).toHaveBeenCalledWith('ebay_live', 'eBay Live'));
+  await waitFor(() => expect(getZernio).toHaveBeenCalledWith('ebay_live'));
 });
 
 // HistoryView — title + per-job "published" badge (derived from

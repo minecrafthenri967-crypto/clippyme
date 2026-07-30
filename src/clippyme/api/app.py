@@ -836,7 +836,7 @@ async def publish_clip_endpoint(job_id: str, clip_index: int, req: PublishReques
     resolved = await asyncio.to_thread(
         resolve_clip, job_id, clip_index, OUTPUT_DIR, require_file=False)
 
-    zernio_cfg = await asyncio.to_thread(load_zernio_config)
+    zernio_cfg = await asyncio.to_thread(load_zernio_config, profile=req.zernio_profile)
     return await publish_clip_flow(
         job_id=job_id, clip_index=clip_index, resolved=resolved,
         req=req.model_dump(), zernio_cfg=zernio_cfg,
