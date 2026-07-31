@@ -9,6 +9,7 @@ import {
   getZernio, saveZernio, discoverZernioAccounts,
   getZernioProfiles, createZernioProfile,
   listFonts, uploadFont, deleteFont, logoStatus, uploadLogo, deleteLogo,
+  listPlayerImages, uploadPlayerImage, deletePlayerImage,
 } from './realApi';
 import { SUB_FONTS } from './data';
 import { getApiToken, setApiToken } from '../lib/apiToken';
@@ -155,6 +156,8 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   const [cookies, setCookies] = useState(!!cookiesConfigured);
   const [logoOn, setLogoOn] = useState(false);
   const [fonts, setFonts] = useState([]);
+  const [playerImages, setPlayerImages] = useState([]);
+  const [newPlayerName, setNewPlayerName] = useState('');
   const [provider, setProvider] = useState('deepgram');
   const [maxHeight, setMaxHeight] = useState('1080');
   const [model, setModel] = useState('');
@@ -200,6 +203,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
     cookiesStatus().then((s) => setCookies(!!s.configured)).catch(() => {});
     logoStatus().then((s) => setLogoOn(!!s.configured)).catch(() => {});
     listFonts().then(({ fonts: f }) => setFonts(Array.isArray(f) ? f : [])).catch(() => {});
+    listPlayerImages().then(({ players }) => setPlayerImages(Array.isArray(players) ? players : [])).catch(() => {});
     // Mount-once bootstrap; loadModels reads the latest key via closure on call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -295,6 +299,29 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   const removeFont = async (name) => {
     try { const { fonts: nf } = await deleteFont(name); setFonts(nf || fonts.filter((n) => n !== name)); pushToast?.('info', t('settings.toast.fontRemoved')); }
     catch { pushToast?.('error', t('settings.toast.removeFailed')); }
+  };
+
+  const onPlayerImageFile = async (e) => {
+    const f = e.target.files?.[0];
+    const name = newPlayerName.trim();
+    e.target.value = '';
+    if (!f) return;
+    if (!name) { pushToast?.('warn', t('settings.playerImages.nameRequired')); return; }
+    try {
+      const { players } = await uploadPlayerImage(name, f);
+      setPlayerImages(players || playerImages);
+      setNewPlayerName('');
+      pushToast?.('success', t('settings.toast.playerImageAdded'));
+    } catch (err) {
+      pushToast?.('error', String(err.message || t('settings.toast.playerImageUploadFailed')).slice(0, 80));
+    }
+  };
+  const removePlayerImage = async (name) => {
+    try {
+      const { players } = await deletePlayerImage(name);
+      setPlayerImages(players || playerImages.filter((n) => n !== name));
+      pushToast?.('info', t('settings.toast.playerImageRemoved'));
+    } catch { pushToast?.('error', t('settings.toast.removeFailed')); }
   };
 
   return (
@@ -433,6 +460,32 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
             <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
               <Icon n="upload" />{t('settings.upload')}
               <input type="file" accept=".ttf,.otf,.ttc,font/ttf,font/otf" hidden onChange={onFontFile} />
+            </label>
+          </div>
+        </div>
+        <div className="opt" style={{ borderBottom: 0, alignItems: 'flex-start' }}>
+          <div className="oico"><Icon n="image" /></div>
+          <div className="otxt" style={{ flex: 1 }}>
+            <div className="ot">{t('settings.playerImages.title')}</div>
+            <div className="od">{t('settings.playerImages.desc')}</div>
+            {playerImages.length > 0 && (
+              <div className="s-sub" style={{ marginTop: 10 }}>
+                {playerImages.map((n) => (
+                  <span key={n} className="chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {n}
+                    <button type="button" className="mini" aria-label={t('settings.removeAria', { name: n })} title={t('settings.remove')} onClick={() => removePlayerImage(n)}><Icon n="x" /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <input className="key-input" style={{ width: '100%', marginTop: 10, fontFamily: 'var(--font-sans)' }}
+              aria-label={t('settings.playerImages.nameAria')} placeholder={t('settings.playerImages.namePlaceholder')}
+              value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
+          </div>
+          <div className="r">
+            <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+              <Icon n="upload" />{t('settings.upload')}
+              <input type="file" accept="image/png,.png" hidden onChange={onPlayerImageFile} />
             </label>
           </div>
         </div>

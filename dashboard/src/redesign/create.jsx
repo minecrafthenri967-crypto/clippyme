@@ -5,7 +5,7 @@ import { Hero } from './chrome';
 import { LANGUAGES, GEMINI_MODELS, HOOK_STYLE_DEFAULT } from './data';
 import { HookStyleControls, HookPreview } from './hookStyle';
 import { SubtitleControls } from './subtitleControls';
-import { LogoControls, GradeControls } from './layerControls';
+import { LogoControls, PlayerImageControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
 import { validateCreateOptions } from '../lib/createValidation';
 import { useT } from '../i18n/context.jsx';
@@ -248,6 +248,18 @@ function LogoConfig({ opts, set }) {
   );
 }
 
+function PlayerImageConfig({ opts, set }) {
+  const t = useT();
+  return (
+    <div className="cfg-drawer fade-in">
+      <PlayerImageControls position={opts.playerImagePos || 'center'} size={opts.playerImageSize || 'M'}
+        onChange={(p) => set(p.position !== undefined
+          ? { playerImagePos: p.position } : { playerImageSize: p.size })} />
+      <div className="od" style={{ marginTop: 2 }}>{t('create.playerImage.uploadHint')}</div>
+    </div>
+  );
+}
+
 function BannerConfig({ opts, set }) {
   const value = {
     platform: opts.bannerPlatform || 'kick',
@@ -274,6 +286,7 @@ function OptionsPanel({ opts, set }) {
   const [hookCfg, setHookCfg] = useState(false);
   const [logoCfg, setLogoCfg] = useState(false);
   const [bannerCfg, setBannerCfg] = useState(false);
+  const [playerImageCfg, setPlayerImageCfg] = useState(false);
   return (
     <Panel title={t('create.recipe.title')} sub={t('create.recipe.sub')} icon="sliders-horizontal">
       <div className="label" style={{ marginBottom: 4 }}>{t('create.recipe.outputLabel')}</div>
@@ -344,6 +357,10 @@ function OptionsPanel({ opts, set }) {
       <OptRow icon="rss" label={t('create.banner.label')} desc={t('create.banner.desc')}
         on={opts.banner} set={(v) => set({ banner: v })} onConfig={() => setBannerCfg(!bannerCfg)} configActive={bannerCfg} />
       {opts.banner && bannerCfg && <BannerConfig opts={opts} set={set} />}
+      <OptRow icon="image" label={t('create.playerImage.label')} desc={t('create.playerImage.desc')}
+        on={opts.playerImage} set={(v) => set({ playerImage: v })}
+        onConfig={() => setPlayerImageCfg(!playerImageCfg)} configActive={playerImageCfg} />
+      {opts.playerImage && playerImageCfg && <PlayerImageConfig opts={opts} set={set} />}
       <div className="opt">
         <div className="oico"><Icon n="palette" /></div>
         <div className="otxt"><div className="ot">{t('create.grade.label')}</div><div className="od">{t('create.grade.desc')}</div></div>

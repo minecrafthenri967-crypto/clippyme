@@ -72,6 +72,29 @@ def record_clip_publish(job_id: str, clip_index: int, output_dir: str, record: d
         save_job_metadata(metadata_path, data)
 
 
+def set_clip_field(metadata_path: str, clip_index: int, field: str, value) -> None:
+    """Set one field on one clip's metadata entry via a fresh read-modify-write.
+
+    Re-reads ``metadata_path`` from disk immediately before writing — never
+    reuses a caller's in-memory snapshot — so a slow caller mutating one
+    clip's entry can't clobber a concurrent write to a DIFFERENT clip's entry
+    in the same file (e.g. Live Monitor consolidating clip N+1 while clip N
+    composes). Same discipline as ``record_clip_publish``, generalized from
+    "append to a list field" to "set an arbitrary field". Silently no-ops on
+    a missing/unreadable metadata file or an out-of-range ``clip_index`` —
+    there is simply nothing to persist, not a caller error.
+    """
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    shorts = data.get("shorts", [])
+    if 0 <= clip_index < len(shorts):
+        shorts[clip_index][field] = value
+        save_job_metadata(metadata_path, data)
+
+
 def _safe_remove(path: str) -> None:
     try:
         if path and os.path.isfile(path):

@@ -379,10 +379,18 @@ def create_hook_image(text, target_width, output_image_path="hook_overlay.png",
     return output_image_path, canvas_w, canvas_h
 
 
-def _enable_suffix(enable_end):
-    """Return an ffmpeg overlay enable clause, or an empty string."""
+def _enable_suffix(enable_end, enable_start=0):
+    """Return an ffmpeg overlay enable clause, or an empty string.
+
+    ``enable_start`` defaults to 0 — every existing caller here only ever
+    passes ``enable_end``, so this stays byte-for-byte identical for them.
+    A timed overlay anchored to an arbitrary moment (not the clip start,
+    e.g. the player-image overlay) passes both.
+    """
     if enable_end is None:
         return ""
+    if enable_start:
+        return f":enable='between(t,{enable_start},{enable_end})'"
     return f":enable='between(t,0,{enable_end})'"
 
 

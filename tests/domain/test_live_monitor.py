@@ -60,7 +60,10 @@ def test_empty_template_falls_back_to_auto_title():
 def test_build_monitor_compose_defaults():
     clip = {"viral_hook_text": "Wait for it", "title": "T"}
     recipe = build_monitor_compose("kick", "grenbaud", clip, None)
-    assert recipe["toggles"] == {"hook": True, "subtitles": True, "banner": True}
+    assert recipe["toggles"] == {
+        "hook": True, "subtitles": True, "banner": True, "player_image": False,
+    }
+    assert recipe["player_image_params"] == {}
     assert recipe["hook_params"]["position"] == "top"
     assert recipe["hook_params"]["text"] == "Wait for it"
     # subtitles below the banner, left-aligned
@@ -88,6 +91,53 @@ def test_build_monitor_compose_subtitle_override_merges():
                                    {"subtitle_params": {"align": "center"}})
     assert recipe["subtitle_params"]["align"] == "center"
     assert recipe["subtitle_params"]["position"] == "bottom"  # default kept
+
+
+def test_build_monitor_compose_player_image_override_enables_and_carries_params():
+    recipe = build_monitor_compose(
+        "kick", "grenbaud", {"viral_hook_text": "x"},
+        {"toggles": {"player_image": True}, "player_image_params": {"position": "top-left"}},
+    )
+    assert recipe["toggles"]["player_image"] is True
+    assert recipe["player_image_params"] == {"position": "top-left"}
+
+
+def test_compose_for_publish_passes_metadata_path_to_compose_layers(tmp_path, monkeypatch):
+    """_compose_for_publish must thread resolved.metadata_path through to
+    compose_layers — it's how the player-image layer caches a detection
+    result onto the right clip's metadata entry."""
+    import asyncio
+
+    from clippyme.domain import clip_resolve as cr
+    from clippyme.domain import compose as compose_mod
+    from clippyme.domain.live_monitor import LiveMonitor
+
+    mon = LiveMonitor(id="kick:chan", jobs={}, job_queue=None, output_dir=str(tmp_path))
+    mon.platform = "kick"
+    mon.cfg = {"channel": "chan", "compose": None}
+
+    fake_resolved = cr.ResolvedClip(
+        metadata_path=str(tmp_path / "job1" / "vid_metadata.json"),
+        metadata={"transcript": {}},
+        clip_info={"start": 0, "end": 10},
+        clip_filename="clip_1.mp4",
+        clip_path=str(tmp_path / "job1" / "clip_1.mp4"),
+    )
+    monkeypatch.setattr(cr, "resolve_clip", lambda *a, **k: fake_resolved)
+
+    captured = {}
+
+    async def fake_compose_layers(**kwargs):
+        captured.update(kwargs)
+        return "composed.mp4"
+
+    monkeypatch.setattr(compose_mod, "compose_layers", fake_compose_layers)
+
+    clip = {"original_index": 0, "viral_hook_text": "hi"}
+    result = asyncio.run(mon._compose_for_publish("job1", clip))
+
+    assert captured.get("metadata_path") == fake_resolved.metadata_path
+    assert result == os.path.join(fake_resolved.job_dir, "composed.mp4")
 
 
 def test_validate_monitor_config_carries_banner_and_compose():

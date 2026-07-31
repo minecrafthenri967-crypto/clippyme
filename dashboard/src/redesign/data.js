@@ -73,6 +73,15 @@ export const LOGO_POSITIONS = [
 // Logo size presets → width fraction handled backend-side (_LOGO_SIZE_MAP).
 export const LOGO_SIZES = [['S', 'S'], ['M', 'M'], ['L', 'L']];
 
+// Player-image overlay placement (the athlete-photo "flash" compose layer).
+// Values match domain/player_image.py's position presets (same table as logo).
+export const PLAYER_IMAGE_POSITIONS = [
+  ['top-left', 'Top L'], ['top-center', 'Top C'], ['top-right', 'Top R'],
+  ['bottom-left', 'Bot L'], ['bottom-center', 'Bot C'], ['bottom-right', 'Bot R'],
+  ['center', 'Center'],
+];
+export const PLAYER_IMAGE_SIZES = [['S', 'S'], ['M', 'M'], ['L', 'L']];
+
 // Colour-grade looks — ids MUST match backend GRADE_PRESETS keys
 // (clippyme/domain/grade.py). 'none' is represented by the Grade toggle being
 // off, so it is not offered as a pickable look here.

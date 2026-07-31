@@ -1,5 +1,20 @@
 """Host-unit tests for the hook overlay filter builder (pure, #5 animated hooks)."""
-from clippyme.domain.hooks import build_hook_overlay_filter
+from clippyme.domain.hooks import _enable_suffix, build_hook_overlay_filter
+
+
+# --- _enable_suffix (generalized for the player-image overlay's arbitrary window) --
+
+def test_enable_suffix_none_is_empty_regardless_of_start():
+    assert _enable_suffix(None) == ""
+    assert _enable_suffix(None, 3) == ""
+
+
+def test_enable_suffix_default_start_unchanged():
+    assert _enable_suffix(4) == ":enable='between(t,0,4)'"
+
+
+def test_enable_suffix_explicit_start():
+    assert _enable_suffix(6, 3) == ":enable='between(t,3,6)'"
 
 
 def test_static_is_legacy_byte_identical():

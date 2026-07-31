@@ -73,6 +73,32 @@ test('compose-only: gates every param object by its toggle', async () => {
   expect(body.drop_ranges).toEqual([]);
 });
 
+test('player_image toggle gates player_image_params the same way as the others', async () => {
+  const { args } = makeCtx();
+  await runApplyEdit({
+    ...args,
+    params: baseParams({
+      toggles: { smartcut: false, subtitles: false, hook: false, logo: false, grade: false, player_image: true },
+      playerImageParams: { position: 'top-left', size: 'L' },
+    }),
+  });
+  const body = args.api.composeClip.mock.calls[0][2];
+  expect(body.player_image_params).toEqual({ position: 'top-left', size: 'L' });
+});
+
+test('player_image toggle off sends empty player_image_params', async () => {
+  const { args } = makeCtx();
+  await runApplyEdit({
+    ...args,
+    params: baseParams({
+      toggles: { smartcut: false, subtitles: true, hook: false, logo: false, grade: false, player_image: false },
+      playerImageParams: { position: 'top-left', size: 'L' },
+    }),
+  });
+  const body = args.api.composeClip.mock.calls[0][2];
+  expect(body.player_image_params).toEqual({});
+});
+
 test('smartcut on forwards drop_ranges', async () => {
   const { args } = makeCtx();
   await runApplyEdit({

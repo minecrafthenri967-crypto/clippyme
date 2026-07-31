@@ -288,6 +288,28 @@ export async function deleteLogo() {
   return res.json().catch(() => ({}));
 }
 
+// --- Player-image library (athlete photos for the compose overlay) ---------
+export async function listPlayerImages() {
+  const res = await apiFetch(getApiUrl('/api/config/player-images'));
+  if (!res.ok) return { players: [] };
+  return res.json();
+}
+
+export async function uploadPlayerImage(name, file) {
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('image_file', file);
+  const res = await apiFetch(getApiUrl('/api/config/player-images'), { method: 'POST', body: fd });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Player image upload failed'); }
+  return res.json().catch(() => ({}));
+}
+
+export async function deletePlayerImage(name) {
+  const res = await apiFetch(getApiUrl(`/api/config/player-images/${encodeURIComponent(name)}`), { method: 'DELETE' });
+  if (!res.ok) throw new Error('Player image remove failed');
+  return res.json().catch(() => ({}));
+}
+
 export async function getZernio(profile = 'default') {
   const res = await apiFetch(getApiUrl(`/api/config/zernio?profile=${encodeURIComponent(profile)}`));
   if (!res.ok) return { configured: false };

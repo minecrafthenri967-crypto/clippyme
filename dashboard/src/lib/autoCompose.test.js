@@ -39,6 +39,10 @@ test('grade toggle with preset "none" is NOT burnable', () => {
   expect(hasBurnableLayer({ toggles: { grade: true }, gradeParams: { preset: 'warm' } })).toBe(true);
 });
 
+test('player_image toggle alone is burnable', () => {
+  expect(hasBurnableLayer({ toggles: { player_image: true } })).toBe(true);
+});
+
 // --- planAutoCompose --------------------------------------------------------
 
 test('recipe with captions → every clip planned', () => {

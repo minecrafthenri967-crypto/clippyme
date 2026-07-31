@@ -197,6 +197,85 @@ def test_logo_rejects_truncated_png(client):
     assert response.status_code == 400
 
 
+# --- player images ------------------------------------------------------------
+
+def test_player_image_list_starts_empty(client):
+    r = client.get("/api/config/player-images")
+    assert r.status_code == 200
+    assert r.json()["players"] == []
+
+
+def test_player_image_upload_list_delete(client):
+    r = client.post(
+        "/api/config/player-images",
+        data={"name": "LeBron James"},
+        files={"image_file": ("photo.png", PNG_MAGIC)},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "LeBron James"
+    assert "LeBron James" in body["players"]
+
+    got = client.get("/api/config/player-images")
+    assert got.json()["players"] == ["LeBron James"]
+
+    assert client.request("DELETE", "/api/config/player-images/LeBron James").status_code == 200
+    assert client.get("/api/config/player-images").json()["players"] == []
+
+
+def test_player_image_accepts_accented_name(client):
+    r = client.post(
+        "/api/config/player-images",
+        data={"name": "Ronald Acuña"},
+        files={"image_file": ("photo.png", PNG_MAGIC)},
+    )
+    assert r.status_code == 200
+    assert "Ronald Acuña" in r.json()["players"]
+
+
+def test_player_image_rejects_path_traversal_name(client):
+    r = client.post(
+        "/api/config/player-images",
+        data={"name": "../../etc/passwd"},
+        files={"image_file": ("photo.png", PNG_MAGIC)},
+    )
+    assert r.status_code == 400
+
+
+def test_player_image_rejects_non_png(client):
+    r = client.post(
+        "/api/config/player-images",
+        data={"name": "LeBron James"},
+        files={"image_file": ("photo.png", b"not a png at all")},
+    )
+    assert r.status_code == 400
+
+
+def test_player_image_rejects_truncated_png(client):
+    r = client.post(
+        "/api/config/player-images",
+        data={"name": "LeBron James"},
+        files={"image_file": ("photo.png", b"\x89PNG\r\n\x1a\n" + b"broken")},
+    )
+    assert r.status_code == 400
+
+
+def test_player_image_delete_missing_is_404(client):
+    r = client.request("DELETE", "/api/config/player-images/Nobody")
+    assert r.status_code == 404
+
+
+def test_player_image_upload_oversized_is_413(client, monkeypatch):
+    import clippyme.api.config_routes as config_module
+    monkeypatch.setattr(config_module, "PLAYER_IMAGE_MAX_BYTES", 4)
+    r = client.post(
+        "/api/config/player-images",
+        data={"name": "LeBron James"},
+        files={"image_file": ("photo.png", PNG_MAGIC)},
+    )
+    assert r.status_code == 413
+
+
 # --- zernio -----------------------------------------------------------------
 
 def test_zernio_config_roundtrip(client):

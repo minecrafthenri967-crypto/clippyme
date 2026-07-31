@@ -2,7 +2,7 @@
 // pieces shared by the Create recipe and the EditClipModal (hookStyle.jsx
 // precedent: controlled values + partial-emitting onChange, UI only).
 import { Segmented } from './primitives';
-import { LOGO_POSITIONS, LOGO_SIZES, GRADE_PRESETS } from './data';
+import { LOGO_POSITIONS, LOGO_SIZES, PLAYER_IMAGE_POSITIONS, PLAYER_IMAGE_SIZES, GRADE_PRESETS } from './data';
 
 // The two cf-rows of the logo drawer. No wrapper: each surface keeps its own
 // .cfg-drawer (Create appends an upload hint under these rows).
@@ -26,6 +26,29 @@ export function LogoControls({ position, size, onChange }) {
         <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>Size</span>
         <Segmented full value={size} onChange={(id) => onChange({ size: id })}
           options={LOGO_SIZES.map(([v, l]) => ({ id: v, label: l }))} />
+      </div>
+    </>
+  );
+}
+
+// Same shape as LogoControls — the athlete-photo "flash" overlay (eBay Live
+// campaign etc.) shares the same position-preset/size-preset UI pattern.
+export function PlayerImageControls({ position, size, onChange }) {
+  return (
+    <>
+      <div className="cf-row">
+        <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>Position</span>
+        <div className="seg-grid">
+          {PLAYER_IMAGE_POSITIONS.map(([v, l]) => (
+            <button key={v} type="button" className={'seg-cell' + (position === v ? ' on' : '')}
+              onClick={() => onChange({ position: v })}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="cf-row">
+        <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>Size</span>
+        <Segmented full value={size} onChange={(id) => onChange({ size: id })}
+          options={PLAYER_IMAGE_SIZES.map(([v, l]) => ({ id: v, label: l }))} />
       </div>
     </>
   );

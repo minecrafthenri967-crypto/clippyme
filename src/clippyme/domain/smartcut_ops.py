@@ -270,6 +270,33 @@ def subtract_ranges(keep_segments, drop_ranges):
     return [seg for seg in result if seg[1] > seg[0]]
 
 
+def remap_time_through_kept_segments(t, merged: list[tuple[float, float]]):
+    """Map a clip-relative ORIGINAL time ``t`` (pre-Smart-Cut) to its position
+    in the Smart-Cut OUTPUT timeline.
+
+    ``merged`` is ``analyze_silences()``'s ordered, non-overlapping KEPT-span
+    list (clip-relative, original time) — the render (``_build_v3_timeline``
+    and the ffmpeg-concat fallback) concatenates these spans back-to-back in
+    list order with zero gaps and zero reordering, so walking ``merged`` while
+    accumulating an output-time cursor is exactly the mapping the render
+    performs.
+
+    Returns the output-time float, or ``None`` if ``t`` falls inside a span
+    Smart Cut actually removed — there is no corresponding output frame, and
+    the caller must skip whatever it was trying to place rather than guess.
+    """
+    if t is None:
+        return None
+    cursor = 0.0
+    for seg_start, seg_end in merged:
+        if seg_start <= t <= seg_end:
+            return cursor + min(t - seg_start, seg_end - seg_start)
+        if t < seg_start:
+            return None  # t is inside a dropped gap before this kept span
+        cursor += seg_end - seg_start
+    return None  # t is at/after the end of the last kept span → cut away
+
+
 # ---------------------------------------------------------------------------
 # Stage 1A — analyze the transcript
 # ---------------------------------------------------------------------------

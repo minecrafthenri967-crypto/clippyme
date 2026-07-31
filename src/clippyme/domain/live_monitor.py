@@ -149,8 +149,9 @@ def build_monitor_compose(platform: str, channel: str, clip: dict, override=None
       - subtitles → below the banner, left-aligned ('bottom' + align 'left').
 
     ``override`` (the start request's ``compose`` object) shallow-merges over the
-    defaults: ``{toggles?, hook_params?, subtitle_params?, banner?}``. Pure /
-    host-testable — no I/O. Returns kwargs for ``compose_layers``.
+    defaults: ``{toggles?, hook_params?, subtitle_params?, banner?,
+    player_image_params?}``. Pure / host-testable — no I/O. Returns kwargs for
+    ``compose_layers``.
     """
     from clippyme.domain.banner import monitor_banner_params
 
@@ -163,6 +164,9 @@ def build_monitor_compose(platform: str, channel: str, clip: dict, override=None
         "hook": bool(hook_params.get("text")),
         "subtitles": True,
         "banner": bool(banner),
+        # Off by default — requires the campaign's image library to be
+        # pre-populated, unlike subtitles/hook which always apply.
+        "player_image": bool((ov.get("toggles") or {}).get("player_image")),
         **(ov.get("toggles") or {}),
     }
     return {
@@ -170,6 +174,7 @@ def build_monitor_compose(platform: str, channel: str, clip: dict, override=None
         "hook_params": hook_params,
         "subtitle_params": subtitle_params,
         "banner_params": banner or {},
+        "player_image_params": ov.get("player_image_params") or {},
     }
 
 
@@ -1322,7 +1327,8 @@ class LiveMonitor:
                 self.platform, self.cfg["channel"], clip, self.cfg.get("compose"))
             composed = await compose_layers(
                 base_clip=resolved.clip_path, job_dir=resolved.job_dir, clip_index=idx,
-                metadata=resolved.metadata, clip_info=resolved.clip_info, **recipe)
+                metadata=resolved.metadata, clip_info=resolved.clip_info,
+                metadata_path=resolved.metadata_path, **recipe)
             return os.path.join(resolved.job_dir, composed)
         except Exception:
             logger.exception("LiveMonitor %s: compose-before-publish failed for %s/%s",

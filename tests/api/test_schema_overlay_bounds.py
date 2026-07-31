@@ -132,3 +132,41 @@ def test_publish_accepts_only_known_boolean_toggles():
             platforms=[{"platform": "youtube", "accountId": "a"}],
             toggles={"hook": 1},
         )
+
+
+# --- player_image toggle + params --------------------------------------------
+
+def test_compose_accepts_player_image_toggle_and_params():
+    req = ComposeRequest(
+        toggles={"player_image": True},
+        player_image_params={"position": "center", "duration": 2.5, "scale": 0.55},
+    )
+    assert req.toggles == {"player_image": True}
+    assert req.player_image_params["duration"] == 2.5
+
+
+def test_compose_rejects_absurd_player_image_duration():
+    with pytest.raises(ValidationError):
+        ComposeRequest(player_image_params={"duration": 999999})
+
+
+def test_compose_rejects_nested_player_image_params():
+    with pytest.raises(ValidationError):
+        ComposeRequest(player_image_params={"x": {"nested": 1}})
+
+
+def test_publish_accepts_player_image_toggle_and_optional_params():
+    ok = PublishRequest(
+        platforms=[{"platform": "tiktok", "accountId": "a"}],
+        toggles={"player_image": True},
+        player_image_params={"position": "top-left"},
+    )
+    assert ok.player_image_params["position"] == "top-left"
+    # Optional field — omitting it entirely must still validate.
+    ok2 = PublishRequest(platforms=[{"platform": "tiktok", "accountId": "a"}])
+    assert ok2.player_image_params is None
+
+
+def test_unknown_toggle_key_still_rejected_after_adding_player_image():
+    with pytest.raises(ValidationError):
+        ComposeRequest(toggles={"playerimage": True})

@@ -51,7 +51,12 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   in the registry, not global, so a rate-limited campaign account can't stall
   an unrelated one; a pre-profile `data/live_monitor.json` migrates its flat
   `picked_slots` list into the `"default"` bucket transparently on load),
-  `grade.py`, `clip_qa.py`, `clip_edit_ai.py`, `history_service.py`,
+  `grade.py`, `clip_qa.py`, `clip_edit_ai.py`, `player_image.py` (player-image
+  library CRUD + normalized name matching + the timed overlay render, mirrors
+  `logo.py`'s shape), `player_detect.py` (the single-shot Gemini call
+  detecting spoken athlete names, mirrors `clip_edit_ai.py`'s size but reuses
+  `gemini_parser`'s JSON-repair chain + `gemini_request`'s model-fallback
+  instead of a bespoke parser), `history_service.py`,
   `encode.py` (single source of x264 settings for every render pass),
   `errors.py` (domain exceptions mapped to HTTP by one app-level handler).
 - `pipeline/` — `main.py` (CLI orchestrator), `reframe.py` (orchestrator:
@@ -252,13 +257,40 @@ on any failure. All paths transcribe an extracted mono-16kHz FLAC, not the
 video. Transcripts are cached 7 days under `data/cache/` keyed by URL hash.
 
 **Compose** (`POST /api/compose/{job}/{clip}`): layers render in the order
-**Grade → Subtitles → Smart Cut → Hook → Logo → Banner**. Do NOT reorder —
-subtitles are burned before Smart Cut so their absolute timing can't drift;
-grade runs first so overlays keep authored colour; logo sits on top; the
-attribution banner (`banner.py`: platform logo + handle, `attach` mode pins it
-under the letterbox band when `reframe_mode == disabled`) renders topmost as a
-separate pass. Grade+subtitles and hook+logo are pass-fused (one encode each)
-when possible. Serialised per clip via `clip_locks.clip_lock`.
+**Grade → Subtitles → Smart Cut → Hook → Logo → Player Image → Banner**. Do NOT
+reorder — subtitles are burned before Smart Cut so their absolute timing can't
+drift; grade runs first so overlays keep authored colour; logo sits above hook;
+the player-image "flash" overlay (an athlete's photo, timed to the moment
+their name is detected — `player_image.py` + `player_detect.py`) sits above
+the brand hook/logo but strictly below the attribution banner, which always
+stays topmost; the attribution banner (`banner.py`: platform logo + handle,
+`attach` mode pins it under the letterbox band when `reframe_mode ==
+disabled`) renders topmost as a separate pass. Grade+subtitles and hook+logo
+are pass-fused (one encode each) when possible; player-image is its own
+separate pass (never fused, matching banner's own "correctness over one saved
+encode generation" precedent). Serialised per clip via `clip_locks.clip_lock`.
+
+**Player image overlay**: fully-automatic — a small Gemini call
+(`player_detect.detect_player_mentions`, its own JSON-repair/model-fallback
+reusing `gemini_parser`/`gemini_request`) scans a clip's transcript for
+spoken athlete names and returns `{player_name, timestamp, confidence}`
+mentions; `player_image.match_player_image` does a normalized exact-name
+match against a user-uploaded image library (`data/player_images/`, one PNG
+per player). Detection runs ONCE per clip and is cached into the clip's
+metadata (`clip_info["player_mentions"]`, via the new
+`job_artifacts.set_clip_field` — a fresh-read-then-write helper generalized
+from `record_clip_publish` so a slow write can't clobber a sibling clip's
+entry) — every later compose/preview/publish re-matches for free but never
+re-bills Gemini. If Smart Cut actually rendered (`compose.py` tracks whether
+`_apply_smartcut` returned a changed file, not just whether the toggle was
+on), the detected timestamp is remapped through
+`smartcut_ops.remap_time_through_kept_segments` — a pure function that walks
+`analyze_silences()`'s ordered kept-segments list to translate an original-time
+moment into its Smart-Cut output-time position, or `None` if that moment was
+cut away (the overlay is skipped, never guessed). The toggle
+(`"player_image"`) defaults OFF everywhere, including Live Monitor's
+`build_monitor_compose` recipe, since it needs the image library populated
+first.
 The pipeline renders clips RAW — every layer is compose-time. The dashboard
 auto-composes on job completion (`lib/autoCompose.js` plans, `RedesignApp`
 feeds the plan to the same bounded runner as bulk-apply), so the preview
@@ -342,6 +374,8 @@ through verbatim (the frontend parses per-platform 429 daily limits).
 | PATCH/DELETE | `/api/config/zernio/profiles/{profile_id}` | Rename a profile's label / delete a non-default profile |
 | GET/POST | `/api/config/caption-presets` | List / upsert (by id) saved caption templates (e.g. one per seller in a multi-account campaign) |
 | DELETE | `/api/config/caption-presets/{preset_id}` | Delete a saved caption preset |
+| GET/POST | `/api/config/player-images` | List / upload (named by player) an athlete photo for the player-image compose overlay |
+| DELETE | `/api/config/player-images/{name}` | Delete a player image |
 | GET | `/api/history` · POST `/api/history/{id}/restore` · DELETE `/api/history/{id}` | Past jobs |
 
 ## Configuration

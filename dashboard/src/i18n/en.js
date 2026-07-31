@@ -102,6 +102,11 @@ export const en = {
   'settings.removeAria': 'Remove {name}',
   'settings.fonts.title': 'Subtitle fonts',
   'settings.fonts.desc': 'Upload a .ttf/.otf (e.g. Stratos) to use in classic captions',
+  'settings.playerImages.title': 'Player images',
+  'settings.playerImages.desc': "One PNG per athlete — matched by name to flash their photo when detected",
+  'settings.playerImages.nameAria': 'Player name',
+  'settings.playerImages.namePlaceholder': "Player name (e.g. LeBron James)",
+  'settings.playerImages.nameRequired': 'Enter a player name first',
 
   'settings.downloads.title': 'Downloads',
   'settings.downloads.sub': 'For age- or region-restricted sources',
@@ -132,6 +137,9 @@ export const en = {
   'settings.toast.fontAdded': 'Font added',
   'settings.toast.fontUploadFailed': 'Font upload failed',
   'settings.toast.fontRemoved': 'Font removed',
+  'settings.toast.playerImageAdded': 'Player image added',
+  'settings.toast.playerImageUploadFailed': 'Player image upload failed',
+  'settings.toast.playerImageRemoved': 'Player image removed',
 
   // -- views.jsx: ApiKeyModal ---------------------------------------------------
   'apiKeyModal.title': 'Add your Gemini key',
@@ -190,6 +198,9 @@ export const en = {
   // -- create.jsx: LogoConfig -----------------------------------------------
   'create.logo.uploadHint': 'Upload your logo PNG in Settings → Brand logo.',
 
+  // -- create.jsx: PlayerImageConfig -----------------------------------------
+  'create.playerImage.uploadHint': 'Upload player photos in Settings → Player images.',
+
   // -- create.jsx: OptionsPanel ---------------------------------------------
   'create.recipe.title': 'Recipe',
   'create.recipe.sub': 'What ClippyMe makes from each video',
@@ -228,6 +239,8 @@ export const en = {
   'create.logo.desc': 'Burn your logo onto every clip',
   'create.banner.label': 'Attribution banner',
   'create.banner.desc': 'Platform logo + handle burned bottom of clip',
+  'create.playerImage.label': 'Player image',
+  'create.playerImage.desc': "Flash the athlete's photo when their name is detected",
   'create.grade.label': 'Colour grade',
   'create.grade.desc': 'Cinematic colour pass on every clip',
 

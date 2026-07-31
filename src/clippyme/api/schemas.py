@@ -219,7 +219,9 @@ def _validate_drop_ranges(value):
     return value
 
 
-_ALLOWED_TOGGLES = frozenset({"smartcut", "hook", "subtitles", "logo", "grade", "banner"})
+_ALLOWED_TOGGLES = frozenset({
+    "smartcut", "hook", "subtitles", "logo", "grade", "banner", "player_image",
+})
 
 
 def _validate_toggles(value):
@@ -263,6 +265,7 @@ class ComposeRequest(BaseModel):
     logo_params: dict = Field(default_factory=dict)
     grade_params: dict = Field(default_factory=dict)
     banner_params: dict = Field(default_factory=dict)
+    player_image_params: dict = Field(default_factory=dict)
     drop_ranges: list = Field(default_factory=list)
 
     @field_validator("toggles")
@@ -271,7 +274,8 @@ class ComposeRequest(BaseModel):
         return _validate_toggles(value)
 
     @field_validator(
-        "hook_params", "subtitle_params", "logo_params", "grade_params", "banner_params"
+        "hook_params", "subtitle_params", "logo_params", "grade_params", "banner_params",
+        "player_image_params",
     )
     @classmethod
     def _bound_overlay(cls, value):
@@ -306,6 +310,7 @@ class PublishRequest(BaseModel):
     logo_params: Optional[dict] = None
     grade_params: Optional[dict] = None
     banner_params: Optional[dict] = None
+    player_image_params: Optional[dict] = None
     drop_ranges: Optional[list] = None
     delete_after_publish: bool = True
     # Which named Zernio account this publish uses (see ZernioProfileCreateRequest
@@ -334,7 +339,8 @@ class PublishRequest(BaseModel):
         return _validate_toggles(value)
 
     @field_validator(
-        "hook_params", "subtitle_params", "logo_params", "grade_params", "banner_params"
+        "hook_params", "subtitle_params", "logo_params", "grade_params", "banner_params",
+        "player_image_params",
     )
     @classmethod
     def _bound_overlay(cls, value):

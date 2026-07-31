@@ -10,6 +10,62 @@ compatibility.
 from pydantic import BaseModel, Field, field_validator
 
 
+def _coerce_timestamp_value(v):
+    """Normalize a Gemini timestamp to float seconds.
+
+    Gemini 2.5-flash occasionally emits a timestamp as a *dotted* or
+    *colon-separated* time string instead of float seconds. Seen:
+
+    * ``"25.17.724"`` → 25 min 17.724 s (MM.SS.mmm)
+    * ``"1.25.17.724"`` → 1 h 25 min 17.724 s (HH.MM.SS.mmm)
+    * ``"25:17.724"`` / ``"1:25:17"`` → HH:MM:SS
+
+    Shared by every schema with a Gemini-sourced timestamp field (not just
+    ``ViralClip``) so each one is self-defending wherever it's used, not only
+    via ``gemini_parser.validate_and_dedupe``. Numeric values and single-dot
+    float strings pass through unchanged.
+    """
+    if not isinstance(v, str):
+        return v
+    s = v.strip()
+    if not s:
+        return v
+    # Colon-separated (HH:MM:SS or MM:SS, optional decimal seconds)
+    if ":" in s:
+        try:
+            parts = s.split(":")
+            if len(parts) == 2:
+                return float(parts[0]) * 60.0 + float(parts[1])
+            if len(parts) == 3:
+                return (
+                    float(parts[0]) * 3600.0
+                    + float(parts[1]) * 60.0
+                    + float(parts[2])
+                )
+        except ValueError:
+            return v
+        return v
+    # Dotted. One dot = ordinary float; 2+ = MM.SS[.ms] / HH.MM.SS[.ms]
+    if s.count(".") <= 1:
+        return v
+    parts = s.split(".")
+    try:
+        if len(parts) == 3:
+            mm, ss, ms = parts
+            return float(mm) * 60.0 + float(ss) + float(f"0.{ms}")
+        if len(parts) == 4:
+            hh, mm, ss, ms = parts
+            return (
+                float(hh) * 3600.0
+                + float(mm) * 60.0
+                + float(ss)
+                + float(f"0.{ms}")
+            )
+    except ValueError:
+        return v
+    return v
+
+
 class ViralClip(BaseModel):
     """A single viral clip candidate emitted by Gemini and validated
     before it's handed to the reframing pipeline.
@@ -25,59 +81,7 @@ class ViralClip(BaseModel):
     @field_validator("start", "end", mode="before")
     @classmethod
     def _coerce_timestamp(cls, v):
-        """Normalize Gemini timestamps to float seconds.
-
-        Gemini 2.5-flash occasionally emits start/end as *dotted* or
-        *colon-separated* time strings instead of float seconds. Seen:
-
-        * ``"25.17.724"`` → 25 min 17.724 s (MM.SS.mmm)
-        * ``"1.25.17.724"`` → 1 h 25 min 17.724 s (HH.MM.SS.mmm)
-        * ``"25:17.724"`` / ``"1:25:17"`` → HH:MM:SS
-
-        Normalizing here (``mode='before'``) means the model is
-        self-defending wherever it's used, not only via
-        ``gemini_parser.validate_and_dedupe``. Numeric values and
-        single-dot float strings pass through unchanged.
-        """
-        if not isinstance(v, str):
-            return v
-        s = v.strip()
-        if not s:
-            return v
-        # Colon-separated (HH:MM:SS or MM:SS, optional decimal seconds)
-        if ":" in s:
-            try:
-                parts = s.split(":")
-                if len(parts) == 2:
-                    return float(parts[0]) * 60.0 + float(parts[1])
-                if len(parts) == 3:
-                    return (
-                        float(parts[0]) * 3600.0
-                        + float(parts[1]) * 60.0
-                        + float(parts[2])
-                    )
-            except ValueError:
-                return v
-            return v
-        # Dotted. One dot = ordinary float; 2+ = MM.SS[.ms] / HH.MM.SS[.ms]
-        if s.count(".") <= 1:
-            return v
-        parts = s.split(".")
-        try:
-            if len(parts) == 3:
-                mm, ss, ms = parts
-                return float(mm) * 60.0 + float(ss) + float(f"0.{ms}")
-            if len(parts) == 4:
-                hh, mm, ss, ms = parts
-                return (
-                    float(hh) * 3600.0
-                    + float(mm) * 60.0
-                    + float(ss)
-                    + float(f"0.{ms}")
-                )
-        except ValueError:
-            return v
-        return v
+        return _coerce_timestamp_value(v)
     viral_reason: str = Field(..., min_length=20)
     video_description_for_tiktok: str = ""
     video_description_for_instagram: str = ""
@@ -124,3 +128,26 @@ class ViralClip(BaseModel):
 class ViralClipsResponse(BaseModel):
     """Top-level response shape from the Gemini viral-moment prompt."""
     shorts: list[ViralClip] = Field(..., min_length=0, max_length=20)
+
+
+class PlayerMention(BaseModel):
+    """One detected athlete-name mention, emitted by the player-image
+    overlay's Gemini call (``domain.player_detect``)."""
+    player_name: str = Field(..., min_length=1, max_length=120)
+    timestamp: float = Field(..., ge=0)
+    confidence: float = Field(..., ge=0, le=1)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _coerce_timestamp(cls, v):
+        return _coerce_timestamp_value(v)
+
+    @field_validator("player_name")
+    @classmethod
+    def _normalize_whitespace(cls, v: str) -> str:
+        return " ".join(v.split()).strip()
+
+
+class PlayerMentionsResponse(BaseModel):
+    """Top-level response shape from the player-name-detection prompt."""
+    mentions: list[PlayerMention] = Field(default_factory=list, max_length=20)

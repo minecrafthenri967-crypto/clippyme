@@ -18,7 +18,7 @@ import struct
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, File, Header, HTTPException, Path, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, Path, Query, Request, UploadFile
 
 from clippyme.api.schemas import (
     CaptionPresetRequest,
@@ -41,6 +41,11 @@ from clippyme.storage.config_store import (
     save_persistent_config,
     save_zernio_config,
     zernio_config_status,
+)
+from clippyme.domain.player_image import (
+    PLAYER_IMAGES_DIR,
+    _PLAYER_NAME_RE,
+    list_player_images,
 )
 
 # Regex a profile id (path/query param) must match — mirrors config_store's
@@ -291,8 +296,12 @@ _LOGO_MAX_DIMENSION = 8192
 _LOGO_MAX_PIXELS = 32_000_000
 
 
-def _validate_logo_png(content: bytes) -> None:
-    """Decode/verify a bounded PNG before it reaches ffmpeg's image parser."""
+def _validate_uploaded_png(
+    content: bytes, *, max_dimension: int = _LOGO_MAX_DIMENSION,
+    max_pixels: int = _LOGO_MAX_PIXELS, detail: str = "Image must be a valid, reasonably-sized PNG",
+) -> None:
+    """Decode/verify a bounded PNG before it reaches ffmpeg's image parser.
+    Shared by the logo and player-image upload routes."""
     from PIL import Image, UnidentifiedImageError
 
     try:
@@ -302,13 +311,17 @@ def _validate_logo_png(content: bytes) -> None:
                 raise ValueError("not PNG")
             if (
                 width < 1 or height < 1
-                or width > _LOGO_MAX_DIMENSION or height > _LOGO_MAX_DIMENSION
-                or width * height > _LOGO_MAX_PIXELS
+                or width > max_dimension or height > max_dimension
+                or width * height > max_pixels
             ):
                 raise ValueError("dimensions out of range")
             image.verify()
     except (OSError, UnidentifiedImageError, ValueError, Image.DecompressionBombError) as exc:
-        raise HTTPException(status_code=400, detail="Logo must be a valid, reasonably-sized PNG") from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
+def _validate_logo_png(content: bytes) -> None:
+    _validate_uploaded_png(content, detail="Logo must be a valid, reasonably-sized PNG")
 
 
 @router.get("/api/config/logo/status")
@@ -346,6 +359,67 @@ async def delete_logo(request: Request):
     except FileNotFoundError:
         pass
     return {"status": "ok", "message": "Logo removed"}
+
+
+# --- Player-image library (athlete photos for the compose overlay) ---------
+# A NAMED collection (one PNG per player), unlike the single fixed Logo file —
+# follows the font-upload shape (list / upload-by-name / delete-by-name)
+# combined with the logo route's PNG validation.
+PLAYER_IMAGE_MAX_BYTES = 10 * 1024 * 1024  # same cap as logo
+
+
+@router.get("/api/config/player-images")
+async def list_player_images_route(request: Request):
+    """List every uploaded player image (by player name)."""
+    require_trusted_config_request(request)
+    return {"players": await asyncio.to_thread(list_player_images)}
+
+
+@router.post("/api/config/player-images")
+async def upload_player_image(
+    request: Request,
+    name: str = Form(...),
+    image_file: UploadFile = File(...),
+):
+    """Upload and persist a player's photo, keyed by name, for the
+    player-image compose overlay."""
+    require_trusted_config_request(request)
+    clean_name = name.strip()
+    if not _PLAYER_NAME_RE.match(clean_name):
+        raise HTTPException(status_code=400, detail="Invalid player name")
+
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await image_file.read(64 * 1024):
+        total += len(chunk)
+        if total > PLAYER_IMAGE_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Image file too large (max 10 MB)")
+        chunks.append(chunk)
+    content = b"".join(chunks)
+    if not content.startswith(_PNG_MAGIC):
+        raise HTTPException(status_code=400, detail="Player image must be a PNG")
+    await asyncio.to_thread(
+        _validate_uploaded_png, content, detail="Player image must be a valid, reasonably-sized PNG")
+
+    os.makedirs(PLAYER_IMAGES_DIR, mode=0o700, exist_ok=True)
+    dest = os.path.join(PLAYER_IMAGES_DIR, f"{clean_name}.png")
+    await asyncio.to_thread(_atomic_write_bytes, dest, content, 0o644)
+    return {"status": "ok", "name": clean_name,
+            "players": await asyncio.to_thread(list_player_images)}
+
+
+@router.delete("/api/config/player-images/{name}")
+async def delete_player_image(name: str, request: Request):
+    """Remove an uploaded player image by name."""
+    require_trusted_config_request(request)
+    if not _PLAYER_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail="Invalid player name")
+    path = os.path.join(PLAYER_IMAGES_DIR, f"{name}.png")
+    try:
+        await asyncio.to_thread(os.remove, path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Player image not found")
+    return {"status": "ok", "players": await asyncio.to_thread(list_player_images)}
 
 
 @router.get("/api/config/zernio")

@@ -62,6 +62,21 @@ test('buildClipParams hook text falls back through clip then source', () => {
   );
 });
 
+test('clipStateToParams and buildClipParams carry playerImageParams', () => {
+  const state = { playerImageParams: { position: 'top-left', size: 'L' } };
+  const p = clipStateToParams(state, {}, {});
+  assert.deepEqual(p.playerImageParams, { position: 'top-left', size: 'L' });
+
+  const out = buildClipParams(p, {}, {});
+  assert.deepEqual(out.playerImageParams, { position: 'top-left', size: 'L' });
+});
+
+test('buildClipParams defaults playerImageParams when source has none', () => {
+  const src = { reframeMode: 'auto', toggles: {}, subtitleParams: {}, logoParams: {}, hookParams: {} };
+  const out = buildClipParams(src, {}, {});
+  assert.deepEqual(out.playerImageParams, { position: 'center', size: 'M' });
+});
+
 test('buildBulkPlan skips the source clip and plans the rest', () => {
   const src = { reframeMode: 'auto', toggles: { smartcut: true }, subtitleParams: {}, logoParams: {}, hookParams: { text: 'x' } };
   const targets = [

@@ -2,6 +2,7 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   seedToggles, seedGradeParams, seedLogoParams, seedHookParams, seedSubtitleParams, seedBannerParams,
+  seedPlayerImageParams,
 } from './seedClipParams.js';
 
 // seedClipParams is the single seam that keeps the Create pre-selection panel,
@@ -12,7 +13,12 @@ import {
 test('seedToggles defaults everything off', () => {
   assert.deepEqual(seedToggles(undefined), {
     smartcut: false, hook: false, subtitles: false, logo: false, grade: false, banner: false,
+    player_image: false,
   });
+});
+
+test('seedToggles turns player_image on when pre-selected', () => {
+  assert.equal(seedToggles({ player_image: true }).player_image, true);
 });
 
 test('seedBannerParams prefers an explicit pre-selection over the source suggestion', () => {
@@ -45,6 +51,14 @@ test('seedGradeParams and seedLogoParams fall back to backend defaults', () => {
   assert.deepEqual(
     seedLogoParams({ logo: { position: 'bottom-left', size: 'L' } }),
     { position: 'bottom-left', size: 'L' },
+  );
+});
+
+test('seedPlayerImageParams falls back to backend defaults', () => {
+  assert.deepEqual(seedPlayerImageParams(undefined), { position: 'center', size: 'M' });
+  assert.deepEqual(
+    seedPlayerImageParams({ player_image: { position: 'top-left', size: 'L' } }),
+    { position: 'top-left', size: 'L' },
   );
 });
 

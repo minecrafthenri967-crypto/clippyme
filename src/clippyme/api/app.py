@@ -799,7 +799,9 @@ async def compose_clip(job_id: str, clip_index: int, req: ComposeRequest, reques
             logo_params=req.logo_params,
             grade_params=req.grade_params,
             banner_params=req.banner_params,
+            player_image_params=req.player_image_params,
             drop_ranges=req.drop_ranges,
+            metadata_path=resolved.metadata_path,
         )
         return {"composed_url": f"/videos/{job_id}/{composed_filename}"}
     except (HTTPException, ClippyMeError):

@@ -100,6 +100,11 @@ export const de = {
   'settings.removeAria': '{name} entfernen',
   'settings.fonts.title': 'Untertitel-Schriften',
   'settings.fonts.desc': 'Lade eine .ttf/.otf hoch (z.B. Stratos) für klassische Untertitel',
+  'settings.playerImages.title': 'Spielerbilder',
+  'settings.playerImages.desc': 'Ein PNG pro Athlet — wird per Namensabgleich eingeblendet, wenn erkannt',
+  'settings.playerImages.nameAria': 'Spielername',
+  'settings.playerImages.namePlaceholder': 'Spielername (z.B. LeBron James)',
+  'settings.playerImages.nameRequired': 'Erst einen Spielernamen eingeben',
 
   'settings.downloads.title': 'Downloads',
   'settings.downloads.sub': 'Für alters- oder regionsbeschränkte Quellen',
@@ -130,6 +135,9 @@ export const de = {
   'settings.toast.fontAdded': 'Schrift hinzugefügt',
   'settings.toast.fontUploadFailed': 'Schrift-Upload fehlgeschlagen',
   'settings.toast.fontRemoved': 'Schrift entfernt',
+  'settings.toast.playerImageAdded': 'Spielerbild hinzugefügt',
+  'settings.toast.playerImageUploadFailed': 'Spielerbild-Upload fehlgeschlagen',
+  'settings.toast.playerImageRemoved': 'Spielerbild entfernt',
 
   // -- views.jsx: ApiKeyModal ---------------------------------------------------
   'apiKeyModal.title': 'Gemini-Schlüssel hinzufügen',
@@ -188,6 +196,9 @@ export const de = {
   // -- create.jsx: LogoConfig -----------------------------------------------
   'create.logo.uploadHint': 'Lade dein Logo-PNG unter Einstellungen → Marken-Logo hoch.',
 
+  // -- create.jsx: PlayerImageConfig -----------------------------------------
+  'create.playerImage.uploadHint': 'Lade Spielerfotos unter Einstellungen → Spielerbilder hoch.',
+
   // -- create.jsx: OptionsPanel ---------------------------------------------
   'create.recipe.title': 'Rezept',
   'create.recipe.sub': 'Was ClippyMe aus jedem Video macht',
@@ -226,6 +237,8 @@ export const de = {
   'create.logo.desc': 'Brennt dein Logo auf jeden Clip',
   'create.banner.label': 'Attributions-Banner',
   'create.banner.desc': 'Plattform-Logo + Handle unten im Clip eingebrannt',
+  'create.playerImage.label': 'Spielerbild',
+  'create.playerImage.desc': 'Blendet das Foto des Athleten ein, wenn sein Name erkannt wird',
   'create.grade.label': 'Farbkorrektur',
   'create.grade.desc': 'Filmische Farbkorrektur auf jedem Clip',
 

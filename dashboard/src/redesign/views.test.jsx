@@ -29,6 +29,9 @@ vi.mock('./realApi', () => ({
   logoStatus: vi.fn(async () => ({ configured: false })),
   uploadLogo: vi.fn(),
   deleteLogo: vi.fn(),
+  listPlayerImages: vi.fn(async () => ({ players: [] })),
+  uploadPlayerImage: vi.fn(),
+  deletePlayerImage: vi.fn(),
 }));
 
 const EMPTY_CONFIG = { GEMINI_API_KEY: '', HF_TOKEN: '', DEEPGRAM_API_KEY: '', ELEVENLABS_API_KEY: '' };
@@ -157,6 +160,53 @@ test('creating a new Zernio profile switches the active profile to it', async ()
   fireEvent.click(screen.getByRole('button', { name: 'Create' }));
   await waitFor(() => expect(createZernioProfile).toHaveBeenCalledWith('ebay_live', 'eBay Live'));
   await waitFor(() => expect(getZernio).toHaveBeenCalledWith('ebay_live'));
+});
+
+// --- Player image library -----------------------------------------------
+
+test('player images list is empty by default', async () => {
+  getConfig.mockResolvedValue(EMPTY_CONFIG);
+  mount();
+  await waitFor(() => expect(screen.getByPlaceholderText('Player name (e.g. LeBron James)')).toBeInTheDocument());
+  expect(screen.queryByText('LeBron James')).not.toBeInTheDocument();
+});
+
+test('uploading a player image without a name shows a warning toast and does not upload', async () => {
+  getConfig.mockResolvedValue(EMPTY_CONFIG);
+  const { uploadPlayerImage } = await import('./realApi');
+  const pushToast = mount();
+  await waitFor(() => expect(screen.getByPlaceholderText('Player name (e.g. LeBron James)')).toBeInTheDocument());
+  const file = new File(['x'], 'photo.png', { type: 'image/png' });
+  const input = screen.getByPlaceholderText('Player name (e.g. LeBron James)').closest('.opt').querySelector('input[type="file"]');
+  fireEvent.change(input, { target: { files: [file] } });
+  await waitFor(() => expect(pushToast).toHaveBeenCalledWith('warn', 'Enter a player name first'));
+  expect(uploadPlayerImage).not.toHaveBeenCalled();
+});
+
+test('uploading a player image with a name calls uploadPlayerImage and refreshes the list', async () => {
+  getConfig.mockResolvedValue(EMPTY_CONFIG);
+  const { uploadPlayerImage } = await import('./realApi');
+  uploadPlayerImage.mockResolvedValue({ name: 'LeBron James', players: ['LeBron James'] });
+  mount();
+  const nameInput = await screen.findByPlaceholderText('Player name (e.g. LeBron James)');
+  fireEvent.change(nameInput, { target: { value: 'LeBron James' } });
+  const file = new File(['x'], 'photo.png', { type: 'image/png' });
+  const fileInput = nameInput.closest('.opt').querySelector('input[type="file"]');
+  fireEvent.change(fileInput, { target: { files: [file] } });
+  await waitFor(() => expect(uploadPlayerImage).toHaveBeenCalledWith('LeBron James', file));
+  await waitFor(() => expect(screen.getByText('LeBron James')).toBeInTheDocument());
+});
+
+test('deleting a player image calls deletePlayerImage and removes it from the list', async () => {
+  getConfig.mockResolvedValue(EMPTY_CONFIG);
+  const { listPlayerImages, deletePlayerImage } = await import('./realApi');
+  listPlayerImages.mockResolvedValueOnce({ players: ['LeBron James'] });
+  deletePlayerImage.mockResolvedValue({ players: [] });
+  mount();
+  await waitFor(() => expect(screen.getByText('LeBron James')).toBeInTheDocument());
+  fireEvent.click(screen.getByRole('button', { name: 'Remove LeBron James' }));
+  await waitFor(() => expect(deletePlayerImage).toHaveBeenCalledWith('LeBron James'));
+  await waitFor(() => expect(screen.queryByText('LeBron James')).not.toBeInTheDocument());
 });
 
 // HistoryView — title + per-job "published" badge (derived from

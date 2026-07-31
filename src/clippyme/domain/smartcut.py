@@ -55,6 +55,7 @@ from clippyme.domain.smartcut_ops import (  # noqa: F401
     analyze_silences,
     clip_transcript_segments,
     normalize_drop_ranges,
+    remap_time_through_kept_segments,
     subtract_ranges,
 )
 

@@ -16,7 +16,8 @@ from clippyme.domain.errors import ValidationError
 
 logger = logging.getLogger(__name__)
 
-from clippyme.domain.smartcut import smart_cut
+from clippyme.domain import job_artifacts
+from clippyme.domain.smartcut import analyze_silences, remap_time_through_kept_segments, smart_cut
 from clippyme.domain.subtitles import generate_ass_karaoke, generate_srt, burn_subtitles
 
 
@@ -26,6 +27,9 @@ _SIZE_MAP = {"S": 0.8, "M": 1.0, "L": 1.3}
 LOGO_PATH = os.environ.get("CLIPPYME_LOGO_PATH") or os.path.join("data", "logo.png")
 # Logo size presets → width as a fraction of the video width.
 _LOGO_SIZE_MAP = {"S": 0.12, "M": 0.18, "L": 0.26}
+# Player-image size presets → width fraction. Wider range than the logo
+# watermark — this is a featured "flash" reveal, not a persistent brand mark.
+_PLAYER_IMAGE_SIZE_MAP = {"S": 0.35, "M": 0.55, "L": 0.75}
 
 
 async def _apply_logo(
@@ -251,6 +255,130 @@ async def _apply_banner(
     return banner_output
 
 
+async def _apply_player_image(
+    current_input: str,
+    job_dir: str,
+    clip_index: int,
+    player_image_params: dict,
+    clip_info: dict,
+    metadata: dict,
+    metadata_path: str,
+    drop_ranges,
+    smartcut_rendered: bool,
+    intermediate_files: list,
+) -> str:
+    """Detect (once, cached) → match (every call, cheap) → remap through
+    Smart Cut if it actually rendered → burn a timed photo overlay.
+
+    Never raises — any failure at any stage falls back to returning
+    ``current_input`` unchanged (skip the layer), same defensive posture as
+    ``_apply_banner``. The one exception carved out of that blanket safety
+    net is the detection call itself: a transient failure there must NOT be
+    cached as "no mentions", or a flaky network blip would permanently hide
+    the overlay for that clip — see the nested try/except below.
+    """
+    from clippyme.domain.player_detect import detect_player_mentions
+    from clippyme.domain.player_image import (
+        DEFAULT_PLAYER_IMAGE_DURATION,
+        DEFAULT_PLAYER_IMAGE_POSITION,
+        PLAYER_IMAGES_DIR,
+        add_player_image_to_video,
+        list_player_images,
+        match_player_image,
+    )
+    from clippyme.storage.config_store import load_persistent_config
+
+    try:
+        transcript = metadata.get("transcript") or {}
+        clip_start = clip_info.get("start", 0)
+        clip_end = clip_info.get("end", 0)
+
+        # Detect once per clip, ever — cached into clip_info["player_mentions"]
+        # so re-compose/re-preview/re-publish never re-bills Gemini.
+        if "player_mentions" not in clip_info:
+            cfg = load_persistent_config() or {}
+            api_key = os.environ.get("GEMINI_API_KEY") or cfg.get("GEMINI_API_KEY")
+            model = cfg.get("GEMINI_MODEL") or "gemini-3.5-flash"
+            try:
+                mentions = await asyncio.to_thread(
+                    detect_player_mentions, api_key=api_key, model=model,
+                    transcript=transcript, clip_start=clip_start, clip_end=clip_end,
+                )
+            except Exception:
+                logger.warning(
+                    "player_image: detection failed for clip_index=%d — NOT caching, "
+                    "will retry on next compose", clip_index, exc_info=True,
+                )
+                return current_input
+            if metadata_path:
+                await asyncio.to_thread(
+                    job_artifacts.set_clip_field, metadata_path, clip_index,
+                    "player_mentions", mentions,
+                )
+            clip_info["player_mentions"] = mentions
+
+        mentions = clip_info.get("player_mentions") or []
+        if not mentions:
+            return current_input
+
+        library = list_player_images()
+        if not library:
+            return current_input
+
+        # Re-matched every call (cheap, no Gemini) — uploading a photo AFTER
+        # detection still lights up the overlay on the next re-compose.
+        match = None
+        for mention in sorted(mentions, key=lambda m: -m.get("confidence", 0)):
+            found = match_player_image(mention.get("player_name", ""), library)
+            if found:
+                match = (found, mention["timestamp"])
+                break
+        if not match:
+            logger.info(
+                "player_image: no library match for any detected mention (clip_index=%d)",
+                clip_index,
+            )
+            return current_input
+        matched_name, raw_timestamp = match
+
+        if smartcut_rendered:
+            language = transcript.get("language")
+            merged, _ = analyze_silences(transcript, clip_start, clip_end, language, drop_ranges)
+            mapped_t = remap_time_through_kept_segments(raw_timestamp, merged)
+            if mapped_t is None:
+                logger.info(
+                    "player_image: detected moment was cut away by Smart Cut — "
+                    "skipping (clip_index=%d)", clip_index,
+                )
+                return current_input
+        else:
+            mapped_t = raw_timestamp
+
+        dur, _, _ = await asyncio.to_thread(_probe_qa, current_input)
+        video_duration = dur if dur else max(0.0, clip_end - clip_start)
+        start_t = max(0.0, min(mapped_t, max(0.0, video_duration - 0.1)))
+
+        pip = player_image_params or {}
+        image_path = os.path.join(PLAYER_IMAGES_DIR, f"{matched_name}.png")
+        pi_output = os.path.join(job_dir, f"composed_player_image_{clip_index}.mp4")
+        intermediate_files.append(pi_output)
+        scale = pip.get("scale", _PLAYER_IMAGE_SIZE_MAP.get(pip.get("size"), 0.55))
+        await asyncio.to_thread(
+            add_player_image_to_video, current_input, image_path, pi_output,
+            start=start_t, duration=pip.get("duration", DEFAULT_PLAYER_IMAGE_DURATION),
+            position=pip.get("position", DEFAULT_PLAYER_IMAGE_POSITION),
+            scale=scale, opacity=pip.get("opacity", 1.0),
+            margin=pip.get("margin", 0.04),
+        )
+        return pi_output
+    except Exception:
+        logger.warning(
+            "player_image: layer failed for clip_index=%d — skipping (never fails compose)",
+            clip_index, exc_info=True,
+        )
+        return current_input
+
+
 async def _apply_subtitles(
     current_input: str,
     job_dir: str,
@@ -378,7 +506,9 @@ async def compose_layers(
     logo_params: dict = None,
     grade_params: dict = None,
     banner_params: dict = None,
+    player_image_params: dict = None,
     drop_ranges=None,
+    metadata_path: str = None,
 ) -> str:
     """Run the active layer pipeline. Returns the final composed filename (basename).
 
@@ -390,6 +520,11 @@ async def compose_layers(
     deterministic by clip index, so two overlapping composes for the same clip
     (Download racing Publish's compose_first) would delete/overwrite each
     other's in-flight files. Different clips compose in parallel as before.
+
+    ``metadata_path`` (the resolved clip's own metadata file, i.e.
+    ``resolved.metadata_path``) is only required when the ``player_image``
+    layer is active — it's how a first-ever detection result gets cached
+    onto the clip's metadata entry so a later compose never re-bills Gemini.
     """
     async with clip_lock(job_dir, clip_index):
         return await _compose_layers_impl(
@@ -397,7 +532,8 @@ async def compose_layers(
             metadata=metadata, clip_info=clip_info, toggles=toggles,
             hook_params=hook_params, subtitle_params=subtitle_params,
             logo_params=logo_params, grade_params=grade_params,
-            banner_params=banner_params, drop_ranges=drop_ranges,
+            banner_params=banner_params, player_image_params=player_image_params,
+            drop_ranges=drop_ranges, metadata_path=metadata_path,
         )
 
 
@@ -414,7 +550,9 @@ async def _compose_layers_impl(
     logo_params: dict = None,
     grade_params: dict = None,
     banner_params: dict = None,
+    player_image_params: dict = None,
     drop_ranges=None,
+    metadata_path: str = None,
 ) -> str:
     active = {k: v for k, v in toggles.items() if v}
     # The banner can be enabled via its own params.enabled (frontend convention)
@@ -510,11 +648,19 @@ async def _compose_layers_impl(
                 "grade+" if merged_grade_vf else "", os.path.basename(current_input),
             )
 
+        smartcut_rendered = False
         if active.get("smartcut"):
+            _pre_smartcut_input = current_input
             current_input = await _apply_smartcut(
                 current_input, base_clip, metadata, clip_info, intermediate_files,
                 drop_ranges,
             )
+            # smart_cut() can internally decide NOT to render (too little
+            # time_saved, <2 segments) and return the input unchanged even
+            # though the toggle is on — the player-image layer's Smart-Cut
+            # remap must know whether a render actually happened, not just
+            # whether the toggle was set.
+            smartcut_rendered = (current_input != _pre_smartcut_input)
             layers_applied.append("smartcut")
             logger.info("compose_layers: ✓ smartcut → %s", os.path.basename(current_input))
 
@@ -568,6 +714,19 @@ async def _compose_layers_impl(
             )
             layers_applied.append("logo")
             logger.info("compose_layers: ✓ logo → %s", os.path.basename(current_input))
+
+        # Player-image: campaign content (the athlete photo flash) sits above
+        # the brand hook/logo but strictly below the attribution banner, which
+        # must stay the topmost layer regardless of what else is active.
+        player_image_active = bool(active.get("player_image"))
+        if player_image_active:
+            current_input = await _apply_player_image(
+                current_input, job_dir, clip_index, player_image_params,
+                clip_info, metadata, metadata_path, drop_ranges, smartcut_rendered,
+                intermediate_files,
+            )
+            layers_applied.append("player_image")
+            logger.info("compose_layers: ✓ player_image → %s", os.path.basename(current_input))
 
         # Banner absolutely last (topmost) — the attribution pill sits on top of
         # everything, including the logo. Enable via toggles['banner'] or an

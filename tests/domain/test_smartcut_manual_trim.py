@@ -47,6 +47,51 @@ def test_subtract_noop_returns_clean_copy():
     assert sc.subtract_ranges([(0, 5), (5, 5)], []) == [(0, 5)]
 
 
+# --- remap_time_through_kept_segments ---------------------------------------
+
+def test_remap_identity_when_nothing_was_cut():
+    merged = [(0.0, 10.0)]
+    assert sc.remap_time_through_kept_segments(4.0, merged) == 4.0
+
+
+def test_remap_inside_a_later_kept_span_offsets_by_accumulated_cursor():
+    # Original [0,2) dropped, [2,5) kept, [5,7) dropped, [7,10) kept.
+    merged = [(2.0, 5.0), (7.0, 10.0)]
+    # t=8 is 1s into the second kept span; the first kept span (2,5) is 3s
+    # long, so output position = 3 + 1 = 4.
+    assert sc.remap_time_through_kept_segments(8.0, merged) == 4.0
+
+
+def test_remap_inside_a_dropped_gap_returns_none():
+    merged = [(2.0, 5.0), (7.0, 10.0)]
+    assert sc.remap_time_through_kept_segments(6.0, merged) is None  # in the [5,7) gap
+
+
+def test_remap_before_first_kept_span_returns_none():
+    merged = [(2.0, 5.0)]
+    assert sc.remap_time_through_kept_segments(1.0, merged) is None
+
+
+def test_remap_after_last_kept_span_returns_none():
+    merged = [(0.0, 5.0)]
+    assert sc.remap_time_through_kept_segments(6.0, merged) is None
+
+
+def test_remap_on_span_boundary_maps_to_that_spans_end_not_next_spans_start():
+    merged = [(0.0, 5.0), (5.0, 10.0)]
+    # t=5.0 is the shared boundary — must resolve to the END of the first
+    # span (5.0 in output time), not silently jump ahead.
+    assert sc.remap_time_through_kept_segments(5.0, merged) == 5.0
+
+
+def test_remap_empty_merged_list_returns_none():
+    assert sc.remap_time_through_kept_segments(3.0, []) is None
+
+
+def test_remap_none_time_returns_none():
+    assert sc.remap_time_through_kept_segments(None, [(0.0, 10.0)]) is None
+
+
 # --- analyze_silences manual path ------------------------------------------
 
 def _transcript(words):

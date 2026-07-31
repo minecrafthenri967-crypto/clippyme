@@ -16,6 +16,7 @@ export function seedToggles(preselections) {
         logo: !!preselections?.logo,
         grade: !!(preselections?.grade && preselections.grade.preset && preselections.grade.preset !== 'none'),
         banner: !!(preselections?.banner && preselections.banner.enabled),
+        player_image: !!preselections?.player_image,
     };
 }
 
@@ -45,6 +46,14 @@ export function seedLogoParams(preselections) {
     return {
         position: logo?.position || 'top-right',
         size: logo?.size || 'M',
+    };
+}
+
+export function seedPlayerImageParams(preselections) {
+    const pi = preselections?.player_image;
+    return {
+        position: pi?.position || 'center',
+        size: pi?.size || 'M',
     };
 }
 

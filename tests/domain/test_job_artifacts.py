@@ -205,6 +205,55 @@ def test_delete_clip_artifacts_out_of_range_index_still_removes_files(tmp_path):
     assert not os.path.exists(paths["source"])
 
 
+def test_set_clip_field_writes_new_field(tmp_path):
+    out = str(tmp_path)
+    job_dir = os.path.join(out, "job1")
+    meta_path = _write_meta(job_dir, "vid", {"shorts": [{"start": 0}]})
+    ja.set_clip_field(meta_path, 0, "player_mentions", [{"player_name": "X"}])
+    _, data = ja.load_job_metadata("job1", out)
+    assert data["shorts"][0]["player_mentions"] == [{"player_name": "X"}]
+
+
+def test_set_clip_field_overwrites_existing_field(tmp_path):
+    out = str(tmp_path)
+    job_dir = os.path.join(out, "job1")
+    meta_path = _write_meta(job_dir, "vid", {"shorts": [{"player_mentions": ["old"]}]})
+    ja.set_clip_field(meta_path, 0, "player_mentions", ["new"])
+    _, data = ja.load_job_metadata("job1", out)
+    assert data["shorts"][0]["player_mentions"] == ["new"]
+
+
+def test_set_clip_field_out_of_range_index_is_noop(tmp_path):
+    out = str(tmp_path)
+    job_dir = os.path.join(out, "job1")
+    meta_path = _write_meta(job_dir, "vid", {"shorts": [{"start": 0}]})
+    ja.set_clip_field(meta_path, 7, "player_mentions", [])
+    _, data = ja.load_job_metadata("job1", out)
+    assert "player_mentions" not in data["shorts"][0]
+
+
+def test_set_clip_field_missing_file_does_not_raise(tmp_path):
+    ja.set_clip_field(str(tmp_path / "nope_metadata.json"), 0, "player_mentions", [])
+
+
+def test_set_clip_field_reads_fresh_does_not_clobber_sibling_clip(tmp_path):
+    """Simulates the concurrent-write scenario set_clip_field is designed to
+    avoid: a caller holding a stale in-memory snapshot must not matter,
+    because set_clip_field always re-reads from disk first."""
+    out = str(tmp_path)
+    job_dir = os.path.join(out, "job1")
+    meta_path = _write_meta(job_dir, "vid", {"shorts": [{"start": 0}, {"start": 10}]})
+
+    # Simulate another process writing clip 1's field first.
+    ja.set_clip_field(meta_path, 1, "player_mentions", ["sibling"])
+    # Now our call sets clip 0's field — must not lose clip 1's write.
+    ja.set_clip_field(meta_path, 0, "player_mentions", ["mine"])
+
+    _, data = ja.load_job_metadata("job1", out)
+    assert data["shorts"][0]["player_mentions"] == ["mine"]
+    assert data["shorts"][1]["player_mentions"] == ["sibling"]
+
+
 def test_delete_clip_artifacts_missing_metadata_does_not_raise(tmp_path):
     """No metadata file at all (e.g. already cleaned up) — still best-effort,
     never propagates."""
