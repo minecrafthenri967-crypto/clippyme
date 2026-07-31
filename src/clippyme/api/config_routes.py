@@ -21,6 +21,7 @@ from typing import Optional
 from fastapi import APIRouter, File, Header, HTTPException, Path, Query, Request, UploadFile
 
 from clippyme.api.schemas import (
+    CaptionPresetRequest,
     ConfigUpdateRequest,
     ZernioConfigRequest,
     ZernioProfileCreateRequest,
@@ -30,10 +31,13 @@ from clippyme.api.security import require_trusted_config_request
 from clippyme.pipeline.gemini_service import list_available_models
 from clippyme.storage.config_store import (
     create_zernio_profile,
+    delete_caption_preset,
     delete_zernio_profile,
+    list_caption_presets,
     list_zernio_profiles,
     load_persistent_config,
     load_zernio_config,
+    save_caption_preset,
     save_persistent_config,
     save_zernio_config,
     zernio_config_status,
@@ -438,3 +442,40 @@ async def delete_zernio_profile_route(
     if not removed:
         raise HTTPException(status_code=404, detail="profile not found")
     return {"profiles": await asyncio.to_thread(list_zernio_profiles)}
+
+
+# --- Caption presets ---------------------------------------------------------
+# Saved caption templates (e.g. one per seller in a multi-account clipping
+# campaign, with its mandatory hashtags/mention pre-written) that fill the
+# Publish caption field with one click instead of retyping per clip.
+
+@router.get("/api/config/caption-presets")
+async def get_caption_presets(request: Request):
+    """List every saved caption preset."""
+    require_trusted_config_request(request)
+    return {"presets": await asyncio.to_thread(list_caption_presets)}
+
+
+@router.post("/api/config/caption-presets")
+async def save_caption_preset_route(req: CaptionPresetRequest, request: Request):
+    """Create or update (upsert by id) a caption preset."""
+    require_trusted_config_request(request)
+    try:
+        ok = await asyncio.to_thread(save_caption_preset, req.id, req.label, req.text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to save caption preset")
+    return {"presets": await asyncio.to_thread(list_caption_presets)}
+
+
+@router.delete("/api/config/caption-presets/{preset_id}")
+async def delete_caption_preset_route(
+    request: Request, preset_id: str = Path(..., pattern=r"^[a-z0-9_-]{1,40}$")
+):
+    """Delete a saved caption preset."""
+    require_trusted_config_request(request)
+    removed = await asyncio.to_thread(delete_caption_preset, preset_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="preset not found")
+    return {"presets": await asyncio.to_thread(list_caption_presets)}

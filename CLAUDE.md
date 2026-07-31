@@ -85,7 +85,11 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   Zernio settings support named profiles — `profile="default"` reproduces the
   original single-account `zernio` key byte-for-byte, any other profile id
   reads/writes a sibling `zernio_profiles` namespace, so a multi-campaign
-  install can hold several independent Zernio accounts side by side).
+  install can hold several independent Zernio accounts side by side; saved
+  caption presets — e.g. one per seller in a multi-account campaign, with its
+  mandatory hashtags/mention pre-written — live in a `caption_presets`
+  namespace, upserted by id, and fill the Publish caption field with one
+  click via `PublishModal`).
 
 A second, independent package lives under `src/clipper_pro/` — the AI-Clipper
 Pro pipeline. It is CLI-driven (`clipper-pro` / `python -m clipper_pro`), one
@@ -336,6 +340,8 @@ through verbatim (the frontend parses per-platform 429 daily limits).
 | GET/POST/DELETE | `/api/config*` | Keys, cookies, logo, fonts, Zernio (trusted clients) |
 | GET/POST | `/api/config/zernio/profiles` | List / create named Zernio profiles (`?profile=` on the routes above selects one, default `"default"`) |
 | PATCH/DELETE | `/api/config/zernio/profiles/{profile_id}` | Rename a profile's label / delete a non-default profile |
+| GET/POST | `/api/config/caption-presets` | List / upsert (by id) saved caption templates (e.g. one per seller in a multi-account campaign) |
+| DELETE | `/api/config/caption-presets/{preset_id}` | Delete a saved caption preset |
 | GET | `/api/history` · POST `/api/history/{id}/restore` · DELETE `/api/history/{id}` | Past jobs |
 
 ## Configuration

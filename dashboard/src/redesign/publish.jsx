@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Icon, Social, Btn, Switch, Segmented, PlatPill, PLATFORMS } from './primitives';
 import { clipVideoSrc } from './realApi';
-import { publishClip, getZernio, getZernioProfiles } from './realApi';
+import { publishClip, getZernio, getZernioProfiles, getCaptionPresets, saveCaptionPreset } from './realApi';
 import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBannerParams } from '../lib/seedClipParams';
 import { localDatePlus } from '../lib/scheduleDates';
 import { useModalA11y } from './useModalA11y';
@@ -61,6 +61,9 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
   const [plats, setPlats] = useState({ tiktok: true, ig: true, yt: false });
   const [schedule, setSchedule] = useState(true);
   const [caption, setCaption] = useState(clips[0]?.tiktok_caption || clips[0]?.video_title_for_youtube_short || '');
+  const [captionPresets, setCaptionPresets] = useState([]);
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetLabel, setPresetLabel] = useState('');
   const [stage, setStage] = useState('setup'); // setup | uploading | done
   const [progress, setProgress] = useState({});
 
@@ -68,6 +71,31 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
   useEffect(() => {
     getZernio(zernioProfile).then(setZernio).catch(() => setZernio({ configured: false }));
   }, [zernioProfile]);
+  useEffect(() => { getCaptionPresets().then((r) => setCaptionPresets(r.presets || [])).catch(() => {}); }, []);
+
+  // Saved caption templates (e.g. one per seller in a multi-account clipping
+  // campaign) so a mandatory hashtag/mention block doesn't need retyping
+  // per clip — pick one, the text fills the field, still freely editable.
+  const applyCaptionPreset = (id) => {
+    const preset = captionPresets.find((p) => p.id === id);
+    if (preset) setCaption(preset.text);
+  };
+  const slugifyPresetId = (label) => (
+    label.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'preset'
+  );
+  const saveCurrentAsPreset = async () => {
+    const label = presetLabel.trim();
+    if (!label) return;
+    try {
+      const { presets } = await saveCaptionPreset(slugifyPresetId(label), label, caption);
+      setCaptionPresets(presets || []);
+      setSavingPreset(false);
+      setPresetLabel('');
+      pushToast?.('success', `Preset "${label}" saved`);
+    } catch (e) {
+      pushToast?.('error', String(e.message || 'Save preset failed').slice(0, 80));
+    }
+  };
 
   // Accessibility: focus trap + Escape-to-close + focus restore.
   const panelRef = useModalA11y(onClose);
@@ -194,7 +222,28 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
                   </div>
                   <div className="field">
                     <span className="field-label">Caption</span>
+                    {captionPresets.length > 0 && (
+                      <select className="key-input" style={{ width: 'auto', marginBottom: 6, fontFamily: 'var(--font-sans)' }}
+                        aria-label="Caption preset" value=""
+                        onChange={(e) => { if (e.target.value) applyCaptionPreset(e.target.value); }}>
+                        <option value="">Use a saved caption preset…</option>
+                        {captionPresets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                      </select>
+                    )}
                     <textarea className="ta" rows="3" value={caption} onChange={(e) => setCaption(e.target.value)}></textarea>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
+                      <Btn variant="ghost" size="sm" icon="plus" onClick={() => setSavingPreset((v) => !v)}>
+                        Save as preset
+                      </Btn>
+                    </div>
+                    {savingPreset && (
+                      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                        <input className="key-input" style={{ flex: 1, fontFamily: 'var(--font-sans)' }}
+                          aria-label="Preset name" placeholder="Preset name (e.g. John's Card Breaks)"
+                          value={presetLabel} onChange={(e) => setPresetLabel(e.target.value)} />
+                        <Btn variant="primary" size="sm" icon="check" onClick={saveCurrentAsPreset}>Save</Btn>
+                      </div>
+                    )}
                   </div>
                   <div className="opt" style={{ borderBottom: 0 }}>
                     <div className="oico"><Icon n="calendar-clock" /></div>

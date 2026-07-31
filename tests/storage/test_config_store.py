@@ -257,6 +257,83 @@ def test_list_zernio_profiles_includes_named_profiles(tmp_config):
     assert ebay["configured"] is False
 
 
+# --- Caption presets ---------------------------------------------------------
+
+
+def test_list_caption_presets_empty_by_default(tmp_config):
+    assert config_store.list_caption_presets() == []
+
+
+def test_save_and_list_caption_preset_roundtrip(tmp_config):
+    config_store.save_caption_preset(
+        "johns_breaks", "John's Card Breaks",
+        "#eBayLive #JohnsCardBreaks @johnscardbreaks #tradingcards #breaks")
+    presets = config_store.list_caption_presets()
+    assert len(presets) == 1
+    assert presets[0]["id"] == "johns_breaks"
+    assert presets[0]["label"] == "John's Card Breaks"
+    assert "#eBayLive" in presets[0]["text"]
+
+
+def test_save_caption_preset_upserts_by_id(tmp_config):
+    config_store.save_caption_preset("seller1", "Seller One", "first text")
+    config_store.save_caption_preset("seller1", "Seller One Renamed", "second text")
+    presets = config_store.list_caption_presets()
+    assert len(presets) == 1
+    assert presets[0]["label"] == "Seller One Renamed"
+    assert presets[0]["text"] == "second text"
+
+
+def test_save_caption_preset_rejects_invalid_id(tmp_config):
+    with pytest.raises(ValueError):
+        config_store.save_caption_preset("Has Spaces", "Label", "text")
+    with pytest.raises(ValueError):
+        config_store.save_caption_preset("", "Label", "text")
+
+
+def test_save_caption_preset_rejects_blank_label(tmp_config):
+    with pytest.raises(ValueError):
+        config_store.save_caption_preset("seller1", "   ", "text")
+
+
+def test_save_caption_preset_truncates_overlong_text_and_label(tmp_config):
+    config_store.save_caption_preset("seller1", "x" * 200, "y" * 5000)
+    preset = config_store.list_caption_presets()[0]
+    assert len(preset["label"]) == config_store._CAPTION_PRESET_LABEL_MAX
+    assert len(preset["text"]) == config_store._CAPTION_PRESET_TEXT_MAX
+
+
+def test_save_caption_preset_enforces_max_count(tmp_config, monkeypatch):
+    monkeypatch.setattr(config_store, "MAX_CAPTION_PRESETS", 2)
+    config_store.save_caption_preset("p1", "P1", "t1")
+    config_store.save_caption_preset("p2", "P2", "t2")
+    with pytest.raises(ValueError):
+        config_store.save_caption_preset("p3", "P3", "t3")
+    # Updating an existing preset must not be blocked by the cap.
+    assert config_store.save_caption_preset("p1", "P1 updated", "t1b") is True
+
+
+def test_delete_caption_preset_removes_it(tmp_config):
+    config_store.save_caption_preset("seller1", "Seller One", "text")
+    assert config_store.delete_caption_preset("seller1") is True
+    assert config_store.list_caption_presets() == []
+
+
+def test_delete_caption_preset_missing_returns_false(tmp_config):
+    assert config_store.delete_caption_preset("nope") is False
+
+
+def test_caption_presets_are_isolated_from_zernio_and_core_config(tmp_config, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    config_store.save_persistent_config({"GEMINI_API_KEY": "g"})
+    config_store.save_zernio_config(api_key="sk_default")
+    config_store.save_caption_preset("seller1", "Seller One", "text")
+    raw = json.loads(tmp_config.read_text())
+    assert raw["GEMINI_API_KEY"] == "g"
+    assert raw["zernio"]["api_key"] == "sk_default"
+    assert raw["caption_presets"]["seller1"]["label"] == "Seller One"
+
+
 def test_zernio_config_status_accepts_profile(tmp_config):
     config_store.create_zernio_profile("ebay_live")
     config_store.save_zernio_config(api_key="sk_abcdef_longenough_key", profile="ebay_live")

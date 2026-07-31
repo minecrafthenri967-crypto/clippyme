@@ -346,6 +346,32 @@ export async function deleteZernioProfile(profileId) {
   return res.json();
 }
 
+// --- Caption presets (saved caption templates, e.g. one per seller) --------
+
+export async function getCaptionPresets() {
+  const res = await apiFetch(getApiUrl('/api/config/caption-presets'));
+  if (!res.ok) return { presets: [] };
+  return res.json();
+}
+
+export async function saveCaptionPreset(id, label, text) {
+  const res = await apiFetch(getApiUrl('/api/config/caption-presets'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, label, text }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Save preset failed'); }
+  return res.json();
+}
+
+export async function deleteCaptionPreset(id) {
+  const res = await apiFetch(getApiUrl(`/api/config/caption-presets/${encodeURIComponent(id)}`), {
+    method: 'DELETE',
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Delete preset failed'); }
+  return res.json();
+}
+
 // --- Kick live-channel monitor ---------------------------------------------
 
 export async function startLiveMonitor(config) {

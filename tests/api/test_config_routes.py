@@ -288,3 +288,58 @@ def test_zernio_profiles_delete_missing_is_404(client):
 def test_zernio_profiles_delete_default_is_400(client):
     r = client.delete("/api/config/zernio/profiles/default")
     assert r.status_code == 400
+
+
+# --- caption presets ----------------------------------------------------------
+
+
+def test_caption_presets_list_starts_empty(client):
+    r = client.get("/api/config/caption-presets")
+    assert r.status_code == 200
+    assert r.json()["presets"] == []
+
+
+def test_caption_presets_save_then_list(client):
+    r = client.post("/api/config/caption-presets", json={
+        "id": "johns_breaks", "label": "John's Card Breaks",
+        "text": "#eBayLive #JohnsCardBreaks @johnscardbreaks #tradingcards #breaks",
+    })
+    assert r.status_code == 200
+    presets = r.json()["presets"]
+    assert len(presets) == 1
+    assert presets[0]["id"] == "johns_breaks"
+    assert presets[0]["label"] == "John's Card Breaks"
+
+    got = client.get("/api/config/caption-presets")
+    assert got.json()["presets"][0]["id"] == "johns_breaks"
+
+
+def test_caption_presets_save_upserts_by_id(client):
+    client.post("/api/config/caption-presets", json={"id": "s1", "label": "One", "text": "a"})
+    r = client.post("/api/config/caption-presets", json={"id": "s1", "label": "One Renamed", "text": "b"})
+    presets = r.json()["presets"]
+    assert len(presets) == 1
+    assert presets[0]["label"] == "One Renamed"
+    assert presets[0]["text"] == "b"
+
+
+def test_caption_presets_rejects_invalid_id(client):
+    r = client.post("/api/config/caption-presets", json={"id": "Has Spaces", "label": "L", "text": "t"})
+    assert r.status_code == 422
+
+
+def test_caption_presets_rejects_blank_label(client):
+    r = client.post("/api/config/caption-presets", json={"id": "s1", "label": "", "text": "t"})
+    assert r.status_code == 422
+
+
+def test_caption_presets_delete_removes_it(client):
+    client.post("/api/config/caption-presets", json={"id": "s1", "label": "One", "text": "t"})
+    r = client.delete("/api/config/caption-presets/s1")
+    assert r.status_code == 200
+    assert r.json()["presets"] == []
+
+
+def test_caption_presets_delete_missing_is_404(client):
+    r = client.delete("/api/config/caption-presets/ghost")
+    assert r.status_code == 404

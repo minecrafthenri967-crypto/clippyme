@@ -32,6 +32,15 @@ ZERNIO_PROFILES_NAMESPACE = "zernio_profiles"
 DEFAULT_ZERNIO_PROFILE = "default"
 MAX_ZERNIO_PROFILES = 20
 _PROFILE_ID_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
+# Saved caption templates (e.g. one per seller in a multi-account clipping
+# campaign) so a mandatory hashtag/mention block doesn't need retyping per
+# clip at publish time — pick a preset, its text fills the caption field,
+# still freely editable afterward.
+CAPTION_PRESETS_NAMESPACE = "caption_presets"
+MAX_CAPTION_PRESETS = 50
+_CAPTION_PRESET_ID_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
+_CAPTION_PRESET_TEXT_MAX = 2200  # mirrors PublishRequest.caption's max_length
+_CAPTION_PRESET_LABEL_MAX = 60
 _CONFIG_LOCK = threading.RLock()
 
 
@@ -236,6 +245,57 @@ def delete_zernio_profile(profile: str) -> bool:
             return False
         del profiles[profile]
         raw[ZERNIO_PROFILES_NAMESPACE] = profiles
+        return _write_raw_config(raw)
+
+
+def list_caption_presets() -> list[dict]:
+    """Every saved caption preset, sorted by id for a stable display order."""
+    raw = _read_raw_config()
+    presets = raw.get(CAPTION_PRESETS_NAMESPACE) or {}
+    if not isinstance(presets, dict):
+        return []
+    result = []
+    for preset_id in sorted(presets):
+        entry = presets[preset_id]
+        if not isinstance(entry, dict):
+            continue
+        result.append({
+            "id": preset_id,
+            "label": entry.get("label") or preset_id,
+            "text": entry.get("text", ""),
+        })
+    return result
+
+
+def save_caption_preset(preset_id: str, label: str, text: str) -> bool:
+    """Create or update (upsert by id) a saved caption template."""
+    if not _CAPTION_PRESET_ID_RE.match(preset_id or ""):
+        raise ValueError("preset id must match ^[a-z0-9_-]{1,40}$")
+    label = (label or "").strip()[:_CAPTION_PRESET_LABEL_MAX]
+    if not label:
+        raise ValueError("label must not be blank")
+    text = (text or "")[:_CAPTION_PRESET_TEXT_MAX]
+    with _CONFIG_LOCK:
+        raw = _read_raw_config()
+        presets = raw.get(CAPTION_PRESETS_NAMESPACE) or {}
+        if not isinstance(presets, dict):
+            presets = {}
+        if preset_id not in presets and len(presets) >= MAX_CAPTION_PRESETS:
+            raise ValueError(f"maximum of {MAX_CAPTION_PRESETS} caption presets reached")
+        presets[preset_id] = {"label": label, "text": text}
+        raw[CAPTION_PRESETS_NAMESPACE] = presets
+        return _write_raw_config(raw)
+
+
+def delete_caption_preset(preset_id: str) -> bool:
+    """Remove a saved caption preset. Returns False if it did not exist."""
+    with _CONFIG_LOCK:
+        raw = _read_raw_config()
+        presets = raw.get(CAPTION_PRESETS_NAMESPACE) or {}
+        if not isinstance(presets, dict) or preset_id not in presets:
+            return False
+        del presets[preset_id]
+        raw[CAPTION_PRESETS_NAMESPACE] = presets
         return _write_raw_config(raw)
 
 

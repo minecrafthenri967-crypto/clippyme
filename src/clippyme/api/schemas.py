@@ -500,3 +500,12 @@ class ZernioProfileCreateRequest(BaseModel):
 
 class ZernioProfileRenameRequest(BaseModel):
     label: str = Field(..., min_length=1, max_length=64)
+
+
+class CaptionPresetRequest(BaseModel):
+    """A saved caption template (e.g. one per seller in a multi-account
+    clipping campaign) — upserted by id via POST /api/config/caption-presets."""
+
+    id: str = Field(..., pattern=r"^[a-z0-9_-]{1,40}$")
+    label: str = Field(..., min_length=1, max_length=60)
+    text: str = Field("", max_length=2200)
