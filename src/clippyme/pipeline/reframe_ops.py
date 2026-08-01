@@ -11,13 +11,79 @@ Provides:
 - weighted_interest_center    — weighted-object centroid for faceless B-roll
 - savgol_1d                    — Savitzky-Golay smoothing for a future two-stage
                                  global-trajectory pass
+- compute_output_dimensions   — render-canvas size, floored to a platform-safe
+                                 minimum delivery resolution
 """
 from __future__ import annotations
 
 import math
+import os
 from typing import Optional
 
 import numpy as np
+
+
+# --- output canvas sizing ----------------------------------------------------
+
+# TikTok/Instagram/YouTube Shorts all recommend >=1080 on the short edge for
+# 9:16 delivery. CLIPPYME_MAX_DOWNLOAD_HEIGHT only raises the CEILING (how much
+# of a source's available resolution gets downloaded) — it does nothing when
+# the source itself tops out lower than that cap, which is the common case
+# (many YouTube uploads, and effectively all Twitch/Kick VODs, cap at 1080p or
+# below). Left unchecked, the old `OUTPUT_HEIGHT = original_height` policy
+# below matched the render canvas to the SOURCE's native height with no floor,
+# so a standard 1920x1080 landscape source produced a 608x1080 vertical
+# canvas — 9:16 cropped from a 1080-tall frame, not a genuine 1080-short-edge
+# vertical delivery. That is well under TikTok's own recommended minimum and
+# is a plausible cause of a platform "low quality" flag, regardless of how
+# high the download-quality setting is set.
+_DEFAULT_MIN_OUTPUT_SHORT_EDGE = 1080
+
+
+def min_output_short_edge() -> int:
+    """Configured floor (px) for the output canvas's short edge — 1080 default.
+
+    ``CLIPPYME_MIN_OUTPUT_SHORT_EDGE`` (positive int) overrides it; 0 disables
+    the floor entirely (restores the old source-height-only sizing).
+    """
+    raw = (os.environ.get("CLIPPYME_MIN_OUTPUT_SHORT_EDGE") or "").strip()
+    if not raw:
+        return _DEFAULT_MIN_OUTPUT_SHORT_EDGE
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MIN_OUTPUT_SHORT_EDGE
+    return value if value >= 0 else _DEFAULT_MIN_OUTPUT_SHORT_EDGE
+
+
+def compute_output_dimensions(
+    original_height: int, aspect_ratio: float, min_short_edge: int = _DEFAULT_MIN_OUTPUT_SHORT_EDGE,
+) -> tuple[int, int]:
+    """Resolve the reframe render canvas (width, height) for one clip.
+
+    Canvas height starts at the source frame's native height (matching it 1:1
+    costs no vertical scaling in the common case) and width follows from
+    ``aspect_ratio``. When that would put the canvas's SHORT edge under
+    ``min_short_edge``, height is raised instead so the short edge clears the
+    floor — the source is then upscaled into this larger canvas by the
+    existing Lanczos-aware ``_resize_to_output``, which already upscales crops
+    cleanly. ``min_short_edge <= 0`` disables the floor (never upscales; the
+    canvas is exactly the source's native height, the pre-fix behaviour).
+    Both returned dimensions are even (required for yuv420p 4:2:0 chroma).
+    """
+    original_height = int(original_height)
+    if min_short_edge > 0:
+        short_edge_ratio = min(float(aspect_ratio), 1.0) or 1.0
+        floor_height = math.ceil(min_short_edge / short_edge_ratio)
+        output_height = max(original_height, floor_height)
+    else:
+        output_height = original_height
+    if output_height % 2:
+        output_height += 1
+    output_width = int(round(output_height * float(aspect_ratio)))
+    if output_width % 2:
+        output_width += 1
+    return output_width, output_height
 
 
 # --- smoothing --------------------------------------------------------------

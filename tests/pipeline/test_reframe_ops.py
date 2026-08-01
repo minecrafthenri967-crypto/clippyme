@@ -622,3 +622,71 @@ def test_pan_smoother_reset_snaps_next_target():
     s.smooth(500.0, 1920)
     s.reset()
     assert s.smooth(900.0, 1920) == 900.0
+
+
+# --- compute_output_dimensions / min_output_short_edge ----------------------
+
+def test_min_output_short_edge_default_is_1080(monkeypatch):
+    monkeypatch.delenv("CLIPPYME_MIN_OUTPUT_SHORT_EDGE", raising=False)
+    assert ro.min_output_short_edge() == 1080
+
+
+def test_min_output_short_edge_env_override(monkeypatch):
+    monkeypatch.setenv("CLIPPYME_MIN_OUTPUT_SHORT_EDGE", "1440")
+    assert ro.min_output_short_edge() == 1440
+
+
+def test_min_output_short_edge_disabled_via_zero(monkeypatch):
+    monkeypatch.setenv("CLIPPYME_MIN_OUTPUT_SHORT_EDGE", "0")
+    assert ro.min_output_short_edge() == 0
+
+
+def test_min_output_short_edge_blank_or_garbage_falls_back(monkeypatch):
+    monkeypatch.setenv("CLIPPYME_MIN_OUTPUT_SHORT_EDGE", "   ")
+    assert ro.min_output_short_edge() == 1080
+    monkeypatch.setenv("CLIPPYME_MIN_OUTPUT_SHORT_EDGE", "not a number")
+    assert ro.min_output_short_edge() == 1080
+
+
+def test_compute_output_dimensions_upscales_a_1080p_landscape_source_for_9x16():
+    # This is the case that was silently under-spec: a completely normal
+    # 1920x1080 YouTube download reframed to 9:16 used to size the canvas to
+    # the source's native height (1080) with no floor, yielding a 608x1080
+    # vertical clip — well under TikTok's own recommended 1080-short-edge
+    # minimum. The floor must raise it to a genuine 1080-wide vertical delivery.
+    w, h = ro.compute_output_dimensions(1080, 9 / 16)
+    assert (w, h) == (1080, 1920)
+
+
+def test_compute_output_dimensions_noop_when_source_already_clears_floor():
+    # A 2160p (4K) source's native 9:16 crop is already 1215 tall on the short
+    # edge — comfortably above the floor — so the canvas must stay at the
+    # source's native height, not be forced down or further upscaled.
+    w, h = ro.compute_output_dimensions(2160, 9 / 16)
+    assert (w, h) == (1216, 2160)
+
+
+def test_compute_output_dimensions_floor_disabled_restores_source_height():
+    w, h = ro.compute_output_dimensions(1080, 9 / 16, min_short_edge=0)
+    assert (w, h) == (608, 1080)
+
+
+def test_compute_output_dimensions_landscape_aspect_floors_on_height():
+    # 16:9 landscape mode: the SHORT edge is height, so the floor applies
+    # directly to height rather than being divided through by the aspect ratio.
+    w, h = ro.compute_output_dimensions(480, 16 / 9, min_short_edge=1080)
+    assert h == 1080
+    assert w == 1920
+
+
+def test_compute_output_dimensions_square_aspect_floors_on_both_edges():
+    w, h = ro.compute_output_dimensions(480, 1.0, min_short_edge=1080)
+    assert (w, h) == (1080, 1080)
+
+
+def test_compute_output_dimensions_dimensions_are_always_even():
+    # An odd floor/aspect combination must not hand libx264 an odd dimension
+    # (yuv420p 4:2:0 chroma requires even width/height).
+    w, h = ro.compute_output_dimensions(721, 9 / 16, min_short_edge=1081)
+    assert w % 2 == 0
+    assert h % 2 == 0

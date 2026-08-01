@@ -36,6 +36,8 @@ from clippyme.pipeline.reframe_ops import (
     build_smoothed_trajectory,
     centroid_span,
     collapse_scene_targets,
+    compute_output_dimensions,
+    min_output_short_edge,
     salient_crop_center,
     weighted_interest_center,
 )
@@ -234,22 +236,22 @@ def create_general_frame(frame, output_width, output_height, force_object_weight
     # Crop center to aspect ratio
     bg_scale = output_height / orig_h
     bg_w = int(orig_w * bg_scale)
-    bg_resized = cv2.resize(frame, (bg_w, output_height))
-    
+    bg_resized = _resize_to_output(frame, bg_w, output_height)
+
     # Crop center of background
     start_x = (bg_w - output_width) // 2
     if start_x < 0: start_x = 0
     background = bg_resized[:, start_x:start_x+output_width]
     if background.shape[1] != output_width:
-        background = cv2.resize(background, (output_width, output_height))
-        
+        background = _resize_to_output(background, output_width, output_height)
+
     # Blur background
     background = cv2.GaussianBlur(background, (51, 51), 0)
-    
+
     # 2. Foreground (Fit Width)
     scale = output_width / orig_w
     fg_h = int(orig_h * scale)
-    foreground = cv2.resize(frame, (output_width, fg_h))
+    foreground = _resize_to_output(frame, output_width, fg_h)
     
     # 3. Overlay
     y_offset = (output_height - fg_h) // 2
@@ -319,7 +321,7 @@ def _black_pad_to_output(frame, output_width, output_height):
     fg_h = int(round(orig_h * scale))
     if fg_h % 2 != 0:
         fg_h += 1
-    foreground = cv2.resize(frame, (output_width, fg_h))
+    foreground = _resize_to_output(frame, output_width, fg_h)
     canvas = np.zeros((output_height, output_width, 3), dtype=np.uint8)
     if fg_h >= output_height:
         crop_y = (fg_h - output_height) // 2
@@ -585,7 +587,7 @@ def create_disabled_reframe(frame, output_width, output_height):
     scaled_h = int(cropped.shape[0] * scale)
     if scaled_h % 2 != 0:
         scaled_h += 1
-    scaled = cv2.resize(cropped, (scaled_w, scaled_h))
+    scaled = _resize_to_output(cropped, scaled_w, scaled_h)
 
     canvas = np.zeros((output_height, output_width, 3), dtype=np.uint8)
     y_offset = (output_height - scaled_h) // 2
@@ -779,14 +781,14 @@ def _render_global_smooth(input_video, ffmpeg_process, cameraman, speaker_tracke
                     else:
                         tgt = smoothed[frame_number] if frame_number < len(smoothed) else None
                         if tgt is None:
-                            output_frame = cv2.resize(frame, (output_width, output_height))
+                            output_frame = _resize_to_output(frame, output_width, output_height)
                         else:
                             cx, cy, zoom = tgt
                             x1, y1, x2, y2 = cameraman.crop_box_at(cx, cy, zoom)
                             if y2 > y1 and x2 > x1:
                                 output_frame = _resize_to_output(frame[y1:y2, x1:x2], output_width, output_height)
                             else:
-                                output_frame = cv2.resize(frame, (output_width, output_height))
+                                output_frame = _resize_to_output(frame, output_width, output_height)
                     last_output_frame = output_frame
                 except Exception:
                     dropped_frames += 1
@@ -912,11 +914,19 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
 
     print("\n   🧠 Step 2: Preparing Active Tracking...")
     original_width, original_height = get_video_resolution(input_video)
-    
-    OUTPUT_HEIGHT = original_height
-    OUTPUT_WIDTH = int(OUTPUT_HEIGHT * aspect_ratio)
-    if OUTPUT_WIDTH % 2 != 0:
-        OUTPUT_WIDTH += 1
+
+    OUTPUT_WIDTH, OUTPUT_HEIGHT = compute_output_dimensions(
+        original_height, aspect_ratio, min_output_short_edge()
+    )
+    if OUTPUT_HEIGHT > original_height:
+        print(
+            f"   📐 Source frame is {original_width}x{original_height} — its native "
+            f"9:16 crop ({int(original_height * aspect_ratio)}px wide) is under the "
+            f"{min_output_short_edge()}px delivery floor, so the render canvas is "
+            f"upscaled to {OUTPUT_WIDTH}x{OUTPUT_HEIGHT}."
+        )
+    else:
+        print(f"   📐 Source frame is {original_width}x{original_height} — rendering at {OUTPUT_WIDTH}x{OUTPUT_HEIGHT}, no upscale needed.")
 
     # Initialize Cameraman
     cameraman = SmoothedCameraman(OUTPUT_WIDTH, OUTPUT_HEIGHT, original_width, original_height,
@@ -1105,7 +1115,7 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                             cropped = frame[y1:y2, x1:x2]
                             output_frame = _resize_to_output(cropped, OUTPUT_WIDTH, OUTPUT_HEIGHT)
                         else:
-                            output_frame = cv2.resize(frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT))
+                            output_frame = _resize_to_output(frame, OUTPUT_WIDTH, OUTPUT_HEIGHT)
                     last_output_frame = output_frame
                 except Exception:
                     dropped_frames += 1

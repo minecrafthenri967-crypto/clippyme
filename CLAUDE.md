@@ -313,6 +313,18 @@ lives in `reframe_ops.py`/`reframe_track.py` (pure, host-tested) — add new
 reframe logic there, not in the cv2-bound modules.
 ⚠️ `REFRAME_GLOBAL_METHOD=kalman|l2` only runs with `REFRAME_STATIC_AUTO=0`;
 the default static-auto policy never reaches the trajectory smoother.
+⚠️ Output canvas sizing has a CEILING and a FLOOR, set independently:
+`CLIPPYME_MAX_DOWNLOAD_HEIGHT` (`download.py`) only caps how much of a
+source's available resolution gets downloaded — useless once the source
+itself is already below the cap. `reframe_ops.compute_output_dimensions`
+(env `CLIPPYME_MIN_OUTPUT_SHORT_EDGE`, default 1080) is the floor: the render
+canvas matches the downloaded source's native height 1:1 when that already
+clears the floor, otherwise it's upscaled (Lanczos, via the same
+scale-aware `_resize_to_output` every reframe strategy funnels through) so
+the delivered clip's short edge never falls under a platform-safe minimum.
+Without this floor a plain 1920x1080 landscape source's native 9:16 crop is
+only 608x1080 — well under TikTok/Instagram's own recommended minimum,
+regardless of how high the download-quality ceiling is set.
 
 **Smart Cut**: transcript-driven silence/filler removal rendered via a
 hand-built auto-editor v3 JSON timeline (ffmpeg concat fallback if the binary
