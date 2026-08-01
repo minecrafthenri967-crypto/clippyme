@@ -224,6 +224,15 @@ def _is_cookie_bot_check_error(msg: str) -> bool:
     return "sign in to confirm you" in m and "bot" in m
 
 
+_COOKIE_BOT_CHECK_HINT = (
+    "YouTube's bot-check rejected the cookies — usually the server's own "
+    "(often datacenter/VPS) IP being flagged, not stale cookies. Set "
+    "YTDLP_PROXY to a proxy/SSH tunnel matching where the cookies were "
+    "exported to cut down how often this recurs, or re-upload fresh cookies "
+    "from a logged-in, non-VPN browser for a temporary unblock."
+)
+
+
 def classify_download_error(msg: str) -> str:
     """Classify a yt-dlp error as ``retry`` or ``fatal``."""
     m = (msg or "").lower()
@@ -442,4 +451,11 @@ Technical Details: {last_error}
     sys.stdout.flush()
     sys.stderr.flush()
     time.sleep(0.5)
+    if _is_cookie_bot_check_error(str(last_error)):
+        # The ASCII banner above only reaches container logs. RuntimeState.fail()
+        # (domain/runtime_state.py) records str(exception)[-2000:] as the
+        # dashboard-facing failure reason, so the explanation has to ride in the
+        # raised exception itself, not just stdout, or the user only ever sees
+        # yt-dlp's bare one-liner in the UI.
+        raise RuntimeError(f"{last_error} — {_COOKIE_BOT_CHECK_HINT}") from last_error
     raise last_error

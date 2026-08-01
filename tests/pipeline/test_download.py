@@ -227,6 +227,41 @@ def test_is_cookie_bot_check_error_does_not_match_other_fatal_reasons(msg):
     assert dl._is_cookie_bot_check_error(msg) is False
 
 
+class _FakeBotCheckYDL:
+    """Stand-in for yt_dlp.YoutubeDL that always hits the bot-check wall."""
+
+    def __init__(self, opts):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def extract_info(self, url, download=False):
+        raise RuntimeError(
+            "ERROR: [youtube] Tq6zVW9BQKc: Sign in to confirm you’re not "
+            "a bot. Use --cookies-from-browser or --cookies for the "
+            "authentication."
+        )
+
+
+def test_download_youtube_video_wraps_bot_check_hint_into_raised_error(monkeypatch, tmp_path):
+    # RuntimeState.fail() (domain/runtime_state.py) only ever records
+    # str(exception) — the dashboard never sees the ASCII banner printed to
+    # stdout, so the proxy/re-upload hint has to live in the raised message.
+    monkeypatch.setattr(dl.yt_dlp, "YoutubeDL", _FakeBotCheckYDL)
+    monkeypatch.setattr(dl.time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError) as exc_info:
+        dl.download_youtube_video(
+            "https://www.youtube.com/watch?v=Tq6zVW9BQKc", output_dir=str(tmp_path)
+        )
+    msg = str(exc_info.value)
+    assert "Sign in to confirm you" in msg
+    assert "YTDLP_PROXY" in msg
+
+
 # --- download quality: format ladder + its env-configured cap --------------
 
 def test_format_ladder_applies_the_same_cap_to_every_rung():
