@@ -262,6 +262,50 @@ def test_download_youtube_video_wraps_bot_check_hint_into_raised_error(monkeypat
     assert "YTDLP_PROXY" in msg
 
 
+class _FakeChainRetryYDL:
+    """First attempt (player_client 'default', i.e. no extractor_args) hits
+    the bot-check wall; the second (a real player_client) succeeds — tv/
+    tv_embedded/web_safari use a different auth flow than the default web
+    client and often get past a wall the web client just hit, for free."""
+
+    attempts: list = []
+
+    def __init__(self, opts):
+        self._opts = opts
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def extract_info(self, url, download=False):
+        extractor_args = self._opts.get("extractor_args")
+        _FakeChainRetryYDL.attempts.append(extractor_args)
+        if extractor_args is None:
+            raise RuntimeError("ERROR: Sign in to confirm you're not a bot. Use --cookies")
+        return {"title": "ok video"}
+
+    def download(self, urls):
+        out_path = self._opts["outtmpl"].replace("%(ext)s", "mp4")
+        open(out_path, "w").close()
+
+
+def test_download_youtube_video_retries_other_player_clients_past_bot_check(monkeypatch, tmp_path):
+    _FakeChainRetryYDL.attempts = []
+    monkeypatch.setattr(dl.yt_dlp, "YoutubeDL", _FakeChainRetryYDL)
+    monkeypatch.setattr(dl.time, "sleep", lambda s: None)
+    path, title = dl.download_youtube_video(
+        "https://www.youtube.com/watch?v=abc12345678", output_dir=str(tmp_path)
+    )
+    assert os.path.isfile(path)
+    assert title == "ok_video"
+    # First attempt (default client, no extractor_args) hit the wall; the
+    # chain advanced to a real player_client instead of giving up immediately.
+    assert _FakeChainRetryYDL.attempts[0] is None
+    assert _FakeChainRetryYDL.attempts[1] is not None
+
+
 # --- download quality: format ladder + its env-configured cap --------------
 
 def test_format_ladder_applies_the_same_cap_to_every_rung():

@@ -395,11 +395,23 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
         except Exception as exc:
             last_error = exc
             kind = classify_download_error(str(exc))
-            if kind == "retry" and i < len(chain):
-                print(
-                    f"⚠️ Attempt {i} failed (retryable: {exc}); "
-                    "trying next player_client in 5s..."
+            # The bot-check wall is classified "fatal" (it's not a transient
+            # network blip retry_signals covers) but it is specifically NOT
+            # fatal across player clients: tv/tv_embedded/web_safari use a
+            # different auth flow than the default web client and often sail
+            # straight past a wall the web client just hit — a real, free
+            # workaround this loop already had the machinery for (the player-
+            # client chain) but never applied here, since "fatal" used to mean
+            # "give up immediately" regardless of untried clients. Only after
+            # every client in the chain has hit the SAME wall is it actually
+            # exhausted, at which point the YTDLP_PROXY-hint error below fires.
+            bot_check = _is_cookie_bot_check_error(str(exc))
+            if (kind == "retry" or bot_check) and i < len(chain):
+                reason = (
+                    "bot-check wall — trying a different player client"
+                    if bot_check else f"retryable: {exc}"
                 )
+                print(f"⚠️ Attempt {i} failed ({reason}); trying next player_client in 5s...")
                 time.sleep(5)
                 continue
             break
