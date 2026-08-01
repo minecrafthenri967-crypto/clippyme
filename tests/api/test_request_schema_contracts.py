@@ -45,6 +45,14 @@ def test_live_monitor_start_preserves_runtime_domain_fields():
     assert payload["timezone"] == "Europe/Rome"
 
 
+def test_live_monitor_start_label_defaults_blank_and_is_bounded():
+    assert LiveMonitorStartRequest(**_MONITOR_BASE).label == ""
+    request = LiveMonitorStartRequest(**_MONITOR_BASE, label="eBay Live")
+    assert request.model_dump()["label"] == "eBay Live"
+    with pytest.raises(ValidationError):
+        LiveMonitorStartRequest(**_MONITOR_BASE, label="x" * 81)
+
+
 @pytest.mark.parametrize("max_clips", [0, 51])
 def test_live_monitor_start_bounds_max_clips(max_clips):
     with pytest.raises(ValidationError):

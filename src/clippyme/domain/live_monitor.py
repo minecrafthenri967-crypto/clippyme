@@ -315,6 +315,9 @@ def validate_monitor_config(config: dict, default_timezone: str = "Europe/Rome")
         # storage.config_store's profile namespace). Identity field, not
         # runtime-patchable — see _UPDATABLE_CONFIG_FIELDS below.
         "zernio_profile": _validate_zernio_profile(config.get("zernio_profile")),
+        # Free-text display label — purely cosmetic (dashboard list only), so
+        # unlike zernio_profile it IS runtime-patchable.
+        "label": str(config.get("label") or "").strip()[:80],
     }
 
 
@@ -324,7 +327,7 @@ def validate_monitor_config(config: dict, default_timezone: str = "Europe/Rome")
 _UPDATABLE_CONFIG_FIELDS = (
     "instructions", "caption_template", "title_template", "min_gap_seconds",
     "segment_seconds", "prelive_skip_seconds", "platforms", "banner", "compose",
-    "poll_interval", "delete_after_publish", "max_clips",
+    "poll_interval", "delete_after_publish", "max_clips", "label",
 )
 
 # The full set of cfg keys worth persisting/restoring (mirrors
@@ -334,7 +337,7 @@ _SNAPSHOT_CONFIG_FIELDS = (
     "prelive_skip_seconds", "min_gap_seconds", "poll_interval", "loop",
     "instructions", "caption_template", "title_template", "timezone",
     "banner", "compose", "catchup", "delete_after_publish", "max_clips",
-    "zernio_profile",
+    "zernio_profile", "label",
 )
 
 
@@ -669,6 +672,7 @@ class LiveMonitor:
             "state": self.state,
             "channel": self.cfg.get("channel"),
             "slug": self.cfg.get("channel"),  # back-compat alias
+            "label": self.cfg.get("label", ""),
             "loop": self.cfg.get("loop", False),
             "segments_captured": self.segments_captured,
             "clips_published": self.clips_published,

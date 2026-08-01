@@ -401,6 +401,11 @@ class LiveMonitorStartRequest(BaseModel):
     # identity field (like platform/channel) — not runtime-patchable, see
     # live_monitor._UPDATABLE_CONFIG_FIELDS.
     zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
+    # Free-text display label (e.g. a campaign/client name) so a dashboard
+    # running several monitors across campaigns can tell them apart without
+    # decoding platform+channel — purely cosmetic, so it IS runtime-patchable
+    # (see live_monitor._UPDATABLE_CONFIG_FIELDS).
+    label: str = Field("", max_length=80)
 
     @field_validator("timezone")
     @classmethod

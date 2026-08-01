@@ -73,6 +73,7 @@ const secToMin = (s) => (typeof s === 'number' ? String(Math.round(s / 60)) : ''
 // blanks, even though they're now prefilled for editing.
 function MonitorSettings({ monitor, onApply, applying }) {
   const cfg = monitor.config || {};
+  const [label, setLabel] = useState(cfg.label || '');
   const [instructions, setInstructions] = useState(cfg.instructions || '');
   const [captionTemplate, setCaptionTemplate] = useState(cfg.caption_template || '');
   const [titleTemplate, setTitleTemplate] = useState(cfg.title_template || '');
@@ -88,6 +89,7 @@ function MonitorSettings({ monitor, onApply, applying }) {
 
   const apply = () => {
     const partial = {};
+    if (label.trim()) partial.label = label.trim();
     if (instructions.trim()) partial.instructions = instructions.trim();
     if (captionTemplate.trim()) partial.caption_template = captionTemplate.trim();
     if (titleTemplate.trim()) partial.title_template = titleTemplate.trim();
@@ -102,6 +104,12 @@ function MonitorSettings({ monitor, onApply, applying }) {
   return (
     <div className="cfg-drawer fade-in" style={{ marginTop: 10 }}>
       <div className="od" style={{ marginBottom: 8 }}>Changes apply to the next clips only.</div>
+      <div className="field">
+        <span className="field-label">Name</span>
+        <input className="key-input" style={{ width: '100%' }} aria-label={`Settings name ${monitor.id}`}
+          placeholder="e.g. eBay Live — Kick"
+          value={label} onChange={(e) => setLabel(e.target.value)} />
+      </div>
       <div className="field">
         <span className="field-label">AI instructions</span>
         <textarea className="ta" rows="2" aria-label={`Settings instructions ${monitor.id}`}
@@ -158,6 +166,9 @@ function MonitorCard({ monitor, onStop, stopping, onApplySettings, applyingSetti
     <div className="opt" style={{ borderBottom: 0, flexDirection: 'column', alignItems: 'stretch' }}>
       <div style={{ display: 'flex', width: '100%' }}>
         <div className="otxt">
+          {monitor.label && (
+            <div className="ot" style={{ fontWeight: 600 }}>{monitor.label}</div>
+          )}
           <div className="ot">
             <Badge tone="out">{PLATFORM_LABEL[monitor.platform] || monitor.platform}</Badge>{' '}
             <Badge tone={STATE_TONE[monitor.state] || 'out'}>{STATE_LABEL[monitor.state] || monitor.state || 'Unknown'}</Badge>
@@ -238,6 +249,7 @@ export function LiveMonitorView({ pushToast }) {
   const [zernio, setZernio] = useState(null);
   const [zernioProfiles, setZernioProfiles] = useState([{ id: 'default', label: 'Default', configured: false }]);
   const [zernioProfile, setZernioProfile] = useState('default');
+  const [label, setLabel] = useState('');
   const [platform, setPlatform] = useState('kick');
   const [mode, setMode] = useState('live');
   const [slug, setSlug] = useState('');
@@ -296,6 +308,7 @@ export function LiveMonitorView({ pushToast }) {
         platform,
         mode,
         zernio_profile: zernioProfile,
+        label: label.trim(),
         platforms: targets,
         ...clampMonitorTimings(segmentMin, preliveMin, minGapMin),
         loop,
@@ -308,6 +321,7 @@ export function LiveMonitorView({ pushToast }) {
       });
       pushToast?.('success', `Monitoring ${slug.trim()}…`);
       setSlug('');
+      setLabel('');
       setTouched(false);
     } catch (e) {
       const kind = classifyStartError(e.message);
@@ -392,6 +406,12 @@ export function LiveMonitorView({ pushToast }) {
       </Panel>
 
       <Panel title="Start monitor" sub="Requires Zernio configured in Settings" icon="wand-sparkles">
+        <div className="field">
+          <span className="field-label">Name (optional)</span>
+          <input className="key-input" style={{ width: '100%', fontFamily: 'var(--font-sans)' }}
+            aria-label="Monitor name" placeholder="e.g. eBay Live — Kick"
+            value={label} onChange={(e) => setLabel(e.target.value)} />
+        </div>
         {zernioProfiles.length > 1 && (
           <div className="field">
             <span className="field-label">Zernio profile</span>

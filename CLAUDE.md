@@ -50,7 +50,11 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   through — `picked_slots`/the publish `asyncio.Lock` are scoped PER PROFILE
   in the registry, not global, so a rate-limited campaign account can't stall
   an unrelated one; a pre-profile `data/live_monitor.json` migrates its flat
-  `picked_slots` list into the `"default"` bucket transparently on load),
+  `picked_slots` list into the `"default"` bucket transparently on load; each
+  monitor also carries an optional free-text `label` — purely cosmetic (not
+  an identity field, so it's runtime-renamable unlike `zernio_profile`) for
+  telling monitors apart in the dashboard list once several run across
+  different campaigns/Zernio profiles at once),
   `grade.py`, `clip_qa.py`, `clip_edit_ai.py`, `player_image.py` (player-image
   library CRUD + normalized name matching + the timed overlay render, mirrors
   `logo.py`'s shape), `player_detect.py` (the single-shot Gemini call

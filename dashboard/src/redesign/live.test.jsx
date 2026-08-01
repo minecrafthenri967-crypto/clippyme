@@ -427,6 +427,57 @@ test('delete-after-publish checkbox seeds false from config and sends only when 
   await waitFor(() => expect(updateMonitorConfig).toHaveBeenCalledWith('kick:xqc', { delete_after_publish: true }));
 });
 
+test('monitor card shows the custom name, falling back to channel when blank', async () => {
+  mockStatus.mockResolvedValue({
+    monitors: [
+      { id: 'kick:xqc', platform: 'kick', mode: 'live', running: true, state: 'capturing', channel: 'xqc', label: 'DJA — Kick' },
+      { id: 'youtube:@MrBeast', platform: 'youtube', mode: 'vod', running: true, state: 'watching', channel: '@MrBeast' },
+    ],
+  });
+  render(<LiveMonitorView />);
+  expect(await screen.findByText('DJA — Kick')).toBeInTheDocument();
+  // The unnamed monitor still shows its channel, with no stray label line.
+  expect(screen.getByText('@MrBeast')).toBeInTheDocument();
+});
+
+test('monitor name rides the start payload', async () => {
+  const { startLiveMonitor } = await import('./realApi');
+  render(<LiveMonitorView />);
+  fireEvent.change(screen.getByLabelText('Monitor name'), { target: { value: '  eBay Live — Kick  ' } });
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
+  await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
+  expect(startLiveMonitor.mock.calls[0][0].label).toBe('eBay Live — Kick');
+});
+
+test('blank name still starts fine with an empty label', async () => {
+  const { startLiveMonitor } = await import('./realApi');
+  render(<LiveMonitorView />);
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
+  await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
+  expect(startLiveMonitor.mock.calls[0][0].label).toBe('');
+});
+
+test('Settings drawer prefills and renames the monitor via the Name field', async () => {
+  const { updateMonitorConfig } = await import('./realApi');
+  mockStatus.mockResolvedValue({
+    monitors: [{
+      id: 'kick:xqc', platform: 'kick', mode: 'live', running: true, state: 'capturing', channel: 'xqc',
+      config: { label: 'DJA — Kick' },
+    }],
+  });
+  render(<LiveMonitorView />);
+  await screen.findByText('xqc');
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  expect(screen.getByLabelText('Settings name kick:xqc')).toHaveValue('DJA — Kick');
+  fireEvent.change(screen.getByLabelText('Settings name kick:xqc'), { target: { value: 'eBay Live — Kick' } });
+  fireEvent.click(screen.getByRole('button', { name: /Apply/ }));
+  await waitFor(() => expect(updateMonitorConfig).toHaveBeenCalledWith('kick:xqc', { label: 'eBay Live — Kick' }));
+});
+
 test('twitch missing-credentials (400) points to Settings', async () => {
   const { startLiveMonitor } = await import('./realApi');
   startLiveMonitor.mockRejectedValueOnce(new Error(

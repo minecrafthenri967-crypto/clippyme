@@ -413,6 +413,38 @@ def test_delete_after_publish_rejects_non_bool():
         validate_monitor_partial_update({"delete_after_publish": "yes"}, _running_cfg())
 
 
+# --- label (free-text display name, e.g. per-campaign) ----------------------
+
+def test_label_defaults_blank():
+    assert validate_monitor_config(_base_cfg())["label"] == ""
+
+
+def test_label_is_stripped():
+    cfg = validate_monitor_config(_base_cfg(label="  eBay Live — Kick  "))
+    assert cfg["label"] == "eBay Live — Kick"
+
+
+def test_label_is_truncated_to_80_chars():
+    cfg = validate_monitor_config(_base_cfg(label="x" * 100))
+    assert cfg["label"] == "x" * 80
+
+
+def test_label_none_is_blank_not_a_crash():
+    assert validate_monitor_config(_base_cfg(label=None))["label"] == ""
+
+
+def test_label_is_updatable_and_snapshotted():
+    # Unlike zernio_profile (identity, restart required), label is purely
+    # cosmetic — a running monitor must be renamable without a restart.
+    assert "label" in _SNAPSHOT_CONFIG_FIELDS
+    current = _running_cfg(label="DJA")
+    assert current["label"] == "DJA"
+    new_cfg = validate_monitor_partial_update({"label": "eBay Live"}, current)
+    assert new_cfg["label"] == "eBay Live"
+    # Unrelated fields are untouched by the rename.
+    assert new_cfg["channel"] == current["channel"]
+
+
 # --- LiveMonitor.update_config / LiveMonitorRegistry.update_config ---------
 
 def test_monitor_update_config_swaps_cfg_and_persists(tmp_path):
