@@ -200,6 +200,30 @@ def _extractor_args_for(attempt: str):
     return {"youtube": {"player_client": clients}}
 
 
+def _resolve_proxy() -> str | None:
+    """Optional upstream proxy for yt-dlp (``YTDLP_PROXY``, e.g. a residential
+    proxy or an SSH ``-D`` SOCKS tunnel back to a home connection).
+
+    Cookies alone don't stop YouTube's bot-check on a server deployment: the
+    check also weighs the REQUEST'S OWN IP, and datacenter/VPS ranges get
+    flagged far more readily than the residential IP the cookies were
+    originally exported from — so a fresh cookies.txt can still get walled
+    within hours. Routing through a proxy that matches the cookies' origin
+    is the mitigation that actually reduces how often that happens, rather
+    than just re-uploading cookies after each wall.
+    """
+    raw = (os.environ.get("YTDLP_PROXY") or "").strip()
+    return raw or None
+
+
+def _is_cookie_bot_check_error(msg: str) -> bool:
+    """True for YouTube's "sign in to confirm you're not a bot" wall specifically,
+    as opposed to other fatal reasons (private/removed/geo-blocked) that a fresh
+    cookies file or a proxy can't do anything about."""
+    m = (msg or "").lower()
+    return "sign in to confirm you" in m and "bot" in m
+
+
 def classify_download_error(msg: str) -> str:
     """Classify a yt-dlp error as ``retry`` or ``fatal``."""
     m = (msg or "").lower()
@@ -301,6 +325,7 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
         'throttledratelimit': int(
             (os.environ.get('YTDLP_THROTTLED_RATE') or '').strip() or 100 * 1024
         ),
+        'proxy': _resolve_proxy(),
         'cachedir': False,
         'remote_components': ['ejs:github'],
         'http_headers': {
@@ -371,7 +396,34 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
             break
 
     print("🚨 SOURCE DOWNLOAD ERROR 🚨", file=sys.stderr)
-    error_msg = f"""
+    if _is_cookie_bot_check_error(str(last_error)):
+        error_msg = f"""
+
+❌ ================================================================= ❌
+❌ FATAL ERROR: YOUTUBE REJECTED THE COOKIES (bot-check wall)
+❌ ================================================================= ❌
+
+YouTube is showing "sign in to confirm you're not a bot" even though a
+cookies file is configured. This is usually NOT stale cookies — YouTube's
+bot-check also weighs the server's own IP address, and datacenter/VPS
+ranges get flagged far more readily than the residential connection the
+cookies were originally exported from. A freshly re-uploaded cookies file
+can get walled again within hours on a flagged IP.
+
+What actually helps, in order of effort:
+1. Route yt-dlp through a proxy that matches where the cookies came from
+   (e.g. an SSH -D SOCKS tunnel to your home connection, or a residential
+   proxy service): set YTDLP_PROXY, e.g. YTDLP_PROXY=socks5://127.0.0.1:1080
+   or an http(s):// proxy URL. This reduces how often the wall reappears,
+   rather than just re-uploading cookies after each one.
+2. Re-export fresh cookies from a browser that is logged in and not behind
+   a VPN, then re-upload via Settings -> Cookies.
+3. For a single video: download it manually and use the 'Upload Video' tab.
+
+Technical Details: {last_error}
+    """
+    else:
+        error_msg = f"""
 
 ❌ ================================================================= ❌
 ❌ FATAL ERROR: SOURCE DOWNLOAD FAILED

@@ -69,6 +69,11 @@ services:
       # which yt-dlp re-fetches a slow segment (default 102400 = 100 KB/s).
       - YTDLP_NOCHECKCERT=${YTDLP_NOCHECKCERT:-}
       - YTDLP_THROTTLED_RATE=${YTDLP_THROTTLED_RATE:-}
+      # Optional upstream proxy (SOCKS or HTTP(S) URL) for yt-dlp, e.g. an
+      # SSH -D tunnel back to a home connection or a residential proxy
+      # service. Mitigates YouTube's bot-check flagging this container's own
+      # (often datacenter/VPS) IP regardless of how fresh the cookies are.
+      - YTDLP_PROXY=${YTDLP_PROXY:-}
       # Auto-purge of output/ and uploads/ folders. 0 = disabled
       # (recommended — the History tab's Delete button is the single
       # source of truth). Default fallback in app.py is 30 days.

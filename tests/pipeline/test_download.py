@@ -190,6 +190,43 @@ def test_classify_bot_wall_beats_any_incidental_403():
     assert dl.classify_download_error(msg) == "fatal"
 
 
+# --- proxy knob + cookie bot-check error classification --------------------
+
+def test_resolve_proxy_unset_is_none(monkeypatch):
+    monkeypatch.delenv("YTDLP_PROXY", raising=False)
+    assert dl._resolve_proxy() is None
+
+
+def test_resolve_proxy_blank_is_none(monkeypatch):
+    monkeypatch.setenv("YTDLP_PROXY", "   ")
+    assert dl._resolve_proxy() is None
+
+
+def test_resolve_proxy_returns_configured_value(monkeypatch):
+    monkeypatch.setenv("YTDLP_PROXY", "socks5://127.0.0.1:1080")
+    assert dl._resolve_proxy() == "socks5://127.0.0.1:1080"
+
+
+@pytest.mark.parametrize("msg", [
+    "ERROR: Sign in to confirm you're not a bot. Use --cookies",
+    "sign in to confirm you're not a bot (HTTP Error 403)",
+    "Sign in to confirm youre not a bot",
+])
+def test_is_cookie_bot_check_error_matches(msg):
+    assert dl._is_cookie_bot_check_error(msg) is True
+
+
+@pytest.mark.parametrize("msg", [
+    "This video is private",
+    "Video unavailable. This video has been removed by the user",
+    "The uploader has not made this video available in your country",
+    "",
+    None,
+])
+def test_is_cookie_bot_check_error_does_not_match_other_fatal_reasons(msg):
+    assert dl._is_cookie_bot_check_error(msg) is False
+
+
 # --- download quality: format ladder + its env-configured cap --------------
 
 def test_format_ladder_applies_the_same_cap_to_every_rung():
