@@ -2,7 +2,10 @@
 
 Polls ``GET /api/history`` for finished, not-yet-published clips and posts each
 one to a Discord channel. Reacting with the approve emoji publishes it through
-``POST /api/publish/{job}/{clip}``; the reject emoji leaves it alone.
+``POST /api/publish/{job}/{clip}``; the reject emoji leaves it alone. A third,
+download emoji (DOWNLOAD_EMOJI) replies with the FULL-quality file — the
+posted preview is deliberately shrunk to fit Discord's upload limit, so it is
+never what you want to actually save.
 
 Runs as a compose service (``docker compose up``) alongside the backend, or
 standalone with ``python discordbot/bot.py``. Configuration comes from the
@@ -99,6 +102,12 @@ DISCORD_PREVIEW_CRF = _int("DISCORD_PREVIEW_CRF", 30)
 
 APPROVE_EMOJI = os.getenv("APPROVE_EMOJI", "✅")
 REJECT_EMOJI = os.getenv("REJECT_EMOJI", "❌")
+# Reacting with this sends the FULL-quality file (no Discord-preview shrink)
+# as a fresh reply — for saving the clip (e.g. a phone's "Save Video" to the
+# camera roll) at the same quality that would actually publish, since the
+# message already posted for approval is deliberately shrunk to fit Discord's
+# upload limit.
+DOWNLOAD_EMOJI = os.getenv("DOWNLOAD_EMOJI", "📥")
 PUBLISH_PLATFORMS = [
     p.strip().lower()
     for p in os.getenv("PUBLISH_PLATFORMS", "tiktok,instagram,youtube").split(",")
@@ -282,12 +291,13 @@ def _build_publish_body(title: str, hook_text: str):
     return body
 
 
-async def _compose_preview(job_id: str, idx: int, hook_text: str):
-    """Compose (subtitles/hook, same recipe as publish) then shrink the result
-    for Discord: a 2K/4K source composes to a file well over Discord's upload
-    limit, and a dead oversized-clip link isn't a preview. Returns a path to a
-    small temp file the caller must delete, or None if compose/shrink failed
-    (caller falls back to posting the raw clip)."""
+async def _compose_full(job_id: str, idx: int, hook_text: str):
+    """Compose (subtitles/hook — same recipe as publish) via the backend and
+    return the FULL-quality composed file's local path, or None when there is
+    nothing to burn in (raw clip already looks final) or compose failed.
+    Shared by ``_compose_preview`` (which additionally shrinks the result for
+    Discord) and the download-reaction handler (which sends this file as-is,
+    since it's the same quality that would actually publish)."""
     toggles, hook_params, subtitle_params = _build_compose_toggles(hook_text)
     if not any(toggles.values()):
         return None  # nothing to burn in — raw clip already looks final
@@ -310,7 +320,16 @@ async def _compose_preview(job_id: str, idx: int, hook_text: str):
         print(f"Compose request failed for {job_id}/{idx}: {exc}", flush=True)
         return None
 
-    composed_path = _local_clip_path(composed)
+    return _local_clip_path(composed)
+
+
+async def _compose_preview(job_id: str, idx: int, hook_text: str):
+    """Full-quality compose (see ``_compose_full``), then shrink the result
+    for Discord: a 2K/4K source composes to a file well over Discord's upload
+    limit, and a dead oversized-clip link isn't a preview. Returns a path to a
+    small temp file the caller must delete, or None if compose/shrink failed
+    (caller falls back to posting the raw clip)."""
+    composed_path = await _compose_full(job_id, idx, hook_text)
     if not composed_path:
         return None
 
@@ -430,7 +449,7 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
         ("_Preview: subtitles/hook burned in (shrunk for Discord — publish is full quality)._\n\n"
          if is_preview else
          "_Preview is the raw clip — subtitles/hook are burned in on publish._\n\n")
-        + f"{APPROVE_EMOJI} approve  ·  {REJECT_EMOJI} reject"
+        + f"{APPROVE_EMOJI} approve  ·  {REJECT_EMOJI} reject  ·  {DOWNLOAD_EMOJI} full-quality download"
     )
     attachment = None
     body = header
@@ -458,6 +477,7 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
                     else await channel.send(body))
             await sent.add_reaction(APPROVE_EMOJI)
             await sent.add_reaction(REJECT_EMOJI)
+            await sent.add_reaction(DOWNLOAD_EMOJI)
         except discord.HTTPException as exc:
             # Usually the file was over the server's real limit after all. Retry
             # once without it so the clip can still be approved.
@@ -472,6 +492,7 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
                 sent = await channel.send(fallback)
                 await sent.add_reaction(APPROVE_EMOJI)
                 await sent.add_reaction(REJECT_EMOJI)
+                await sent.add_reaction(DOWNLOAD_EMOJI)
             except Exception as exc2:
                 print(f"Fallback post also failed: {exc2}", flush=True)
                 return
@@ -487,7 +508,7 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
             except OSError:
                 pass
 
-    _clip_meta[(job_id, idx)] = {"title": title, "hook_text": hook_text}
+    _clip_meta[(job_id, idx)] = {"title": title, "hook_text": hook_text, "video_url": video_url}
     _posted.add((job_id, idx))
     _save_posted(_posted)
 
@@ -505,7 +526,7 @@ async def on_raw_reaction_add(payload):
     A raw event carries just IDs, so the message is always fetched fresh."""
     if payload.channel_id != CHANNEL_ID:
         return
-    if str(payload.emoji) not in (APPROVE_EMOJI, REJECT_EMOJI):
+    if str(payload.emoji) not in (APPROVE_EMOJI, REJECT_EMOJI, DOWNLOAD_EMOJI):
         return
     if payload.member is not None and payload.member.bot:
         return
@@ -533,8 +554,10 @@ async def on_raw_reaction_add(payload):
 
     if str(payload.emoji) == APPROVE_EMOJI:
         await handle_approval(message, user, job_id, clip_index)
-    else:
+    elif str(payload.emoji) == REJECT_EMOJI:
         await handle_rejection(message, user, job_id, clip_index)
+    else:
+        await handle_download_request(message, user, job_id, clip_index)
 
 
 async def handle_approval(message, user, job_id, clip_index):
@@ -580,6 +603,60 @@ async def handle_rejection(message, user, job_id, clip_index):
     )
     _stats["rejected"] += 1
     await post_stats_update()
+
+
+async def handle_download_request(message, user, job_id, clip_index):
+    """DOWNLOAD_EMOJI reaction: reply with the FULL-quality file — the message
+    already posted for approval is deliberately shrunk to fit Discord's upload
+    limit (DISCORD_PREVIEW_MAX_HEIGHT/CRF), so it is never what you want to
+    save from the app (e.g. a phone's "Save Video" into the camera roll)."""
+    meta = _clip_meta.get((job_id, clip_index))
+    if meta is None:
+        await message.reply(
+            f"{REJECT_EMOJI} Clip {clip_index} (job {job_id}) is no longer known to "
+            "this bot (it was posted before a restart) — re-check it in the ClippyMe dashboard."
+        )
+        return
+    title = meta.get("title") or "Clip"
+    hook_text = meta.get("hook_text", "")
+    video_url = meta.get("video_url", "")
+
+    full_path = await _compose_full(job_id, clip_index, hook_text)
+    local_path = full_path or _local_clip_path(video_url)
+
+    try:
+        if local_path:
+            size_mb = os.path.getsize(local_path) / (1024 * 1024)
+            if size_mb <= MAX_UPLOAD_MB:
+                await message.reply(
+                    f"**{title}** — full quality, requested by {user.mention}",
+                    file=discord.File(local_path, filename=os.path.basename(local_path)),
+                )
+                return
+            if CLIPPYME_PUBLIC_URL and video_url:
+                await message.reply(
+                    f"**{title}**\n{CLIPPYME_PUBLIC_URL}{video_url}\n"
+                    f"_({size_mb:.1f} MB — over Discord's {MAX_UPLOAD_MB} MB limit, linked instead)_"
+                )
+                return
+            await message.reply(
+                f"{REJECT_EMOJI} **{title}** is {size_mb:.1f} MB — over Discord's "
+                f"{MAX_UPLOAD_MB} MB limit and no CLIPPYME_PUBLIC_URL is set to link it instead."
+            )
+            return
+        if CLIPPYME_PUBLIC_URL and video_url:
+            await message.reply(f"**{title}**\n{CLIPPYME_PUBLIC_URL}{video_url}")
+            return
+        await message.reply(
+            f"{REJECT_EMOJI} Could not find the full-quality file for **{title}** "
+            "(check CLIPPYME_OUTPUT_DIR / CLIPPYME_PUBLIC_URL)."
+        )
+    except discord.HTTPException as exc:
+        print(f"Could not send full-quality clip {clip_index} (job {job_id}): {exc}", flush=True)
+        if CLIPPYME_PUBLIC_URL and video_url:
+            await message.reply(
+                f"**{title}**\n{CLIPPYME_PUBLIC_URL}{video_url}\n_(upload failed, linked instead)_"
+            )
 
 
 async def post_stats_update():
