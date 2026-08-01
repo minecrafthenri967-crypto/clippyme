@@ -170,6 +170,14 @@ services:
   #   docker compose --profile discord up --build
   # It needs .env.discord to exist; without the profile flag compose never
   # looks at this service, so a missing file is not an error for other users.
+  #
+  # Multiple campaigns → multiple named Zernio profiles (Settings → Zernio)
+  # → ONE bot container per campaign, each with its own Discord channel and
+  # its own ZERNIO_PROFILE (see .env.discord.example section 4) — not one bot
+  # juggling several accounts. `discordbot2`/`discordbot3` below are ready-to-
+  # rename templates for a 2nd/3rd campaign; copy the block again (bumping
+  # the number everywhere: service key, container_name, image, profile,
+  # env_file, DISCORD_STATE_FILE, state volume) for a 4th and beyond.
   discordbot:
     build: ./discordbot
     container_name: clippyme-discordbot
@@ -193,6 +201,52 @@ services:
       # Read-only: the bot only ever uploads clips, never writes to output/.
       - ./output:/app/output:ro
       - ./data/discordbot:/app/state
+    networks:
+      - clippyme-net
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # Campaign 2 template: `cp .env.discord.example .env.discord2`, fill in
+  # that campaign's own bot token/channel/ZERNIO_PROFILE, then:
+  #   docker compose --profile discord2 up --build
+  # Runs alongside `discordbot` above (and `discordbot3` below) — distinct
+  # container_name/image/env_file/state path so the three never collide.
+  discordbot2:
+    build: ./discordbot
+    container_name: clippyme-discordbot2
+    image: clippyme-discordbot2
+    profiles: ["discord2"]
+    env_file:
+      - .env.discord2
+    environment:
+      - CLIPPYME_API_URL=http://backend:8000
+      - CLIPPYME_OUTPUT_DIR=/app/output
+      - DISCORD_STATE_FILE=/app/state/discord_posted.json
+    volumes:
+      - ./output:/app/output:ro
+      - ./data/discordbot2:/app/state
+    networks:
+      - clippyme-net
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # Campaign 3 template — same pattern: .env.discord3, --profile discord3.
+  discordbot3:
+    build: ./discordbot
+    container_name: clippyme-discordbot3
+    image: clippyme-discordbot3
+    profiles: ["discord3"]
+    env_file:
+      - .env.discord3
+    environment:
+      - CLIPPYME_API_URL=http://backend:8000
+      - CLIPPYME_OUTPUT_DIR=/app/output
+      - DISCORD_STATE_FILE=/app/state/discord_posted.json
+    volumes:
+      - ./output:/app/output:ro
+      - ./data/discordbot3:/app/state
     networks:
       - clippyme-net
     restart: unless-stopped
