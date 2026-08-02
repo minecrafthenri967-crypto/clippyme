@@ -163,20 +163,38 @@ def resolve_max_download_height() -> int:
 def build_format_ladder(max_height: int) -> str:
     """yt-dlp format selector for a given height cap (0 = uncapped).
 
-    Every rung shares the SAME cap — the fix over the old ladder, which capped
-    only the avc1 rungs and left the tail truly unbounded, so avc1 could win
-    at a much lower resolution than the video actually has available in
-    another codec. ``bestvideo*`` collapsed for one whole-formats fallback
-    at the bottom (Kick/Twitch VODs are sometimes only offered pre-muxed).
+    Resolution-first, deliberately. ``/``-separated selectors are tried left
+    to right and the FIRST match wins, so any rung that hard-filters on a
+    codec outranks every later rung — including the ones that would find a
+    higher resolution. An earlier ladder opened with
+    ``bestvideo[height<=H][vcodec^=avc1][ext=mp4]``, and because YouTube
+    serves avc1 only up to 1080p (1440p/2160p exist solely as VP9/AV1), that
+    rung matched a 1080p avc1 stream for EVERY cap. Raising the download
+    quality to 1440p or 4K therefore fetched a byte-identical 1080p file —
+    the setting appeared to do nothing, and every clip was reframed from a
+    source with far fewer real pixels than the user had asked for.
+
+    The avc1 preference itself is sound (cheapest CPU decode on the
+    GPU_RUNTIME=cpu default) but belongs in ``build_format_sort`` as a
+    TIEBREAK, where it wins whenever avc1 can actually deliver the chosen
+    resolution and steps aside when it cannot. ``best{h}`` stays as the
+    whole-formats fallback (Kick/Twitch VODs are sometimes only pre-muxed).
     """
     h = f'[height<={max_height}]' if max_height else ''
-    return (
-        f'bestvideo{h}[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/'
-        f'bestvideo{h}[vcodec^=avc1]+bestaudio/'
-        f'bestvideo{h}[ext=mp4]+bestaudio/'
-        f'bestvideo{h}+bestaudio/'
-        f'best{h}'
-    )
+    return f'bestvideo{h}+bestaudio/best{h}'
+
+
+def build_format_sort() -> list[str]:
+    """yt-dlp ``format_sort``: resolution first, then cheap-to-decode codecs.
+
+    This is where the codec preference lives now (see ``build_format_ladder``).
+    Sorting only ever breaks ties BETWEEN equally-good matches, so it can
+    never cost resolution the way a codec-filtered selector rung does: at
+    1080p, where avc1 exists, h264 still wins for cheap CPU decode; at 1440p
+    and above, where YouTube offers only VP9/AV1, the higher resolution is
+    taken instead of silently falling back to a 1080p avc1 rendition.
+    """
+    return ["res", "vcodec:h264", "ext:mp4"]
 
 # Player-client fallback chain (mid-2026 verified bot-resistance order).
 _DEFAULT_PLAYER_CLIENTS = ("default", "tv+tv_embedded", "web_safari")
@@ -370,6 +388,9 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
             ydl_opts = {
                 **attempt_opts,
                 'format': build_format_ladder(resolve_max_download_height()),
+                # Codec preference as a tiebreak, never as a resolution filter
+                # — see build_format_ladder's note on the 1080p trap.
+                'format_sort': build_format_sort(),
                 'outtmpl': output_template,
                 'merge_output_format': 'mp4',
                 'overwrites': True,

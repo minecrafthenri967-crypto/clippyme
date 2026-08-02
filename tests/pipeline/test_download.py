@@ -309,13 +309,7 @@ def test_download_youtube_video_retries_other_player_clients_past_bot_check(monk
 # --- download quality: format ladder + its env-configured cap --------------
 
 def test_format_ladder_applies_the_same_cap_to_every_rung():
-    ladder = dl.build_format_ladder(1080)
-    rungs = ladder.split('/')
-    assert len(rungs) == 5
-    # Every rung mentions the SAME height cap — the bug being fixed is a
-    # ladder where only the early (avc1) rungs were capped and a later rung
-    # was unbounded, silently capping a video's avc1 rendition far below what
-    # the video actually offers in another codec.
+    rungs = dl.build_format_ladder(1080).split('/')
     for rung in rungs:
         assert '[height<=1080]' in rung
     assert rungs[-1] == 'best[height<=1080]'
@@ -327,14 +321,23 @@ def test_format_ladder_uncapped_when_height_is_zero():
     assert ladder.endswith('/best')
 
 
-def test_format_ladder_still_prefers_avc1_first_for_cheap_cpu_decode():
-    rungs = dl.build_format_ladder(1080).split('/')
-    assert 'vcodec^=avc1' in rungs[0]
-    assert 'vcodec^=avc1' in rungs[1]
-    # ...but rungs beyond that accept any codec, so a video whose 1080p only
-    # exists as vp9/av1 still gets the resolution rather than falling all the
-    # way to a lower-resolution avc1 rendition.
-    assert 'vcodec' not in rungs[2]
+@pytest.mark.parametrize("cap", [1080, 1440, 2160, 0])
+def test_format_ladder_never_hard_filters_on_a_codec(cap):
+    # yt-dlp takes the FIRST matching '/'-separated selector, so a rung that
+    # requires avc1 outranks every later rung — including the ones that would
+    # find a higher resolution. Since YouTube serves avc1 only up to 1080p,
+    # such a rung matched a 1080p stream for EVERY cap, making the 1440p/2160p
+    # settings fetch a byte-identical 1080p file. Codec preference belongs in
+    # format_sort (a tiebreak), never in the selector.
+    assert 'vcodec' not in dl.build_format_ladder(cap)
+
+
+def test_format_sort_ranks_resolution_above_codec():
+    sort = dl.build_format_sort()
+    # 'res' must outrank the codec preference: sorting only breaks ties, so
+    # h264 still wins at 1080p (cheap CPU decode) while 1440p/4K — VP9/AV1
+    # only on YouTube — are no longer passed over for a smaller avc1 stream.
+    assert sort.index("res") < sort.index("vcodec:h264")
 
 
 @pytest.mark.parametrize("raw,expected", [
