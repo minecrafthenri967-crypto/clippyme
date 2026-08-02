@@ -163,6 +163,9 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   const [model, setModel] = useState('');
   const [models, setModels] = useState(FALLBACK_MODELS);
   const [loadingModels, setLoadingModels] = useState(false);
+  // Monotonic id for config reads, so an older in-flight response can never
+  // clobber state written by a newer one (see refreshConfig).
+  const configSeq = useRef(0);
 
   // Pull the live model list from the backend (uses the saved key if the
   // header is empty). Merges discovery with the curated fallback + the
@@ -186,7 +189,15 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   // never the (optimistic) input text — refetched after every save/clear so
   // the badge can't drift from what's actually persisted.
   const refreshConfig = async () => {
+    // Every save runs `saveConfig` then re-reads the server as the source of
+    // truth. Change two settings in quick succession and those sequences
+    // interleave: the FIRST read can resolve after the SECOND save, and its
+    // now-stale payload then overwrites the newer selection — the control
+    // visibly snaps back to the old value even though the save succeeded.
+    // Only the most recent read may touch state.
+    const seq = ++configSeq.current;
     const c = await getConfig();
+    if (seq !== configSeq.current) return;
     if (!c) { pushToast?.('warn', t('settings.toast.keyStatusFailed')); return; }
     setPresent({
       gemini: !!c.GEMINI_API_KEY, hf: !!c.HF_TOKEN, deepgram: !!c.DEEPGRAM_API_KEY, elevenlabs: !!c.ELEVENLABS_API_KEY,

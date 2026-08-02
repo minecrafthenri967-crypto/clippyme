@@ -16,6 +16,7 @@ from clippyme.domain.clip_locks import clip_lock
 from clippyme.domain.clip_resolve import clip_filename_for
 from clippyme.domain.errors import ClippyMeError, NotFoundError
 from clippyme.domain.job_artifacts import load_job_metadata, save_job_metadata
+from clippyme.domain.job_runner import merge_persistent_config
 from clippyme.storage.config_store import load_persistent_config
 
 logger = logging.getLogger(__name__)
@@ -85,11 +86,18 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
     # provider, etc.) into the subprocess env. Without this, the reframe-only
     # path could silently fall back to Whisper when the user expects Deepgram,
     # or fail transcription entirely if the keys live only in data/config.json.
+    #
+    # This MUST overwrite, which is why it reuses job_runner's shared merge
+    # rather than a local loop: docker-compose declares TRANSCRIPTION_PROVIDER,
+    # GEMINI_MODEL, DEEPGRAM_API_KEY and friends with `${VAR:-default}`, so
+    # every one of those keys is always present in os.environ — as a compose
+    # default or as an empty string. A merge that skipped keys already present
+    # therefore never applied a single dashboard setting here, silently running
+    # the reframe with the compose defaults while the normal job path (which
+    # has always used this same helper) honoured the user's choice.
     reframe_env = os.environ.copy()
     try:
-        for k, v in (load_persistent_config() or {}).items():
-            if v is not None and k not in reframe_env:
-                reframe_env[str(k)] = str(v)
+        merge_persistent_config(reframe_env, load_persistent_config())
     except Exception as exc:
         logger.warning("Could not merge persistent config into reframe env: %s", exc)
 

@@ -74,3 +74,43 @@ def test_run_reframe_legacy_positional_fallback_unchanged(tmp_path, monkeypatch)
 
     assert result["success"] is True
     assert result["new_video_url"].startswith(f"/videos/{job_id}/vid_clip_1.mp4?v=")
+
+
+def test_run_reframe_applies_settings_over_compose_env_defaults(tmp_path, monkeypatch):
+    """Dashboard settings must reach the reframe subprocess.
+
+    docker-compose declares TRANSCRIPTION_PROVIDER/GEMINI_MODEL/DEEPGRAM_API_KEY
+    with `${VAR:-default}`, so those keys are ALWAYS present in os.environ — as
+    a compose default or as an empty string. A merge that only filled in
+    *missing* keys therefore applied none of them here, silently reframing with
+    the compose defaults while the normal job path honoured the user's choice.
+    """
+    captured = {}
+
+    async def _capture_exec(*cmd, **kwargs):
+        captured.update(kwargs.get("env") or {})
+        return _FakeProc()
+
+    monkeypatch.setattr(reframe_service.asyncio, "create_subprocess_exec", _capture_exec)
+    # Exactly what compose leaves behind: a pinned default and an empty key.
+    monkeypatch.setenv("TRANSCRIPTION_PROVIDER", "deepgram")
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "")
+    monkeypatch.setattr(
+        reframe_service, "load_persistent_config",
+        lambda: {"TRANSCRIPTION_PROVIDER": "elevenlabs", "DEEPGRAM_API_KEY": "dg-from-settings"},
+    )
+
+    job_id = "66666666-6666-4666-8666-666666666666"
+    output_root = str(tmp_path)
+    job_dir = os.path.join(output_root, job_id)
+    os.makedirs(job_dir)
+    clip_filename = "clip_clip_1.mp4"
+    with open(os.path.join(job_dir, "vid_metadata.json"), "w") as f:
+        json.dump({"aspect": "9:16",
+                   "shorts": [{"start": 0.0, "end": 5.0, "clip_filename": clip_filename}]}, f)
+    open(os.path.join(job_dir, f"source_{clip_filename}"), "wb").close()
+
+    _run(job_id=job_id, clip_index=0, mode="auto", output_root=output_root, jobs={})
+
+    assert captured["TRANSCRIPTION_PROVIDER"] == "elevenlabs"
+    assert captured["DEEPGRAM_API_KEY"] == "dg-from-settings"

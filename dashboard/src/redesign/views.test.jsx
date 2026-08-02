@@ -223,3 +223,39 @@ test('history row shows the video title and a published-count badge when clips w
   expect(screen.getByText('other video')).toBeInTheDocument();
   expect(screen.queryByText('0 pubblicate')).toBeNull();
 });
+
+test('a stale config read cannot revert a newer setting change', async () => {
+  // Two quick changes → two save/refresh sequences that interleave. The FIRST
+  // read must not land after the SECOND save and drag the control back to the
+  // value it had before, which is what made settings appear not to stick.
+  let releaseStaleRead;
+  const staleRead = new Promise((resolve) => { releaseStaleRead = resolve; });
+
+  getConfig
+    // Mount read.
+    .mockResolvedValueOnce({ ...EMPTY_CONFIG, CLIPPYME_MAX_DOWNLOAD_HEIGHT: '1080' })
+    // Refresh after change #1 — held open, resolves LAST with a stale payload.
+    .mockImplementationOnce(() => staleRead)
+    // Refresh after change #2 — resolves first, carrying the newest value.
+    .mockResolvedValueOnce({ ...EMPTY_CONFIG, CLIPPYME_MAX_DOWNLOAD_HEIGHT: '0' });
+
+  mount();
+  await waitFor(() => expect(getConfig).toHaveBeenCalledTimes(1));
+
+  fireEvent.click(screen.getByRole('button', { name: '1440p' }));
+  await waitFor(() => expect(saveConfig).toHaveBeenCalledWith({ CLIPPYME_MAX_DOWNLOAD_HEIGHT: '1440' }));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Best' }));
+  await waitFor(() => expect(saveConfig).toHaveBeenCalledWith({ CLIPPYME_MAX_DOWNLOAD_HEIGHT: '0' }));
+  await waitFor(() => expect(getConfig).toHaveBeenCalledTimes(3));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Best' })).toHaveAttribute('aria-pressed', 'true'));
+
+  // Now let the stale first read resolve — it must be discarded, not applied.
+  releaseStaleRead({ ...EMPTY_CONFIG, CLIPPYME_MAX_DOWNLOAD_HEIGHT: '1080' });
+  await staleRead;
+
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Best' })).toHaveAttribute('aria-pressed', 'true'));
+  expect(screen.getByRole('button', { name: '1080p' })).toHaveAttribute('aria-pressed', 'false');
+});
