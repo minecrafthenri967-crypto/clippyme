@@ -162,6 +162,7 @@ export const de = {
   // -- create.jsx: SourcePanel ---------------------------------------------
   'create.source.title': 'Quelle',
   'create.source.sub': 'Link einfügen oder Datei ablegen',
+  'create.campaign.label': 'Kampagne',
   'create.source.mode.single': 'Einzeln',
   'create.source.mode.batch': 'Stapel',
   'create.source.type.url': 'URL',

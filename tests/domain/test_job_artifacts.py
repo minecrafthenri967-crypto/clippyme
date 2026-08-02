@@ -266,3 +266,34 @@ def test_delete_clip_artifacts_missing_metadata_does_not_raise(tmp_path):
     ja.delete_clip_artifacts("nope", 0, out, {"video_title_for_youtube_short": "X"}, clip_path)
     # No metadata to update, but the file removal still ran.
     assert not os.path.exists(clip_path)
+
+
+# --- save_job_campaign / load_job_campaign ----------------------------------
+
+def test_load_job_campaign_defaults_to_default_when_missing(tmp_path):
+    assert ja.load_job_campaign(str(tmp_path)) == "default"
+
+
+def test_save_and_load_job_campaign_roundtrip(tmp_path):
+    ja.save_job_campaign(str(tmp_path), "ebay_live")
+    assert ja.load_job_campaign(str(tmp_path)) == "ebay_live"
+
+
+def test_load_job_campaign_tolerates_corrupt_sidecar(tmp_path):
+    with open(os.path.join(str(tmp_path), "campaign.json"), "w") as f:
+        f.write("{not json")
+    assert ja.load_job_campaign(str(tmp_path)) == "default"
+
+
+def test_load_job_campaign_tolerates_missing_field(tmp_path):
+    with open(os.path.join(str(tmp_path), "campaign.json"), "w") as f:
+        json.dump({"something_else": True}, f)
+    assert ja.load_job_campaign(str(tmp_path)) == "default"
+
+
+def test_save_job_campaign_does_not_raise_on_unwritable_dir(tmp_path, monkeypatch):
+    # Best-effort by design: a job must never fail to submit over this tag.
+    def _boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(ja.os, "open", _boom)
+    ja.save_job_campaign(str(tmp_path), "dja")  # must not raise

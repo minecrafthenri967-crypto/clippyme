@@ -26,7 +26,10 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   `job_actions.py` (cancel/stop bodies), `job_journal.py` (crash-safe queue
   journal + startup recovery), `job_worker.py` (queue dispatch + retention
   cleanup), `job_results.py` (`build_main_cmd`, partial/final result loaders),
-  `job_artifacts.py` (atomic metadata IO), `job_control.py` (status machine +
+  `job_artifacts.py` (atomic metadata IO; `save_job_campaign`/`load_job_campaign`
+  tag a job with the Zernio profile it was submitted under — a small sidecar
+  next to the metadata, not a field inside it, since the cv2-bound pipeline
+  subprocess never needs to know), `job_control.py` (status machine +
   psutil process-tree suspend/resume), `publish_service.py` (Zernio publish
   flow), `compose.py` (layer pipeline), `clip_endpoints.py` (smart-cut runner,
   history restore), `smartcut.py` (impure orchestrator: ffmpeg/auto-editor
@@ -60,7 +63,10 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   `logo.py`'s shape), `player_detect.py` (the single-shot Gemini call
   detecting spoken athlete names, mirrors `clip_edit_ai.py`'s size but reuses
   `gemini_parser`'s JSON-repair chain + `gemini_request`'s model-fallback
-  instead of a bespoke parser), `history_service.py`,
+  instead of a bespoke parser), `history_service.py` (`scan_history` surfaces
+  each job's tagged `zernioProfile` — "default" for untagged jobs — so an
+  external approval bot scoped to ONE campaign can filter `GET /api/history`
+  to only its own clips instead of every bot posting every clip),
   `encode.py` (single source of x264 settings for every render pass; a
   delivered clip stacks ~5 generations, so encodes that only FEED another
   pass — source slice, reframe master, every compose layer — use
@@ -390,7 +396,7 @@ through verbatim (the frontend parses per-platform 429 daily limits).
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/process` · `/api/batch` | Submit single video / up to 20 URLs |
+| POST | `/api/process` · `/api/batch` | Submit single video / up to 20 URLs (optional `zernio_profile`, default `"default"` — tags the job's campaign for a per-campaign Discord approval bot) |
 | GET | `/api/status/{job_id}` | Poll job progress |
 | POST | `/api/pause|resume|stop|cancel/{job_id}` | Job control (stop keeps clips, cancel discards) |
 | POST | `/api/compose/{job_id}/{clip_index}` | Compose toggled layers |

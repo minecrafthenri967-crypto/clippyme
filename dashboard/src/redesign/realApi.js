@@ -498,6 +498,10 @@ export function optsToPreselections(opts) {
     // Per-job Gemini model override (quick-picker). Omitted when blank →
     // lib/api.js skips the field and the backend uses the Settings default.
     model: (opts.model || '').trim() || undefined,
+    // Which named Zernio account this job's clips are earmarked for — lets a
+    // per-campaign approval bot (Discord) filter /api/history to only its
+    // own clips instead of every bot posting every clip.
+    zernio_profile: opts.zernioProfile || 'default',
     subtitles: opts.subtitles
       ? {
           mode: opts.subMode, preset: opts.subPreset, position: opts.subPosition || 'bottom',

@@ -3,11 +3,15 @@
 // RedesignApp persists and later maps to backend keys, so the shared-controls
 // refactor must keep emitting them byte-identically.
 import { test, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { CreateView } from './create.jsx';
+import { getZernioProfiles } from './realApi';
 
 vi.mock('./realApi', () => ({
   listFonts: vi.fn(async () => ({ fonts: [] })),
+  getZernioProfiles: vi.fn(async () => ({
+    profiles: [{ id: 'default', label: 'Default', configured: false }],
+  })),
 }));
 
 const BASE_OPTS = {
@@ -88,4 +92,23 @@ test('grade row: preset segments (with the extra Off entry) patch gradePreset', 
   expect(set).toHaveBeenLastCalledWith({ gradePreset: 'warm_cinematic' });
   fireEvent.click(row.getByRole('button', { name: 'Off' }));
   expect(set).toHaveBeenLastCalledWith({ gradePreset: 'none' });
+});
+
+test('single Zernio profile: campaign picker stays hidden', async () => {
+  mount();
+  await waitFor(() => expect(getZernioProfiles).toHaveBeenCalled());
+  expect(screen.queryByText('Campaign')).not.toBeInTheDocument();
+});
+
+test('multiple Zernio profiles: picker appears and selecting one patches zernioProfile', async () => {
+  getZernioProfiles.mockResolvedValueOnce({
+    profiles: [
+      { id: 'default', label: 'Default', configured: true },
+      { id: 'dja', label: 'DJA', configured: true },
+    ],
+  });
+  const set = mount();
+  await screen.findByText('Campaign');
+  fireEvent.click(screen.getByRole('button', { name: 'DJA' }));
+  expect(set).toHaveBeenLastCalledWith({ zernioProfile: 'dja' });
 });

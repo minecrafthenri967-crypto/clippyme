@@ -7,6 +7,7 @@ import re
 from typing import List
 
 from clippyme.domain.clip_resolve import clip_filename_for
+from clippyme.domain.job_artifacts import load_job_campaign
 
 logger = logging.getLogger("clippyme")
 
@@ -95,6 +96,11 @@ def scan_history(output_dir: str) -> List[dict]:
                         "source": source,
                         "title": source,
                         "publishedCount": published_count,
+                        # Which named Zernio account this job's clips are
+                        # earmarked for — "default" for jobs submitted before
+                        # this existed. Lets an external approval bot running
+                        # for ONE campaign filter to only its own clips.
+                        "zernioProfile": load_job_campaign(job_dir),
                     }
                 )
             except Exception:

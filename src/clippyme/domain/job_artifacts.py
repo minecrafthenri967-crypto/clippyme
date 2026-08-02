@@ -59,6 +59,50 @@ def save_job_metadata(metadata_path: str, data: dict) -> None:
         raise
 
 
+_CAMPAIGN_FILENAME = "campaign.json"
+
+
+def save_job_campaign(job_output_dir: str, zernio_profile: str) -> None:
+    """Tag a job with the Zernio profile (campaign) it was submitted under.
+
+    A small sidecar next to the job's metadata, not a field inside it: the
+    pipeline subprocess (main.py) writes/rewrites ``*_metadata.json`` on every
+    cut iteration, and threading a new field through its argv/output would mean
+    touching the cv2-bound pipeline for something the API layer already knows
+    before the subprocess even starts. ``scan_history`` reads this back so
+    ``GET /api/history`` can tell an external approval bot (one per campaign)
+    which of ITS clips to post, instead of every bot posting every clip.
+    """
+    path = os.path.join(job_output_dir, _CAMPAIGN_FILENAME)
+    tmp_path = path + ".tmp"
+    try:
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"zernio_profile": zernio_profile}, f)
+        os.replace(tmp_path, path)
+    except OSError:
+        # Best-effort: a job must not fail to submit over this tag. Missing
+        # the sidecar just means load_job_campaign falls back to "default".
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
+def load_job_campaign(job_output_dir: str) -> str:
+    """The Zernio profile (campaign) a job was submitted under — "default" if
+    untagged (jobs submitted before this existed, or the sidecar is missing)."""
+    path = os.path.join(job_output_dir, _CAMPAIGN_FILENAME)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        profile = data.get("zernio_profile")
+        return profile if isinstance(profile, str) and profile else "default"
+    except (OSError, json.JSONDecodeError, TypeError):
+        return "default"
+
+
 def record_clip_publish(job_id: str, clip_index: int, output_dir: str, record: dict) -> None:
     """Append a publish record onto a clip's metadata entry (atomic).
 

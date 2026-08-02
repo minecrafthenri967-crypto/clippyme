@@ -41,6 +41,7 @@ const DEFAULT_OPTS = {
   language: 'multi',
   platforms: { tiktok: true, ig: true, yt: false },
   preset: 'viral',
+  zernioProfile: 'default',
 };
 
 const CONFETTI_COLORS = ['#E6428D', '#9850C3', '#675ADD', '#0A81D9', '#02C5BF', '#F7BC59'];

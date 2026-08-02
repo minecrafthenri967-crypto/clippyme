@@ -42,6 +42,7 @@ from clippyme.domain.job_actions import cancel_job_action, stop_job_action
 from clippyme.domain.job_journal import JOURNAL_FILENAME, make_journal_writer, recover_jobs
 from clippyme.domain.job_runner import make_run_job
 from clippyme.domain.job_submission import QueueFullError, submit_job
+from clippyme.domain.job_artifacts import save_job_campaign
 from clippyme.domain.publish_service import publish_clip_flow
 from clippyme.api.schemas import (
     BatchRequest,
@@ -318,6 +319,7 @@ async def process_endpoint(
     no_zoom = False
     skip_analysis = False
     model = None
+    zernio_profile = "default"
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         try:
@@ -335,6 +337,7 @@ async def process_endpoint(
         no_zoom = bool(validated.no_zoom)
         skip_analysis = bool(validated.skip_analysis)
         model = validated.model
+        zernio_profile = validated.zernio_profile
 
     # For multipart/form-data uploads, extract reframe_mode + language from form fields
     if "multipart/form-data" in content_type:
@@ -349,11 +352,12 @@ async def process_endpoint(
         no_zoom = str(form.get("no_zoom", "")).lower() in {"1", "true", "yes"} or no_zoom
         skip_analysis = str(form.get("skip_analysis", "")).lower() in {"1", "true", "yes"} or skip_analysis
         model = form.get("model", model) or None
+        zernio_profile = form.get("zernio_profile", zernio_profile) or "default"
         # Validate the multipart values through the same schema for
         # consistency — we drop the url requirement since we're using
         # an uploaded file path.
         try:
-            ProcessRequest.model_validate({
+            validated = ProcessRequest.model_validate({
                 "url": "https://upload.invalid/local",
                 "reframe_mode": reframe_mode or None,
                 "aspect": aspect or None,
@@ -362,9 +366,11 @@ async def process_endpoint(
                 "no_zoom": no_zoom,
                 "skip_analysis": skip_analysis,
                 "model": model or None,
+                "zernio_profile": zernio_profile,
             })
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
+        zernio_profile = validated.zernio_profile
 
     if not url and not file:
         raise HTTPException(status_code=400, detail="Must provide URL or File")
@@ -372,7 +378,8 @@ async def process_endpoint(
     job_id = str(uuid.uuid4())
     job_output_dir = os.path.join(OUTPUT_DIR, job_id)
     os.makedirs(job_output_dir, exist_ok=True)
-    
+    save_job_campaign(job_output_dir, zernio_profile)
+
     env = os.environ.copy()
     env["GEMINI_API_KEY"] = api_key
 
@@ -464,6 +471,7 @@ async def batch_process(req: BatchRequest, request: Request):
         job_id = str(uuid.uuid4())
         job_output_dir = os.path.join(OUTPUT_DIR, job_id)
         os.makedirs(job_output_dir, exist_ok=True)
+        save_job_campaign(job_output_dir, req.zernio_profile)
 
         try:
             cmd = build_main_cmd(

@@ -133,3 +133,19 @@ def test_scan_history_hook_text_defaults_empty(tmp_path):
     _make_job(str(tmp_path), VALID_UUID, clips=clips)
     out = hs.scan_history(str(tmp_path))
     assert out[0]["clips"][0]["hook_text"] == ""
+
+
+def test_scan_history_zernio_profile_defaults_to_default(tmp_path):
+    # A job submitted before campaign tagging existed has no sidecar file.
+    _make_job(str(tmp_path), VALID_UUID, clips=[{"start": 0, "end": 10}])
+    out = hs.scan_history(str(tmp_path))
+    assert out[0]["zernioProfile"] == "default"
+
+
+def test_scan_history_surfaces_tagged_zernio_profile(tmp_path):
+    from clippyme.domain.job_artifacts import save_job_campaign
+
+    job_dir = _make_job(str(tmp_path), VALID_UUID, clips=[{"start": 0, "end": 10}])
+    save_job_campaign(job_dir, "dja")
+    out = hs.scan_history(str(tmp_path))
+    assert out[0]["zernioProfile"] == "dja"

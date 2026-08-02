@@ -1,5 +1,5 @@
 // ClippyMe redesign — Create flow: presets + source + calm options recipe.
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Icon, Btn, Panel, Segmented, Switch, Stepper } from './primitives';
 import { Hero } from './chrome';
 import { LANGUAGES, GEMINI_MODELS, HOOK_STYLE_DEFAULT } from './data';
@@ -7,6 +7,7 @@ import { HookStyleControls, HookPreview } from './hookStyle';
 import { SubtitleControls } from './subtitleControls';
 import { LogoControls, PlayerImageControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
+import { getZernioProfiles } from './realApi';
 import { validateCreateOptions } from '../lib/createValidation';
 import { useT } from '../i18n/context.jsx';
 
@@ -62,12 +63,27 @@ function SourcePanel({ opts, set }) {
   const batchFileCount = (opts.batchFiles || []).length;
   const totalQueued = batchLines.length + batchFileCount;
   const pickFile = (f) => f && set({ file: f, fileName: f.name });
+
+  // Named Zernio profiles (separate campaigns, each with its own account).
+  // "default" always exists implicitly — the picker itself only renders once
+  // a second profile is created, so a single-campaign install stays unchanged
+  // (same convention as live.jsx / publish.jsx).
+  const [zernioProfiles, setZernioProfiles] = useState([{ id: 'default', label: 'Default', configured: false }]);
+  useEffect(() => { getZernioProfiles().then((r) => setZernioProfiles(r.profiles || [])).catch(() => {}); }, []);
+
   return (
     <Panel title={t('create.source.title')} sub={t('create.source.sub')} icon="link"
       headRight={
         <Segmented value={opts.mode} onChange={(id) => set({ mode: id })}
           options={[{ id: 'single', label: t('create.source.mode.single'), icon: 'square' }, { id: 'batch', label: t('create.source.mode.batch'), icon: 'layers' }]} />
       }>
+      {zernioProfiles.length > 1 && (
+        <div className="field" style={{ marginBottom: 14 }}>
+          <span className="field-label">{t('create.campaign.label')}</span>
+          <Segmented value={opts.zernioProfile || 'default'} onChange={(id) => set({ zernioProfile: id })}
+            options={zernioProfiles.map((p) => ({ id: p.id, label: p.label }))} />
+        </div>
+      )}
       {opts.mode === 'single' ? (
         <div>
           <Segmented full value={opts.source} onChange={(id) => set({ source: id })}

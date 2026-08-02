@@ -41,6 +41,11 @@ test('karaoke font_size 0 means Auto and is omitted', () => {
   assert.equal('font_size' in p.subtitles, false);
 });
 
+test('zernio_profile defaults to "default" and passes a chosen campaign through', () => {
+  assert.equal(optsToPreselections({}).zernio_profile, 'default');
+  assert.equal(optsToPreselections({ zernioProfile: 'dja' }).zernio_profile, 'dja');
+});
+
 test('classic subtitles carry font/border/background', () => {
   const p = optsToPreselections({
     subtitles: true, subMode: 'classic', subFont: 'Anton-Regular',

@@ -164,6 +164,7 @@ export const en = {
   // -- create.jsx: SourcePanel ---------------------------------------------
   'create.source.title': 'Source',
   'create.source.sub': 'Paste a link or drop a file',
+  'create.campaign.label': 'Campaign',
   'create.source.mode.single': 'Single',
   'create.source.mode.batch': 'Batch',
   'create.source.type.url': 'URL',

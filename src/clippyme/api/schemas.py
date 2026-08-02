@@ -92,6 +92,12 @@ class ProcessRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
+    # Which named Zernio account this job's clips are earmarked for (see
+    # storage.config_store's profile namespace) — persisted alongside the job
+    # (job_artifacts.save_job_campaign) so an external approval bot running
+    # for ONE campaign (its own ZERNIO_PROFILE) can filter GET /api/history to
+    # only its own jobs instead of every bot posting every clip.
+    zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
 
     @field_validator("url")
     @classmethod
@@ -117,6 +123,7 @@ class BatchRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
+    zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
 
     @field_validator("urls")
     @classmethod

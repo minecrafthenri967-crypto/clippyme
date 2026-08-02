@@ -32,6 +32,24 @@ def test_batch_language_is_rejected_at_api_boundary():
         BatchRequest(urls=["https://example.com/video"], language="not-a-language")
 
 
+def test_process_zernio_profile_defaults_and_is_bounded():
+    assert ProcessRequest(url="https://upload.invalid/local").zernio_profile == "default"
+    assert ProcessRequest(
+        url="https://upload.invalid/local", zernio_profile="dja",
+    ).zernio_profile == "dja"
+    with pytest.raises(ValidationError):
+        ProcessRequest(url="https://upload.invalid/local", zernio_profile="Not Valid!")
+
+
+def test_batch_zernio_profile_defaults_and_is_bounded():
+    assert BatchRequest(urls=["https://example.com/video"]).zernio_profile == "default"
+    assert BatchRequest(
+        urls=["https://example.com/video"], zernio_profile="ebay_live",
+    ).zernio_profile == "ebay_live"
+    with pytest.raises(ValidationError):
+        BatchRequest(urls=["https://example.com/video"], zernio_profile="Not Valid!")
+
+
 def test_live_monitor_start_preserves_runtime_domain_fields():
     request = LiveMonitorStartRequest(
         **_MONITOR_BASE,

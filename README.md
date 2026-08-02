@@ -260,8 +260,8 @@ All routes are JSON in / JSON out. Job IDs are strict UUID4. Config endpoints re
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/process` | Single video (URL or upload). Accepts `reframe_mode`, per-job `model`. |
-| `POST` | `/api/batch` | Up to 20 URLs in one shot. |
+| `POST` | `/api/process` | Single video (URL or upload). Accepts `reframe_mode`, per-job `model`, `zernio_profile` (campaign tag for a per-campaign Discord approval bot). |
+| `POST` | `/api/batch` | Up to 20 URLs in one shot. Same optional `zernio_profile`. |
 | `GET` | `/api/status/{job_id}` | Live status + logs + result (clips stream in as they finish). |
 | `POST` | `/api/pause/{job_id}` | Suspend the running job (resume-able). |
 | `POST` | `/api/resume/{job_id}` | Resume a paused job. |

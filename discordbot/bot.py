@@ -90,7 +90,11 @@ PUBLISH_GATE_TOKEN = (os.getenv("PUBLISH_GATE_TOKEN", "") or "").strip()
 # reproduces the single-account behavior every install had before profiles
 # existed. A second campaign (e.g. eBay Live) is run as a SECOND bot
 # container with its own .env.discord (own channel + ZERNIO_PROFILE) rather
-# than one bot juggling multiple profiles/channels.
+# than one bot juggling multiple profiles/channels. Also the filter
+# poll_new_clips applies to GET /api/history: a job's zernioProfile (set at
+# submission, see job_artifacts.save_job_campaign) must match this bot's own
+# profile, or its clips are skipped — otherwise every bot would post every
+# clip regardless of which campaign it belongs to.
 ZERNIO_PROFILE = (os.getenv("ZERNIO_PROFILE", "") or "default").strip().lower() or "default"
 # Discord's per-server upload limit: 10 MB unboosted, 50 at level 2, 100 at 3.
 MAX_UPLOAD_MB = _int("MAX_UPLOAD_MB", 10)
@@ -412,6 +416,14 @@ async def poll_new_clips():
     for job in data.get("jobs", []):
         job_id = job.get("jobId")
         if not job_id:
+            continue
+        # Multi-campaign setup: one bot container per campaign, each watching
+        # the SAME /api/history. Without this filter every bot would post
+        # every clip — including another campaign's, whose approval would
+        # then publish through THIS bot's (wrong) Zernio account. Jobs
+        # submitted before this field existed default to "default", which is
+        # exactly the profile a single-campaign install's one bot uses.
+        if (job.get("zernioProfile") or "default") != ZERNIO_PROFILE:
             continue
         clips = job.get("clips", [])
         for idx, clip in enumerate(clips):
