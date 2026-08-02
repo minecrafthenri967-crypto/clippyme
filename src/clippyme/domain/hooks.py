@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from clippyme.domain.encode import ffmpeg_timeout, x264_video_args
+from clippyme.domain.encode import ffmpeg_timeout, x264_intermediate_crf, x264_video_args
 
 logger = logging.getLogger(__name__)
 
@@ -492,7 +492,7 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
             *extra_inputs,
             "-filter_complex", filter_complex,
             "-c:a", "copy",
-            *x264_video_args(),
+            *x264_video_args(crf=x264_intermediate_crf()),
             output_path,
         ]
         subprocess.run(

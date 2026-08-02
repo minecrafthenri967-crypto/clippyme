@@ -3,7 +3,7 @@ import os
 import re
 import subprocess
 
-from clippyme.domain.encode import ffmpeg_timeout, x264_video_args
+from clippyme.domain.encode import ffmpeg_timeout, x264_intermediate_crf, x264_video_args
 from clippyme.domain.errors import ComposeError
 
 logger = logging.getLogger(__name__)
@@ -839,7 +839,7 @@ def burn_subtitles(video_path, srt_path, output_path, alignment=2, fontsize=16,
         '-c:a', 'copy',
         # Shared near-visually-lossless encode (CRF 18 / medium) + faststart so a
         # subtitle-only composed clip streams progressively. See domain/encode.py.
-        *x264_video_args(),
+        *x264_video_args(crf=x264_intermediate_crf()),
         output_path
     ]
 

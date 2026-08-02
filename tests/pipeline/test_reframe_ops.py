@@ -684,6 +684,59 @@ def test_compute_output_dimensions_square_aspect_floors_on_both_edges():
     assert (w, h) == (1080, 1080)
 
 
+# --- max_zoom_for_upscale / max_upscale_factor ------------------------------
+
+def test_max_upscale_factor_default_and_overrides(monkeypatch):
+    monkeypatch.delenv("CLIPPYME_MAX_UPSCALE", raising=False)
+    assert ro.max_upscale_factor() == 2.0
+    monkeypatch.setenv("CLIPPYME_MAX_UPSCALE", "1.5")
+    assert ro.max_upscale_factor() == 1.5
+    monkeypatch.setenv("CLIPPYME_MAX_UPSCALE", "garbage")
+    assert ro.max_upscale_factor() == 2.0
+    # <= 0 disables the budget (restores the old unbounded zoom behaviour).
+    monkeypatch.setenv("CLIPPYME_MAX_UPSCALE", "0")
+    assert ro.max_upscale_factor() == 0.0
+
+
+def test_max_zoom_binds_on_a_1080p_source():
+    # 1920x1080 → widest 9:16 crop is 607px; canvas is 1080px. With a 2.0x
+    # budget the crop may shrink to 540px, i.e. zoom 607*2/1080 ≈ 1.12 — far
+    # below the old fixed 1.6, which would have left only 379 real pixels.
+    z = ro.max_zoom_for_upscale(607, 1080, max_upscale=2.0)
+    assert z == pytest.approx(607 * 2.0 / 1080, rel=1e-6)
+    assert 1.0 < z < 1.6
+
+
+def test_max_zoom_does_not_bind_on_a_4k_source():
+    # 3840x2160 → 9:16 crop is 1215px and the canvas matches it natively, so
+    # the budget allows 2.0x but the hard creative ceiling (1.6) still wins:
+    # a source that can afford the zoom keeps its full range.
+    assert ro.max_zoom_for_upscale(1215, 1215, max_upscale=2.0) == 1.6
+
+
+def test_max_zoom_never_returns_below_one():
+    # A source so small that even the widest crop blows the budget: zoom 1.0
+    # is already "no tightening". Going under 1.0 would zoom OUT past the
+    # frame, which recovers no pixels.
+    assert ro.max_zoom_for_upscale(200, 1080, max_upscale=2.0) == 1.0
+
+
+def test_max_zoom_budget_disabled_returns_hard_ceiling():
+    assert ro.max_zoom_for_upscale(607, 1080, max_upscale=0) == 1.6
+
+
+@pytest.mark.parametrize("crop_w,out_w", [(0, 1080), (607, 0), (-5, 1080)])
+def test_max_zoom_degenerate_inputs_fall_back_to_hard_ceiling(crop_w, out_w):
+    assert ro.max_zoom_for_upscale(crop_w, out_w, max_upscale=2.0) == 1.6
+
+
+def test_max_zoom_respects_a_tighter_budget():
+    # A stricter budget must bind harder, never looser.
+    strict = ro.max_zoom_for_upscale(607, 1080, max_upscale=1.2)
+    loose = ro.max_zoom_for_upscale(607, 1080, max_upscale=2.0)
+    assert strict < loose
+
+
 def test_compute_output_dimensions_dimensions_are_always_even():
     # An odd floor/aspect combination must not hand libx264 an odd dimension
     # (yuv420p 4:2:0 chroma requires even width/height).

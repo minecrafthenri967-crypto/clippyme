@@ -12,7 +12,7 @@ import logging
 import os
 import subprocess
 
-from clippyme.domain.encode import ffmpeg_timeout, x264_video_args
+from clippyme.domain.encode import ffmpeg_timeout, x264_intermediate_crf, x264_video_args
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ def add_logo_to_video(
         "-c:a", "copy",
         # Shared near-visually-lossless encode (CRF 18 / medium). Logo is the
         # last compose layer → +faststart for progressive playback. encode.py.
-        *x264_video_args(),
+        *x264_video_args(crf=x264_intermediate_crf()),
         output_path,
     ]
     try:

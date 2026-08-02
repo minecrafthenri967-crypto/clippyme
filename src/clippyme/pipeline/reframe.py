@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from clippyme.domain.encode import x264_video_args
+from clippyme.domain.encode import x264_intermediate_crf, x264_video_args
 from clippyme.pipeline.media_probe import (
     audio_sync_seek_args,
     probe_is_variable_frame_rate,
@@ -752,7 +752,10 @@ def _render_global_smooth(input_video, ffmpeg_process, cameraman, speaker_tracke
         smoothed = build_smoothed_trajectory(
             targets, scene_ids, window=win, polyorder=2,
             x_max=original_width, y_max=original_height,
-            min_zoom=1.0, max_zoom=1.6, method=global_method,
+            # Same resolution-aware ceiling the cameraman resolved (see
+            # reframe_track.SmoothedCameraman) — the smoother must not hand
+            # back a zoom tighter than the upscale budget allows.
+            min_zoom=1.0, max_zoom=cameraman.max_zoom, method=global_method,
             stationary_threshold=stationary_thresh, snap_center_dist=snap_center_dist,
             lock_zoom=lock_zoom,
         )
@@ -931,6 +934,28 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     # Initialize Cameraman
     cameraman = SmoothedCameraman(OUTPUT_WIDTH, OUTPUT_HEIGHT, original_width, original_height,
                                   aspect_ratio=aspect_ratio)
+
+    # The number that actually decides how sharp the delivered clip can be:
+    # how many REAL source pixels back each output pixel. No encoder setting
+    # recovers detail that was never sampled, so surface it per clip instead
+    # of leaving "why is this soft?" to guesswork.
+    widest_crop_px = cameraman.max_crop_width
+    tightest_crop_px = max(1, int(widest_crop_px / cameraman.max_zoom))
+    print(
+        f"   🔎 Real pixels behind the crop: {widest_crop_px}px wide at zoom 1.0"
+        f" → {tightest_crop_px}px at max zoom {cameraman.max_zoom:.2f}"
+        f" (canvas {OUTPUT_WIDTH}px ⇒ {OUTPUT_WIDTH / widest_crop_px:.2f}x–"
+        f"{OUTPUT_WIDTH / tightest_crop_px:.2f}x enlargement)"
+    )
+    if OUTPUT_WIDTH / widest_crop_px > 1.35:
+        print(
+            f"   ⚠️  Even the widest crop is enlarged {OUTPUT_WIDTH / widest_crop_px:.2f}x —"
+            f" a {original_width}x{original_height} source has only {widest_crop_px}px"
+            " across its vertical crop. Sharpness is bounded by the SOURCE here,"
+            " not by encode settings: raise CLIPPYME_MAX_DOWNLOAD_HEIGHT if the"
+            " video offers more, or use reframe_mode='disabled' (letterbox) to"
+            " keep the full width unscaled."
+        )
     
     # --- New Strategy: Per-Scene Analysis ---
     if reframe_mode == 'disabled':
@@ -968,15 +993,17 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
         *zoom_vf_args,
         # Master generation: this is the first (and most important) encode of the
         # reframed frames — everything downstream re-encodes from it, so it runs
-        # at the shared near-visually-lossless CRF (18 / medium) instead of the
-        # old CRF 23 that softened the whole chain. pix_fmt yuv420p is forced
+        # at the INTERMEDIATE CRF (higher quality than delivery), not the
+        # delivery CRF. It is also the pass most in need of the headroom: its
+        # input is an upscaled crop, whose soft-but-detailed gradients are
+        # exactly what a coarser quantiser flattens first. pix_fmt yuv420p is forced
         # inside x264_video_args: the raw input is bgr24 and without it libx264
         # may pick yuv444p (rejected by many players/mobile decoders).
         # faststart=False: this is an intermediate file; the final mux stream-
         # copies it, which is where +faststart is applied.
         # -vsync cfr: lock output to a constant frame rate matching `-r`
         # (ported from kamilstanuch/Autocrop-vertical).
-        *x264_video_args(faststart=False),
+        *x264_video_args(crf=x264_intermediate_crf(), faststart=False),
         '-vsync', 'cfr', '-an', temp_video_output
     ]
 

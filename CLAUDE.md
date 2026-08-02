@@ -61,7 +61,11 @@ Python backend is src-layout under `src/clippyme/` (`pip install -e .`):
   detecting spoken athlete names, mirrors `clip_edit_ai.py`'s size but reuses
   `gemini_parser`'s JSON-repair chain + `gemini_request`'s model-fallback
   instead of a bespoke parser), `history_service.py`,
-  `encode.py` (single source of x264 settings for every render pass),
+  `encode.py` (single source of x264 settings for every render pass; a
+  delivered clip stacks ~5 generations, so encodes that only FEED another
+  pass — source slice, reframe master, every compose layer — use
+  `x264_intermediate_crf()` (default 14, clamped to never exceed the delivery
+  `x264_crf()` of 18) rather than the delivery CRF),
   `errors.py` (domain exceptions mapped to HTTP by one app-level handler).
 - `pipeline/` — `main.py` (CLI orchestrator), `reframe.py` (orchestrator:
   scene analysis, frame strategies, render loops, `process_video_to_vertical`),
@@ -329,6 +333,16 @@ the delivered clip's short edge never falls under a platform-safe minimum.
 Without this floor a plain 1920x1080 landscape source's native 9:16 crop is
 only 608x1080 — well under TikTok/Instagram's own recommended minimum,
 regardless of how high the download-quality ceiling is set.
+⚠️ Correct DIMENSIONS are not sharpness. Zoom tightens the crop, so it spends
+real source pixels: at the old fixed `max_zoom=1.6` a 1080p source's 9:16 crop
+shrank from 607px to 379px of real width before being stretched to a 1080px
+canvas (2.85x). `reframe_ops.max_zoom_for_upscale` (env `CLIPPYME_MAX_UPSCALE`,
+default 2.0) caps zoom to an enlargement budget — `SmoothedCameraman.max_zoom`
+resolves it once and BOTH the streaming tracker and `build_smoothed_trajectory`
+must use that value, never a literal 1.6. The cap binds on low-res sources and
+is a no-op on 4K. When even the widest crop exceeds the budget, sharpness is
+bounded by the SOURCE and no encode setting recovers it; `reframe.py` logs the
+real-pixel→canvas factor per clip so this is visible rather than guessed at.
 
 **Smart Cut**: transcript-driven silence/filler removal rendered via a
 hand-built auto-editor v3 JSON timeline (ffmpeg concat fallback if the binary

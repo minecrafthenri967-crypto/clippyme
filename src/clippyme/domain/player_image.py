@@ -20,7 +20,7 @@ import re
 import subprocess
 import unicodedata
 
-from clippyme.domain.encode import ffmpeg_timeout, x264_video_args
+from clippyme.domain.encode import ffmpeg_timeout, x264_intermediate_crf, x264_video_args
 from clippyme.domain.hooks import _enable_suffix
 from clippyme.domain.logo import logo_overlay_xy
 
@@ -150,7 +150,7 @@ def add_player_image_to_video(
         "-i", image_path,
         "-filter_complex", filter_complex,
         "-c:a", "copy",
-        *x264_video_args(),
+        *x264_video_args(crf=x264_intermediate_crf()),
         output_path,
     ]
     try:

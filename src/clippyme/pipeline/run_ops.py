@@ -7,7 +7,7 @@ Only stdlib + ``domain.encode`` here.
 import os
 import re
 
-from clippyme.domain.encode import x264_video_args
+from clippyme.domain.encode import x264_intermediate_crf, x264_video_args
 
 _VIDEO_SUFFIXES = {".mp4", ".mkv", ".mov", ".webm", ".avi"}
 
@@ -98,8 +98,9 @@ def build_cut_command(input_video: str, start: float, end: float, dest: str) -> 
     ``-vsync cfr`` guarantee the persisted slice is universally decodable and
     constant-frame-rate, so the downstream reframe render (raw frames at a
     fixed ``-r``) can't drift against audio even if the original download was
-    VFR. Shared x264 settings (CRF 18 / medium): this slice feeds every later
-    generation, so it must not be the weak link.
+    VFR. Encoded at the INTERMEDIATE CRF, not the delivery one: this slice is
+    generation 1 of ~5 and feeds every later pass, so it must not be the weak
+    link that softens everything downstream.
     """
     clip_duration = float(end) - float(start)
     return [
@@ -107,7 +108,7 @@ def build_cut_command(input_video: str, start: float, end: float, dest: str) -> 
         '-ss', f'{float(start):.3f}',
         '-i', input_video,
         '-t', f'{clip_duration:.3f}',
-        *x264_video_args(faststart=False),
+        *x264_video_args(crf=x264_intermediate_crf(), faststart=False),
         '-vsync', 'cfr',
         '-c:a', 'aac',
         dest,

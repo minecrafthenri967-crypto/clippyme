@@ -12,7 +12,7 @@ import json
 import os
 import subprocess
 
-from clippyme.domain.encode import x264_video_args
+from clippyme.domain.encode import x264_intermediate_crf, x264_video_args
 
 
 def _safe_float(value, name):
@@ -138,10 +138,11 @@ def apply_subtle_zoom(video_path, zoom_end=1.05):
         cmd = [
             'ffmpeg', '-y', '-i', video_path,
             '-vf', zoom_filter,
-            # Shared near-visually-lossless encode (CRF 18 / medium). +faststart
-            # so the clip is progressively playable if normalize_audio (the next
-            # pass) is skipped/fails and this zoom output stays terminal.
-            *x264_video_args(),
+            # Intermediate CRF: every compose layer re-encodes from this, so it
+            # must not be the weak link. +faststart so the clip is progressively
+            # playable if normalize_audio (the next pass) is skipped/fails and
+            # this zoom output stays terminal.
+            *x264_video_args(crf=x264_intermediate_crf()),
             '-c:a', 'copy', temp_out
         ]
         result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300)

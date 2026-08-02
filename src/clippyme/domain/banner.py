@@ -241,7 +241,7 @@ def add_banner_to_video(video_path, banner_params, out_path) -> bool:
     """Overlay an attribution banner onto a clip using a unique temp PNG."""
     import subprocess
 
-    from clippyme.domain.encode import ffmpeg_timeout, x264_video_args
+    from clippyme.domain.encode import ffmpeg_timeout, x264_intermediate_crf, x264_video_args
     from clippyme.pipeline.media_probe import probe_dimensions
 
     if not os.path.exists(video_path):
@@ -269,7 +269,7 @@ def add_banner_to_video(video_path, banner_params, out_path) -> bool:
             "-i", banner_png,
             "-filter_complex", f"[0:v][1:v]overlay={overlay_x}:{overlay_y}",
             "-c:a", "copy",
-            *x264_video_args(),
+            *x264_video_args(crf=x264_intermediate_crf()),
             out_path,
         ]
         subprocess.run(

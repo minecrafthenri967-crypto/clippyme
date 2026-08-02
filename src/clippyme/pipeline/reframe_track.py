@@ -15,6 +15,8 @@ from clippyme.pipeline.reframe_ops import (
     asymmetric_zoom_step,
     drift_to_center,
     limit_step,
+    max_upscale_factor,
+    max_zoom_for_upscale,
     zoom_for_face_height,
 )
 
@@ -97,7 +99,16 @@ class SmoothedCameraman:
         if self.max_crop_width > video_width:
             self.max_crop_width = video_width
             self.max_crop_height = int(self.max_crop_width / self.aspect_ratio)
-        self.min_crop_height = int(self.max_crop_height / 1.6)
+        # Zoom ceiling is resolution-aware, not a fixed 1.6: tightening the
+        # crop spends REAL pixels, and once the crop is narrower than the
+        # output canvas the difference is made up by enlargement, which adds
+        # no detail. ``max_zoom_for_upscale`` keeps that enlargement inside a
+        # budget — binding on a 1080p source (whose 9:16 crop is only ~607px
+        # wide) while leaving a 4K source the full 1.6 range it can afford.
+        self.max_zoom = max_zoom_for_upscale(
+            self.max_crop_width, output_width, max_upscale_factor(), hard_max_zoom=1.6,
+        )
+        self.min_crop_height = int(self.max_crop_height / self.max_zoom)
         self.min_crop_width = int(self.min_crop_height * self.aspect_ratio)
         self.crop_width = self.max_crop_width
         self.crop_height = self.max_crop_height
@@ -154,7 +165,7 @@ class SmoothedCameraman:
                     self.max_crop_height,
                     target_occupancy=0.4,
                     min_zoom=1.0,
-                    max_zoom=1.6,
+                    max_zoom=self.max_zoom,
                 )
 
     def _ease_axis(self, current: float, target: float, safe_radius: float, fast_ref: float) -> float:

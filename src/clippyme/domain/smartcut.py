@@ -34,7 +34,7 @@ import threading
 from typing import Optional
 
 from clippyme.pipeline.cut_ops import audio_fade_filter
-from clippyme.domain.encode import x264_video_args
+from clippyme.domain.encode import x264_intermediate_crf, x264_video_args
 
 # Pure logic, re-exported for backwards compatibility (callers/tests import
 # these names from `smartcut`). Several are also used at runtime below.
@@ -362,7 +362,7 @@ def _render_with_ffmpeg(
                 # the output (see below) without passing through the concat
                 # re-encode, so the per-segment encode must already be
                 # web-decodable + progressive on its own. See domain/encode.py.
-                *x264_video_args(),
+                *x264_video_args(crf=x264_intermediate_crf()),
                 "-c:a", "aac",
                 "-avoid_negative_ts", "make_zero",
             ]
@@ -399,7 +399,7 @@ def _render_with_ffmpeg(
             "-f", "concat", "-safe", "0",
             "-i", concat_list,
             # Shared near-visually-lossless encode (CRF 18 / medium) + faststart.
-            *x264_video_args(),
+            *x264_video_args(crf=x264_intermediate_crf()),
             "-c:a", "aac",
             output_path,
         ])

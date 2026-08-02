@@ -76,3 +76,41 @@ def test_ffmpeg_timeout_default_and_env(monkeypatch):
     for bad in ("0", "-5", "abc", ""):
         monkeypatch.setenv("CLIPPYME_FFMPEG_TIMEOUT", bad)
         assert ffmpeg_timeout() == 600
+
+
+def test_intermediate_crf_default_is_better_than_delivery(monkeypatch):
+    from clippyme.domain.encode import x264_crf, x264_intermediate_crf
+
+    monkeypatch.delenv("CLIPPYME_X264_INTERMEDIATE_CRF", raising=False)
+    monkeypatch.delenv("CLIPPYME_X264_CRF", raising=False)
+    assert x264_intermediate_crf() == 14
+    # Lower CRF == higher quality. A delivered clip stacks ~5 generations, so
+    # the ones feeding the next pass must not throw away more than the last.
+    assert x264_intermediate_crf() < x264_crf()
+
+
+def test_intermediate_crf_env_override(monkeypatch):
+    from clippyme.domain.encode import x264_intermediate_crf
+
+    monkeypatch.delenv("CLIPPYME_X264_CRF", raising=False)
+    monkeypatch.setenv("CLIPPYME_X264_INTERMEDIATE_CRF", "10")
+    assert x264_intermediate_crf() == 10
+
+
+def test_intermediate_crf_never_worse_than_delivery(monkeypatch):
+    from clippyme.domain.encode import x264_intermediate_crf
+
+    # An intermediate configured *coarser* than delivery would degrade the
+    # chain below its own output quality — nonsense, so it clamps to delivery.
+    monkeypatch.setenv("CLIPPYME_X264_CRF", "20")
+    monkeypatch.setenv("CLIPPYME_X264_INTERMEDIATE_CRF", "30")
+    assert x264_intermediate_crf() == 20
+
+
+def test_intermediate_crf_bad_values_fall_back_to_default(monkeypatch):
+    from clippyme.domain.encode import x264_intermediate_crf
+
+    monkeypatch.delenv("CLIPPYME_X264_CRF", raising=False)
+    for bad in ("abc", "", "-1", "99"):
+        monkeypatch.setenv("CLIPPYME_X264_INTERMEDIATE_CRF", bad)
+        assert x264_intermediate_crf() == 14

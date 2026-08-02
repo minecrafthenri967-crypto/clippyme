@@ -56,6 +56,55 @@ def min_output_short_edge() -> int:
     return value if value >= 0 else _DEFAULT_MIN_OUTPUT_SHORT_EDGE
 
 
+_DEFAULT_MAX_UPSCALE = 2.0
+
+
+def max_upscale_factor() -> float:
+    """How far a crop may be enlarged to fill the canvas — 2.0 by default.
+
+    ``CLIPPYME_MAX_UPSCALE`` overrides it; a value <= 1 disables the cap
+    (restores the old behaviour where zoom was free to shrink the crop as far
+    as ``max_zoom`` allowed, regardless of how few real pixels remained).
+    """
+    raw = (os.environ.get("CLIPPYME_MAX_UPSCALE") or "").strip()
+    if not raw:
+        return _DEFAULT_MAX_UPSCALE
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_MAX_UPSCALE
+    return value if value > 0 else 0.0
+
+
+def max_zoom_for_upscale(max_crop_width: float, output_width: float,
+                         max_upscale: float = _DEFAULT_MAX_UPSCALE,
+                         hard_max_zoom: float = 1.6) -> float:
+    """Largest camera zoom that still keeps the crop within an upscale budget.
+
+    Zoom tightens the crop (``crop_width = max_crop_width / zoom``) and the
+    result is then stretched to ``output_width``, so zoom trades REAL pixels
+    for framing. On a 1920x1080 source the widest 9:16 crop is only 607px, and
+    at the old fixed ``max_zoom=1.6`` a close-up shrank that to 379px — then
+    enlarged 2.85x to fill a 1080-wide canvas. No encoder setting recovers
+    detail that was never sampled; the picture simply arrives soft, which is
+    what a platform's quality check sees.
+
+    Capping zoom so ``output_width / crop_width <= max_upscale`` bounds that
+    loss. The cap binds only where it must: a 4K source's 9:16 crop is already
+    1215px wide and needs no enlargement at all, so it keeps the full
+    ``hard_max_zoom`` range and loses no creative headroom. ``max_upscale <= 0``
+    disables the budget entirely.
+    """
+    if max_upscale <= 0 or output_width <= 0 or max_crop_width <= 0:
+        return hard_max_zoom
+    # crop_width >= output_width / max_upscale  ⇔  zoom <= max_crop_width * max_upscale / output_width
+    allowed = float(max_crop_width) * float(max_upscale) / float(output_width)
+    # Never below 1.0: zoom 1.0 is "no tightening at all", the widest possible
+    # crop. If even that exceeds the budget the source is simply too small —
+    # clamping under 1.0 would zoom OUT past the frame, not recover pixels.
+    return max(1.0, min(float(hard_max_zoom), allowed))
+
+
 def compute_output_dimensions(
     original_height: int, aspect_ratio: float, min_short_edge: int = _DEFAULT_MIN_OUTPUT_SHORT_EDGE,
 ) -> tuple[int, int]:

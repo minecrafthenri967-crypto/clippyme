@@ -52,10 +52,21 @@ def test_cut_command_shape_and_precision():
 
 
 def test_cut_command_uses_shared_x264_settings():
-    from clippyme.domain.encode import x264_video_args
+    from clippyme.domain.encode import x264_intermediate_crf, x264_video_args
     cmd = build_cut_command("/in.mp4", 0, 10, "/out.mp4")
-    for arg in x264_video_args(faststart=False):
+    for arg in x264_video_args(crf=x264_intermediate_crf(), faststart=False):
         assert arg in cmd
+
+
+def test_cut_command_encodes_at_the_intermediate_crf_not_the_delivery_one():
+    # The source slice is generation 1 of ~5 (slice → reframe → subtitles →
+    # hook → banner). Spending delivery-grade bitrate here would make it the
+    # weak link every later pass inherits, so it must use the finer
+    # intermediate CRF instead.
+    from clippyme.domain.encode import x264_crf, x264_intermediate_crf
+    cmd = build_cut_command("/in.mp4", 0, 10, "/out.mp4")
+    assert cmd[cmd.index("-crf") + 1] == str(x264_intermediate_crf())
+    assert cmd[cmd.index("-crf") + 1] != str(x264_crf())
 
 
 # --- clip_output_basename -----------------------------------------------------

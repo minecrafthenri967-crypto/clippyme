@@ -15,11 +15,19 @@ Pure / dependency-free (only ``os``) so it is host-importable and unit-testable.
 """
 import os
 
-# CRF 18 is x264's widely-cited "visually lossless" point: a single generation
-# is essentially indistinguishable from the source, and several stacked
-# generations still stay clean. Lower = higher quality + bigger files (0 = truly
-# lossless, huge). Valid range 0–51.
+# CRF 18 is x264's widely-cited "visually lossless" point for a SINGLE
+# generation. Lower = higher quality + bigger files (0 = truly lossless,
+# huge). Valid range 0–51.
 _DEFAULT_CRF = 18
+# ...but "visually lossless once" is not "lossless five times". A delivered
+# clip passes through roughly five stacked encodes — source slice → reframe
+# master → subtitles → hook/logo → banner — and every one of them discards a
+# little more detail, permanently. Only the LAST of those is what anyone
+# watches; the earlier four exist purely to feed the next pass, so spending
+# extra bitrate on them costs nothing but temporary disk and keeps real detail
+# alive all the way to the end. CRF 14 is roughly 1.8x the bitrate of 18 —
+# cheap insurance against a chain that otherwise arrives visibly soft.
+_DEFAULT_INTERMEDIATE_CRF = 14
 # 'medium' gives better psychovisual decisions and smaller files than 'fast' at
 # the same CRF, for a modest amount of extra encode time — worth it because
 # these encodes feed further encodes (generational robustness).
@@ -63,6 +71,27 @@ def x264_crf() -> int:
         except ValueError:
             pass
     return _DEFAULT_CRF
+
+
+def x264_intermediate_crf() -> int:
+    """CRF for an encode whose output only feeds another encode.
+
+    ``CLIPPYME_X264_INTERMEDIATE_CRF`` (clamped to 0–51) or the default 14.
+    Never allowed to be *worse* than the delivery CRF: an intermediate that
+    throws away more than the final pass would is strictly a bug, so a
+    configured value above ``x264_crf()`` is pulled back down to it.
+    """
+    delivery = x264_crf()
+    raw = (os.getenv("CLIPPYME_X264_INTERMEDIATE_CRF") or "").strip()
+    value = _DEFAULT_INTERMEDIATE_CRF
+    if raw:
+        try:
+            parsed = int(raw)
+            if 0 <= parsed <= 51:
+                value = parsed
+        except ValueError:
+            pass
+    return min(value, delivery)
 
 
 def x264_preset() -> str:

@@ -15,7 +15,7 @@ import logging
 import os
 import subprocess
 
-from clippyme.domain.encode import ffmpeg_timeout, x264_video_args
+from clippyme.domain.encode import ffmpeg_timeout, x264_intermediate_crf, x264_video_args
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ def apply_grade(input_path: str, output_path: str, preset: str) -> bool:
         # Shared near-visually-lossless encode (CRF 18 / medium). +faststart so
         # any compose layer can be the last one before the final byte-for-byte
         # copy and still emit a web-progressive mp4. See domain/encode.py.
-        *x264_video_args(),
+        *x264_video_args(crf=x264_intermediate_crf()),
         "-c:a", "copy",
         output_path,
     ]
