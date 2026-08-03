@@ -205,6 +205,8 @@ export const en = {
   // -- create.jsx: OptionsPanel ---------------------------------------------
   'create.recipe.title': 'Recipe',
   'create.recipe.sub': 'What ClippyMe makes from each video',
+  'create.saveDefault.button': 'Save as default',
+  'create.saveDefault.hint': 'Save everything below (including subtitle/hook fine-tuning) so it’s pre-filled every time you open Create',
   'create.recipe.outputLabel': 'Output',
   'create.clips.label': 'Clips per video',
   'create.clips.descAuto': 'Auto · ClippyMe picks the best number for the video',

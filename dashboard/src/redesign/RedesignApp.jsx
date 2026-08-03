@@ -15,7 +15,7 @@ import { HistoryView, SettingsView, ApiKeyModal } from './views';
 import { LiveMonitorView } from './live';
 import { EditClipModal } from './captions';
 import { optsToPreselections, restoreJob, listBackendJobIds, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
-import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, deleteUserPreset, setDefaultPreset } from './presets';
+import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, deleteUserPreset, setDefaultPreset, saveAsDefault } from './presets';
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
 import { planAutoCompose } from '../lib/autoCompose';
@@ -188,6 +188,12 @@ export default function RedesignApp() {
     saveUserPreset(name.trim(), opts);
     setPresetsVersion((v) => v + 1);
     pushToast('success', `Preset "${name.trim()}" saved`);
+  };
+  const onSaveAsDefault = () => {
+    const preset = saveAsDefault(opts);
+    setPresetsVersion((v) => v + 1);
+    setDefaultPresetId(preset.id);
+    pushToast('success', 'Saved — pre-filled every time you open Create');
   };
   const onSetDefaultPreset = (id) => {
     const next = defaultPresetId === id ? null : id;
@@ -429,7 +435,8 @@ export default function RedesignApp() {
       {tab === 'create' && status === 'idle' && (
         <CreateView opts={opts} set={set} onPickPreset={pickPreset} onCreate={startJob}
           presets={presetList} defaultId={defaultPresetId}
-          onSaveCurrent={onSaveCurrentPreset} onSetDefault={onSetDefaultPreset} onDelete={onDeletePreset} />
+          onSaveCurrent={onSaveCurrentPreset} onSetDefault={onSetDefaultPreset} onDelete={onDeletePreset}
+          onSaveAsDefault={onSaveAsDefault} />
       )}
       {tab === 'create' && (status === 'processing' || status === 'error') && (
         <ProcessingView media={processingMedia} status={status} logs={logs} step={currentStep}

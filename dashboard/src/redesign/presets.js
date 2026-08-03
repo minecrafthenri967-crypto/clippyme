@@ -17,6 +17,12 @@ export const PRESET_KEYS = [
   'clipsAuto', 'clips', 'aspect', 'detect', 'reframe', 'reframeMode', 'model',
   'smartcut', 'zoom',
   'subtitles', 'subMode', 'subPreset', 'subPosition', 'subFont', 'subColor',
+  // Fine-grained subtitle customization (font size, stroke colour/width,
+  // background box, horizontal alignment, vertical offset) — these were
+  // missing here even though the subtitle drawer sets them, so "Save
+  // current"/the default preset silently reverted them to the preset's
+  // basic values on every reload.
+  'subFontSize', 'subStroke', 'subOutlineW', 'subBg', 'subAlign', 'subOffsetY',
   'hooks', 'hookPos', 'hookSize', 'hookStyle',
   'logo', 'logoPos', 'logoSize', 'language',
 ];
@@ -49,6 +55,27 @@ export function saveUserPreset(name, opts) {
   };
   list.push(preset);
   try { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)); } catch { /* quota */ }
+  return preset;
+}
+
+// Fixed id so repeated clicks UPDATE the same preset in place instead of
+// piling up a new "My preset" entry every time — one obvious "Save as
+// default" action, no naming prompt, no separate star-it-yourself step.
+const MY_DEFAULT_ID = 'u_my_default';
+
+export function saveAsDefault(opts) {
+  const list = loadUserPresets().filter((p) => p.id !== MY_DEFAULT_ID);
+  const preset = {
+    id: MY_DEFAULT_ID,
+    title: 'My default',
+    desc: 'Auto-applied every time you open Create',
+    icon: 'star',
+    user: true,
+    opts: captureOpts(opts),
+  };
+  list.push(preset);
+  try { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)); } catch { /* quota */ }
+  setDefaultPreset(MY_DEFAULT_ID);
   return preset;
 }
 

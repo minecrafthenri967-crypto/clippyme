@@ -24,11 +24,12 @@ const BASE_OPTS = {
   hooks: false, logo: true, gradePreset: 'none',
 };
 
-function mount(optsOver = {}) {
+function mount(optsOver = {}, { onSaveAsDefault } = {}) {
   const set = vi.fn();
   render(<CreateView opts={{ ...BASE_OPTS, ...optsOver }} set={set}
     onPickPreset={vi.fn()} onCreate={vi.fn()} presets={[]} defaultId={null}
-    onSetDefault={vi.fn()} onDelete={vi.fn()} onSaveCurrent={vi.fn()} />);
+    onSetDefault={vi.fn()} onDelete={vi.fn()} onSaveCurrent={vi.fn()}
+    onSaveAsDefault={onSaveAsDefault || vi.fn()} />);
   return set;
 }
 
@@ -123,4 +124,11 @@ test('reframe picker: Gaming option patches reframeMode and shows its hint', () 
 test('reframe picker: hint is hidden for non-gaming modes', () => {
   mount({ reframeMode: 'auto' });
   expect(screen.queryByText(/Detects a static facecam overlay/)).not.toBeInTheDocument();
+});
+
+test('Save as default button in the recipe panel header calls onSaveAsDefault', () => {
+  const onSaveAsDefault = vi.fn();
+  mount({}, { onSaveAsDefault });
+  fireEvent.click(screen.getByRole('button', { name: 'Save as default' }));
+  expect(onSaveAsDefault).toHaveBeenCalledTimes(1);
 });

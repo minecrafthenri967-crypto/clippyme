@@ -296,7 +296,7 @@ function BannerConfig({ opts, set }) {
   );
 }
 
-function OptionsPanel({ opts, set }) {
+function OptionsPanel({ opts, set, onSaveAsDefault }) {
   const t = useT();
   const [subCfg, setSubCfg] = useState(false);
   const [hookCfg, setHookCfg] = useState(false);
@@ -304,7 +304,13 @@ function OptionsPanel({ opts, set }) {
   const [bannerCfg, setBannerCfg] = useState(false);
   const [playerImageCfg, setPlayerImageCfg] = useState(false);
   return (
-    <Panel title={t('create.recipe.title')} sub={t('create.recipe.sub')} icon="sliders-horizontal">
+    <Panel title={t('create.recipe.title')} sub={t('create.recipe.sub')} icon="sliders-horizontal"
+      headRight={
+        <Btn variant="secondary" size="sm" icon="save" onClick={onSaveAsDefault}
+          title={t('create.saveDefault.hint')}>
+          {t('create.saveDefault.button')}
+        </Btn>
+      }>
       <div className="label" style={{ marginBottom: 4 }}>{t('create.recipe.outputLabel')}</div>
       <div className="opt">
         <div className="oico"><Icon n="scissors" /></div>
@@ -423,7 +429,7 @@ function SummaryBar({ opts, ready, count, onCreate, error }) {
   );
 }
 
-export function CreateView({ opts, set, onPickPreset, onCreate, presets, defaultId, onSetDefault, onDelete, onSaveCurrent }) {
+export function CreateView({ opts, set, onPickPreset, onCreate, presets, defaultId, onSetDefault, onDelete, onSaveCurrent, onSaveAsDefault }) {
   const t = useT();
   const validation = validateCreateOptions(opts);
   const ready = validation.valid;
@@ -442,7 +448,7 @@ export function CreateView({ opts, set, onPickPreset, onCreate, presets, default
           <PresetCards presets={presets} active={opts.preset} defaultId={defaultId}
             onPick={onPickPreset} onSetDefault={onSetDefault} onDelete={onDelete} onSaveCurrent={onSaveCurrent} />
         </div>
-        <OptionsPanel opts={opts} set={set} />
+        <OptionsPanel opts={opts} set={set} onSaveAsDefault={onSaveAsDefault} />
       </div>
       <SummaryBar opts={opts} ready={ready} count={count} onCreate={onCreate} error={validation.firstError} />
     </div>
