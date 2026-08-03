@@ -727,8 +727,11 @@ async def reframe_clip(job_id: str, clip_index: int, req: ReframeRequest, reques
     if not is_valid_job_id(job_id):
         raise HTTPException(status_code=400, detail="Invalid job_id")
     mode = (req.reframe_mode or "auto").strip().lower()
-    if mode not in ("auto", "disabled", "subject", "object"):
-        raise HTTPException(status_code=400, detail="reframe_mode must be 'auto', 'subject', or 'disabled'")
+    if mode not in ("auto", "disabled", "subject", "object", "gaming"):
+        raise HTTPException(
+            status_code=400,
+            detail="reframe_mode must be 'auto', 'subject', 'disabled', or 'gaming'",
+        )
     # 'object' is the legacy name for 'subject' — normalize so the subprocess
     # argv + metadata are written with the canonical value.
     mode = canonical_reframe_mode(mode)

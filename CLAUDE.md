@@ -315,16 +315,30 @@ post-hoc editing and reframe switching working.
 Hook overlay shows only the first 4s of the clip, EXCEPT
 `reframe_mode == disabled` where it stays for the whole clip.
 
-**Reframe**: three user modes — `auto` (face tracking + per-scene strategy),
+**Reframe**: four user modes — `auto` (face tracking + per-scene strategy),
 `subject` (FrameShift weighted-interest crop; legacy alias `object`),
-`disabled` (letterbox). Comfort mode is default-on: within a scene the camera
-never moves (`collapse_scene_targets`), zoom locks per scene. The output
-aspect is an explicit `process_video_to_vertical(..., aspect_ratio=)`
-parameter passed by `main.py` per job — there is no module-global. Post-hoc
-mode switching (`POST /api/reframe/{job}/{clip}`) spawns
-`main.py --reframe-only` on the preserved source slice. Camera/decision math
-lives in `reframe_ops.py`/`reframe_track.py` (pure, host-tested) — add new
-reframe logic there, not in the cv2-bound modules.
+`gaming` (facecam+gameplay split-screen), `disabled` (letterbox). Comfort mode
+is default-on: within a scene the camera never moves (`collapse_scene_targets`),
+zoom locks per scene. The output aspect is an explicit
+`process_video_to_vertical(..., aspect_ratio=)` parameter passed by `main.py`
+per job — there is no module-global. Post-hoc mode switching
+(`POST /api/reframe/{job}/{clip}`) spawns `main.py --reframe-only` on the
+preserved source slice. Camera/decision math lives in `reframe_ops.py`/
+`reframe_track.py` (pure, host-tested) — add new reframe logic there, not in
+the cv2-bound modules.
+⚠️ `gaming` mode's facecam is detected ONCE up front (`_detect_gaming_facecam`
+samples ~12 frames, runs the existing face detector, and calls
+`reframe_ops.detect_static_facecam_region` — a face present in most samples at
+a near-constant position, not a normal subject a camera would pan to follow),
+never re-tracked per frame like `auto`'s cameraman. No confident static region
+→ silent fallback to `auto` for that clip (reassigns `reframe_mode` itself, so
+the rest of the function — comfort mode, global-smooth gating — behaves
+exactly as a normal `auto` job). `create_gaming_frame` stacks the detected
+region (expanded to the top zone's aspect via `expand_box_to_aspect`, never
+cropped smaller) over a centred gameplay crop that `offset_crop_away_from_box`
+shifts sideways when it would otherwise show the facecam's corner twice. This
+is a heuristic, not a guarantee — verify each `gaming` job's actual layout
+rather than assuming detection succeeded.
 ⚠️ `REFRAME_GLOBAL_METHOD=kalman|l2` only runs with `REFRAME_STATIC_AUTO=0`;
 the default static-auto policy never reaches the trajectory smoother.
 ⚠️ Output canvas sizing has a CEILING and a FLOOR, set independently:

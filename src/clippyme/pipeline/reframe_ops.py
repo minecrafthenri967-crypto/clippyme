@@ -727,3 +727,121 @@ def build_smoothed_trajectory(targets, scene_ids, window: int, polyorder: int,
             out[i + k] = (float(xs[k]), float(ys[k]), float(zs[k]))
         i = j
     return out
+
+
+# --- gaming layout: static facecam detection + crop geometry ---------------
+
+_DEFAULT_GAMING_MIN_FREQUENCY = 0.6
+_DEFAULT_GAMING_MAX_DRIFT_FRAC = 0.06
+_DEFAULT_GAMING_MIN_SIZE_FRAC = 0.03
+_DEFAULT_GAMING_MAX_SIZE_FRAC = 0.45
+_DEFAULT_GAMING_MIN_SAMPLES = 5
+
+
+def detect_static_facecam_region(
+    face_boxes, frame_width, frame_height,
+    *, min_frequency: float = _DEFAULT_GAMING_MIN_FREQUENCY,
+    max_drift_frac: float = _DEFAULT_GAMING_MAX_DRIFT_FRAC,
+    min_size_frac: float = _DEFAULT_GAMING_MIN_SIZE_FRAC,
+    max_size_frac: float = _DEFAULT_GAMING_MAX_SIZE_FRAC,
+    min_samples: int = _DEFAULT_GAMING_MIN_SAMPLES,
+):
+    """Find a webcam-overlay ("facecam") region from sampled per-frame face boxes.
+
+    ``face_boxes`` is one entry per SAMPLED frame across the clip: ``(x, y, w,
+    h)`` of the largest detected face in that frame, or ``None`` if no face was
+    detected. A facecam is a face that stays in roughly the SAME screen
+    position for most of the clip — unlike a normal talking-head subject a
+    camera pans/zooms to follow, or a game character's face that moves
+    unpredictably with the action. That distinction is exactly what this
+    checks: high presence frequency + low positional drift.
+
+    Returns the representative ``(x, y, w, h)`` region (ints, median across
+    samples) or ``None`` when the signal doesn't look like a static facecam —
+    too few samples, the face isn't present often enough, it moves around too
+    much, or it's sized like a normal full-frame subject rather than a small
+    corner overlay. ``None`` means "don't guess"; the caller falls back to
+    normal auto-framing.
+    """
+    if not face_boxes or len(face_boxes) < min_samples or frame_width <= 0 or frame_height <= 0:
+        return None
+    present = [b for b in face_boxes if b]
+    if len(present) / len(face_boxes) < min_frequency:
+        return None
+
+    centers = [(x + w / 2.0, y + h / 2.0) for x, y, w, h in present]
+    mean_cx = sum(c[0] for c in centers) / len(centers)
+    mean_cy = sum(c[1] for c in centers) / len(centers)
+    diag = math.hypot(frame_width, frame_height)
+    max_drift = max(
+        math.hypot(cx - mean_cx, cy - mean_cy) for cx, cy in centers
+    )
+    if max_drift > max_drift_frac * diag:
+        return None  # moves around too much to be a static overlay
+
+    widths = sorted(b[2] for b in present)
+    heights = sorted(b[3] for b in present)
+    med_w = widths[len(widths) // 2]
+    med_h = heights[len(heights) // 2]
+    width_frac = med_w / frame_width
+    if not (min_size_frac <= width_frac <= max_size_frac):
+        return None  # too small to be a real overlay, or too big (not an overlay at all)
+
+    xs = sorted(b[0] for b in present)
+    ys = sorted(b[1] for b in present)
+    med_x = xs[len(xs) // 2]
+    med_y = ys[len(ys) // 2]
+    return (int(round(med_x)), int(round(med_y)), int(round(med_w)), int(round(med_h)))
+
+
+def expand_box_to_aspect(x, y, w, h, frame_width, frame_height, target_ar):
+    """Expand ``(x, y, w, h)`` to match ``target_ar`` (width/height), centred on
+    the original box, clamped within ``[0, frame_width] x [0, frame_height]``.
+
+    Only ever grows the box (never crops content OUT of it) so the whole
+    detected region — e.g. a facecam — always stays fully inside the result.
+    Clamping shifts the window rather than shrinking it when the centred
+    expansion would run off the frame edge, so the result always has exactly
+    the requested aspect ratio as long as the frame is big enough to hold it.
+    """
+    cx = x + w / 2.0
+    cy = y + h / 2.0
+    current_ar = w / float(h) if h else target_ar
+    if current_ar < target_ar:
+        new_w = h * target_ar
+        new_h = h
+    else:
+        new_w = w
+        new_h = w / target_ar
+    new_w = min(new_w, frame_width)
+    new_h = min(new_h, frame_height)
+    new_x = cx - new_w / 2.0
+    new_y = cy - new_h / 2.0
+    new_x = max(0.0, min(frame_width - new_w, new_x))
+    new_y = max(0.0, min(frame_height - new_h, new_y))
+    return (int(round(new_x)), int(round(new_y)), int(round(new_w)), int(round(new_h)))
+
+
+def offset_crop_away_from_box(crop_x, crop_w, box_x, box_w, frame_width):
+    """Shift a horizontal crop window as far as possible from an excluded box.
+
+    Used so the "gameplay" half of a split-screen layout doesn't just show the
+    facecam a second time when the default centred crop happens to overlap it.
+    No-op (returns ``crop_x`` unchanged) when the two don't overlap. When they
+    do, slides the crop to whichever side of the frame has more room, clamped
+    to stay within ``[0, frame_width - crop_w]`` — it may still graze the box
+    at the frame's edges if ``crop_w`` is close to ``frame_width``, since
+    there is nowhere else for it to go.
+    """
+    box_x2 = box_x + box_w
+    crop_x2 = crop_x + crop_w
+    overlap = min(crop_x2, box_x2) - max(crop_x, box_x)
+    if overlap <= 0:
+        return crop_x
+    room_left = box_x  # space to the left of the box, from frame edge 0
+    room_right = frame_width - box_x2  # space to the right of the box
+    if room_right >= room_left:
+        new_x = box_x2
+    else:
+        new_x = box_x - crop_w
+    return int(round(max(0.0, min(frame_width - crop_w, new_x))))

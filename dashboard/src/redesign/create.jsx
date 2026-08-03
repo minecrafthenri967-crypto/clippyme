@@ -344,8 +344,11 @@ function OptionsPanel({ opts, set }) {
         <div className="oico"><Icon n="scan-face" /></div>
         <div className="otxt"><div className="ot">{t('create.reframe.label')}</div><div className="od">{t('create.reframe.desc')}</div></div>
         <div className="r"><Segmented value={(opts.reframeMode === 'object' ? 'subject' : opts.reframeMode) || (opts.reframe === false ? 'disabled' : 'auto')} onChange={(id) => set({ reframeMode: id })}
-          options={[{ id: 'auto', label: t('create.reframe.auto') }, { id: 'subject', label: t('create.reframe.subject') }, { id: 'disabled', label: t('create.reframe.off') }]} /></div>
+          options={[{ id: 'auto', label: t('create.reframe.auto') }, { id: 'subject', label: t('create.reframe.subject') }, { id: 'gaming', label: t('create.reframe.gaming') }, { id: 'disabled', label: t('create.reframe.off') }]} /></div>
       </div>
+      {opts.reframeMode === 'gaming' && (
+        <div className="od" style={{ marginTop: -8, marginBottom: 14 }}>{t('create.reframe.gamingHint')}</div>
+      )}
       <OptRow icon="scissors" label={t('create.smartcut.label')} desc={t('create.smartcut.desc')}
         on={opts.smartcut} set={(v) => set({ smartcut: v })} />
       <OptRow icon="zoom-in" label={t('create.zoom.label')} desc={t('create.zoom.desc')}
@@ -393,7 +396,7 @@ function SummaryBar({ opts, ready, count, onCreate, error }) {
     opts.aspect || '9:16',
     opts.clipsAuto ? t('create.summary.chip.autoClips') : t('create.summary.chip.clipsCount', { count: opts.clips }),
     opts.detect ? t('create.summary.chip.viralDetect') : t('create.summary.chip.wholeVideo'),
-    (() => { const m = opts.reframeMode || (opts.reframe === false ? 'disabled' : 'auto'); return (m === 'subject' || m === 'object') ? t('create.summary.chip.subjectCrop') : m === 'disabled' ? t('create.summary.chip.letterbox') : t('create.summary.chip.reframe'); })(),
+    (() => { const m = opts.reframeMode || (opts.reframe === false ? 'disabled' : 'auto'); return (m === 'subject' || m === 'object') ? t('create.summary.chip.subjectCrop') : m === 'gaming' ? t('create.summary.chip.gaming') : m === 'disabled' ? t('create.summary.chip.letterbox') : t('create.summary.chip.reframe'); })(),
     opts.smartcut && t('create.summary.chip.smartCut'),
     opts.subtitles && t('create.summary.chip.subsSuffix', { mode: opts.subMode }),
     opts.hooks && t('create.summary.chip.hooks'),

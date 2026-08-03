@@ -127,7 +127,7 @@ cd dashboard && npm install && npm run dev
 
 # Pipeline CLI (one-shot, no API)
 python -m clippyme.pipeline.main <url_or_path> [--instructions "focus on hooks"] \
-                                                [--reframe-mode auto|subject|disabled] \
+                                                [--reframe-mode auto|subject|gaming|disabled] \
                                                 [--no-zoom]
 ```
 
@@ -339,7 +339,7 @@ Inside **Auto**, three per-scene strategies are decided by sampling 7 frames per
 
 **Comfort mode (`REFRAME_COMFORT`, default on):** continuous face-tracking is what makes auto-reframes feel like seasickness, the camera is always gently moving, and the changing velocity (plus a zoom that breathes mid-shot) is the actual nausea trigger, not pixel jitter. So the default render now biases toward a *still* camera the way [AutoFlip](https://research.google/blog/autoflip-an-open-source-framework-for-intelligent-video-reframing/) does: a two-pass global trajectory smoother Savitzky-Golay-smooths the whole camera path per scene (the alternative `REFRAME_GLOBAL_METHOD=kalman`/`l2` pan-path solvers are reachable only with `REFRAME_STATIC_AUTO=0` — the default static-auto policy collapses each scene to a single locked crop before they would run), a per-scene **stationary lock** (`REFRAME_STATIONARY_THRESH`, default `0.30`) pins near-static scenes to a locked tripod (with `REFRAME_SNAP_CENTER`), and **per-scene zoom lock** (`REFRAME_ZOOM_LOCK`) holds one zoom level per shot so the frame never breathes. It costs a second video decode; set `REFRAME_COMFORT=0` to fall back to the original single-pass streaming tracker. See [`docs/reframe-improvements-research.md`](docs/reframe-improvements-research.md) for the measured comparison.
 
-Override per job with `--reframe-mode auto|subject|disabled` (`subject` = the FrameShift face-first crop above, with `object` accepted as a legacy alias; `disabled` = 4:3 center crop with black bars).
+Override per job with `--reframe-mode auto|subject|gaming|disabled` (`subject` = the FrameShift face-first crop above, with `object` accepted as a legacy alias; `gaming` = facecam+gameplay split-screen — detects a static facecam overlay once up front and falls back to `auto` if none is confidently found; `disabled` = 4:3 center crop with black bars).
 
 After a job completes, every clip can be flipped between all three modes post-hoc via `POST /api/reframe/{job_id}/{clip_index}` (the **Edit & reprocess** panel exposes the three modes and applies the switch on **Apply**). The original 16:9 source slice is preserved as `source_<clip>.mp4` to make this latency-tolerant. Legacy jobs without the preserved slice return HTTP 409.
 

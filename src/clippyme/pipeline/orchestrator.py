@@ -147,7 +147,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--no-zoom", action="store_true")
     parser.add_argument(
         "--reframe-mode",
-        choices=["auto", "disabled", "subject", "object"],
+        choices=["auto", "disabled", "subject", "object", "gaming"],
         default="auto",
     )
     parser.add_argument("--language", type=str, default=None)

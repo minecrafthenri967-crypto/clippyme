@@ -37,7 +37,10 @@ from clippyme.pipeline.reframe_ops import (
     centroid_span,
     collapse_scene_targets,
     compute_output_dimensions,
+    detect_static_facecam_region,
+    expand_box_to_aspect,
     min_output_short_edge,
+    offset_crop_away_from_box,
     salient_crop_center,
     weighted_interest_center,
 )
@@ -599,6 +602,90 @@ def create_disabled_reframe(frame, output_width, output_height):
 
     return canvas
 
+# Gaming split-screen: a facecam's screen position is static for a whole
+# stream/session — unlike the face-tracking cameraman's per-frame target — so
+# it is detected ONCE up front from a handful of sampled frames, not tracked.
+_GAMING_SAMPLE_COUNT = 12
+_GAMING_FACECAM_FRACTION = 0.35  # portion of the vertical canvas given to the facecam zone
+
+
+def _detect_gaming_facecam(input_video, total_frames):
+    """Sample frames evenly across the clip and look for a static facecam
+    overlay (reframe_ops.detect_static_facecam_region). Returns the detected
+    ``(x, y, w, h)`` region in ORIGINAL frame pixel coordinates, or ``None``
+    when no confident static region is found — the caller then falls back to
+    normal AUTO face tracking rather than guessing at a split-screen layout.
+    """
+    if total_frames <= 0:
+        return None
+    cap = cv2.VideoCapture(input_video)
+    try:
+        frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if frame_w <= 0 or frame_h <= 0:
+            return None
+        sample_indices = [
+            int(round(i * (total_frames - 1) / max(1, _GAMING_SAMPLE_COUNT - 1)))
+            for i in range(_GAMING_SAMPLE_COUNT)
+        ]
+        boxes = []
+        for idx in sample_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ret, frame = cap.read()
+            if not ret:
+                boxes.append(None)
+                continue
+            try:
+                candidates = detect_face_candidates(frame)
+            except Exception:
+                candidates = []
+            if not candidates:
+                boxes.append(None)
+                continue
+            best = max(candidates, key=lambda c: c['score'])
+            boxes.append(tuple(best['box']))
+    finally:
+        cap.release()
+    return detect_static_facecam_region(boxes, frame_w, frame_h)
+
+
+def create_gaming_frame(frame, output_width, output_height, facecam_box):
+    """Split-screen gaming layout: the detected facecam region fills the top
+    zone, a centred crop of the rest of the frame fills the bottom zone —
+    offset away from the facecam (offset_crop_away_from_box) so the same
+    corner isn't shown twice when the default centred crop would overlap it.
+    """
+    orig_h, orig_w = frame.shape[:2]
+    fx, fy, fw, fh = facecam_box
+    fx = max(0, min(orig_w - 1, int(fx)))
+    fy = max(0, min(orig_h - 1, int(fy)))
+    fw = max(1, min(orig_w - fx, int(fw)))
+    fh = max(1, min(orig_h - fy, int(fh)))
+
+    top_h = int(round(output_height * _GAMING_FACECAM_FRACTION))
+    if top_h % 2:
+        top_h += 1
+    top_h = max(2, min(output_height - 2, top_h))
+    bottom_h = output_height - top_h
+
+    fcx, fcy, fcw, fch = expand_box_to_aspect(
+        fx, fy, fw, fh, orig_w, orig_h, output_width / float(top_h)
+    )
+    facecam_crop = frame[fcy:fcy + fch, fcx:fcx + fcw]
+    top_zone = _resize_to_output(facecam_crop, output_width, top_h)
+
+    game_w = min(orig_w, int(round(orig_h * (output_width / float(bottom_h)))))
+    game_x = (orig_w - game_w) // 2
+    game_x = offset_crop_away_from_box(game_x, game_w, fx, fw, orig_w)
+    game_crop = frame[:, game_x:game_x + game_w]
+    bottom_zone = _resize_to_output(game_crop, output_width, bottom_h)
+
+    canvas = np.zeros((output_height, output_width, 3), dtype=np.uint8)
+    canvas[:top_h] = top_zone
+    canvas[top_h:] = bottom_zone
+    return canvas
+
+
 def _resize_to_output(img, w, h):
     """Resize a crop to output size with scale-aware interpolation.
 
@@ -886,6 +973,9 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     elif reframe_mode == 'subject':
         print("   🧩 Reframe mode: SUBJECT — FrameShift face-first 9:16 crop (faces 1.0 → persons 0.8 → objects 0.5).")
         print("      (Weighted-interest centroid per frame; black-padded letterbox when no subject is detected.)")
+    elif reframe_mode == 'gaming':
+        print("   🎮 Reframe mode: GAMING — split-screen (facecam top, gameplay bottom) if a static facecam is found.")
+        print("      (Falls back to AUTO face tracking when no confident facecam overlay is detected.)")
     else:
         print("   🎯 Reframe mode: AUTO — face tracking + dynamic 9:16 crop.")
     print("   Step 1: Detecting scenes...")
@@ -958,12 +1048,23 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
         )
     
     # --- New Strategy: Per-Scene Analysis ---
+    facecam_box = None
     if reframe_mode == 'disabled':
         print("\n   🤖 Step 3: Skipping scene analysis (reframe disabled).")
         scene_strategies = ['DISABLED'] * len(scenes)
     elif reframe_mode == 'subject':
         print("\n   🤖 Step 3: Skipping scene analysis (subject mode — every scene is FrameShift face-first cropped).")
         scene_strategies = ['OBJECT'] * len(scenes)
+    elif reframe_mode == 'gaming':
+        print("\n   🤖 Step 3: Scanning for a static facecam overlay (gaming split-screen)...")
+        facecam_box = _detect_gaming_facecam(input_video, _probe_total_frames)
+        if facecam_box:
+            print(f"   🎮 Facecam detected at {facecam_box} — split-screen active for the whole clip.")
+            scene_strategies = ['GAMING'] * len(scenes)
+        else:
+            print("   ⚠️  No confident static facecam found — falling back to AUTO face tracking for this clip.")
+            reframe_mode = 'auto'
+            scene_strategies = analyze_scenes_strategy(input_video, scenes)
     else:
         print("\n   🤖 Step 3: Analyzing Scenes for Strategy (Single vs Group)...")
         scene_strategies = analyze_scenes_strategy(input_video, scenes)
@@ -1098,6 +1199,14 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                         output_frame = create_frameshift_frame(
                             frame, OUTPUT_WIDTH, OUTPUT_HEIGHT,
                             smoother=frameshift_smoother,
+                        )
+
+                    elif current_strategy == 'GAMING':
+                        # Facecam position was detected ONCE up front (see
+                        # _detect_gaming_facecam) — every frame reuses the same
+                        # box, it is not re-tracked per frame.
+                        output_frame = create_gaming_frame(
+                            frame, OUTPUT_WIDTH, OUTPUT_HEIGHT, facecam_box,
                         )
 
                     elif current_strategy == 'GENERAL':

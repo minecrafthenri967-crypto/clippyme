@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from clippyme.api.schemas import (
     BatchRequest, LiveMonitorPublishingRequest, LiveMonitorStartRequest,
-    LiveMonitorStopRequest, ProcessRequest,
+    LiveMonitorStopRequest, ProcessRequest, ReframeRequest,
 )
 
 
@@ -39,6 +39,20 @@ def test_process_zernio_profile_defaults_and_is_bounded():
     ).zernio_profile == "dja"
     with pytest.raises(ValidationError):
         ProcessRequest(url="https://upload.invalid/local", zernio_profile="Not Valid!")
+
+
+def test_process_accepts_gaming_reframe_mode():
+    request = ProcessRequest(url="https://upload.invalid/local", reframe_mode="gaming")
+    assert request.reframe_mode == "gaming"
+
+
+def test_batch_accepts_gaming_reframe_mode():
+    request = BatchRequest(urls=["https://example.com/video"], reframe_mode="gaming")
+    assert request.reframe_mode == "gaming"
+
+
+def test_reframe_request_accepts_gaming_mode():
+    assert ReframeRequest(reframe_mode="gaming").reframe_mode == "gaming"
 
 
 def test_batch_zernio_profile_defaults_and_is_bounded():

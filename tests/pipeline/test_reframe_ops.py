@@ -743,3 +743,101 @@ def test_compute_output_dimensions_dimensions_are_always_even():
     w, h = ro.compute_output_dimensions(721, 9 / 16, min_short_edge=1081)
     assert w % 2 == 0
     assert h % 2 == 0
+
+
+# --- detect_static_facecam_region / expand_box_to_aspect / offset_crop -----
+
+def test_facecam_detected_when_static_high_frequency_and_small():
+    # Same corner box across 8 of 10 sampled frames — classic static facecam.
+    boxes = [(1600, 800, 260, 260)] * 8 + [None, None]
+    region = ro.detect_static_facecam_region(boxes, 1920, 1080)
+    assert region == (1600, 800, 260, 260)
+
+
+def test_facecam_none_when_too_few_samples():
+    boxes = [(1600, 800, 260, 260)] * 4  # below min_samples default (5)
+    assert ro.detect_static_facecam_region(boxes, 1920, 1080) is None
+
+
+def test_facecam_none_when_frequency_too_low():
+    boxes = [(1600, 800, 260, 260)] * 2 + [None] * 8
+    assert ro.detect_static_facecam_region(boxes, 1920, 1080) is None
+
+
+def test_facecam_none_when_face_moves_around_a_lot():
+    # A normal tracked subject/character face that pans across the frame —
+    # must NOT be mistaken for a static overlay.
+    boxes = [
+        (100, 800, 260, 260), (500, 800, 260, 260), (900, 800, 260, 260),
+        (1300, 800, 260, 260), (1700, 800, 260, 260), (200, 800, 260, 260),
+    ]
+    assert ro.detect_static_facecam_region(boxes, 1920, 1080) is None
+
+
+def test_facecam_none_when_box_too_large_for_an_overlay():
+    # A face taking up most of the frame is a normal talking-head shot, not a
+    # small corner facecam widget.
+    boxes = [(200, 100, 1500, 900)] * 8
+    assert ro.detect_static_facecam_region(boxes, 1920, 1080) is None
+
+
+def test_facecam_none_when_box_too_small():
+    boxes = [(1600, 800, 10, 10)] * 8
+    assert ro.detect_static_facecam_region(boxes, 1920, 1080) is None
+
+
+def test_facecam_none_when_empty_or_all_none():
+    assert ro.detect_static_facecam_region([], 1920, 1080) is None
+    assert ro.detect_static_facecam_region([None] * 8, 1920, 1080) is None
+
+
+def test_expand_box_to_aspect_grows_narrow_box_widthwise():
+    # A near-square box expanded to a wide target (16:9-ish) grows width, not height.
+    x, y, w, h = ro.expand_box_to_aspect(100, 100, 200, 200, 1920, 1080, target_ar=16 / 9)
+    assert h == 200
+    assert w == pytest.approx(200 * 16 / 9, abs=1)
+    assert x <= 100
+    assert x + w >= 300
+
+
+def test_expand_box_to_aspect_grows_wide_box_heightwise():
+    x, y, w, h = ro.expand_box_to_aspect(100, 100, 400, 100, 1920, 1080, target_ar=1.0)
+    assert w == 400
+    assert h == pytest.approx(400, abs=1)
+
+
+def test_expand_box_to_aspect_clamps_at_frame_edge():
+    # Box hugging the top-left corner — expansion must not go negative.
+    x, y, w, h = ro.expand_box_to_aspect(0, 0, 100, 100, 1920, 1080, target_ar=2.0)
+    assert x >= 0
+    assert y >= 0
+    assert x + w <= 1920
+    assert y + h <= 1080
+
+
+def test_expand_box_to_aspect_result_has_the_requested_ratio():
+    # Result dimensions are rounded to whole pixels (real cv2 crops), so allow
+    # the sub-percent slack that rounding introduces rather than an exact ratio.
+    x, y, w, h = ro.expand_box_to_aspect(500, 500, 50, 300, 1920, 1080, target_ar=9 / 16)
+    assert w / h == pytest.approx(9 / 16, rel=1e-2)
+
+
+def test_offset_crop_away_from_box_noop_when_no_overlap():
+    assert ro.offset_crop_away_from_box(0, 500, 1000, 300, 1920) == 0
+
+
+def test_offset_crop_away_from_box_shifts_to_the_side_with_more_room():
+    # Box sits centre-right; overlapping crop should shift left (more room there).
+    new_x = ro.offset_crop_away_from_box(700, 600, 900, 300, 1920)
+    assert new_x + 600 <= 900  # no longer overlaps the box
+    assert new_x < 700  # moved toward the larger free side (left)
+
+
+def test_offset_crop_away_from_box_shifts_right_when_more_room_there():
+    new_x = ro.offset_crop_away_from_box(100, 400, 0, 300, 1920)
+    assert new_x >= 300  # cleared the box, moved right (more room on that side)
+
+
+def test_offset_crop_away_from_box_clamped_when_crop_as_wide_as_frame():
+    new_x = ro.offset_crop_away_from_box(0, 1920, 800, 200, 1920)
+    assert 0 <= new_x <= 1920 - 1920

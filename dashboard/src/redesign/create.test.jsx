@@ -112,3 +112,15 @@ test('multiple Zernio profiles: picker appears and selecting one patches zernioP
   fireEvent.click(screen.getByRole('button', { name: 'DJA' }));
   expect(set).toHaveBeenLastCalledWith({ zernioProfile: 'dja' });
 });
+
+test('reframe picker: Gaming option patches reframeMode and shows its hint', () => {
+  const set = mount({ reframeMode: 'gaming' });
+  expect(screen.getByText(/Detects a static facecam overlay/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Subject' }));
+  expect(set).toHaveBeenLastCalledWith({ reframeMode: 'subject' });
+});
+
+test('reframe picker: hint is hidden for non-gaming modes', () => {
+  mount({ reframeMode: 'auto' });
+  expect(screen.queryByText(/Detects a static facecam overlay/)).not.toBeInTheDocument();
+});

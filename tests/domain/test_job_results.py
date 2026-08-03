@@ -80,6 +80,11 @@ def test_reframe_mode_object_legacy_alias_is_accepted():
     assert canonical_reframe_mode(None) is None
 
 
+def test_reframe_mode_gaming_is_forwarded():
+    cmd = build_main_cmd(url="https://x.com/v", output_dir="o", reframe_mode="gaming")
+    assert cmd[cmd.index("--reframe-mode") + 1] == "gaming"
+
+
 def test_model_forwarded_when_valid():
     cmd = build_main_cmd(url="https://x.com/v", output_dir="o", model="gemini-2.5-pro")
     assert cmd[cmd.index("--model") + 1] == "gemini-2.5-pro"

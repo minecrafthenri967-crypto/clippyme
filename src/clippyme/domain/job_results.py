@@ -16,7 +16,7 @@ logger = logging.getLogger("clippyme")
 # 'object'; 'object' is kept as a legacy alias so jobs/preselections persisted
 # under the old name still work. Both are accepted at the boundary and
 # normalized to 'subject' internally via canonical_reframe_mode().
-ALLOWED_REFRAME_MODES = frozenset({"auto", "disabled", "subject", "object"})
+ALLOWED_REFRAME_MODES = frozenset({"auto", "disabled", "subject", "object", "gaming"})
 REFRAME_MODE_ALIASES = {"object": "subject"}
 MAX_INSTRUCTIONS_LEN = 5000
 

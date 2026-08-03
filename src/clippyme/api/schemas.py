@@ -84,7 +84,7 @@ def _validate_timezone(value: Optional[str]) -> Optional[str]:
 class ProcessRequest(BaseModel):
     url: str = Field(..., max_length=2048)
     instructions: Optional[str] = Field(None, max_length=MAX_INSTRUCTIONS_LEN)
-    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
+    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object|gaming)$")
     aspect: Optional[str] = Field(None, pattern=r"^(9:16|1:1|16:9)$")
     language: Optional[str] = Field(None, max_length=16)
     no_zoom: Optional[bool] = False
@@ -115,7 +115,7 @@ class ProcessRequest(BaseModel):
 class BatchRequest(BaseModel):
     urls: List[str] = Field(..., min_length=1, max_length=20)
     instructions: Optional[str] = Field(None, max_length=MAX_INSTRUCTIONS_LEN)
-    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
+    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object|gaming)$")
     aspect: Optional[str] = Field(None, pattern=r"^(9:16|1:1|16:9)$")
     language: Optional[str] = Field(None, max_length=16)
     no_zoom: Optional[bool] = False
@@ -169,7 +169,7 @@ class ConfigUpdateRequest(BaseModel):
 
 
 class ReframeRequest(BaseModel):
-    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object)$")
+    reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object|gaming)$")
 
 
 _OVERLAY_MAX_KEYS = 40
