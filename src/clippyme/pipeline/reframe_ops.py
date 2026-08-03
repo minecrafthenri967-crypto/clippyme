@@ -822,27 +822,35 @@ def expand_box_to_aspect(x, y, w, h, frame_width, frame_height, target_ar):
     return (int(round(new_x)), int(round(new_y)), int(round(new_w)), int(round(new_h)))
 
 
-GAMING_FACECAM_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
-_GAMING_FACECAM_SIZE_FRACTIONS = {"S": 0.20, "M": 0.28, "L": 0.38}
-DEFAULT_GAMING_FACECAM_SIZE = "M"
+def resolve_facecam_box_from_fractions(x, y, w, h, frame_width, frame_height):
+    """Build a facecam ``(x, y, w, h)`` pixel box from a normalized 0..1
+    rectangle, bypassing auto-detection entirely. The fractions come from a
+    user drawing a rectangle over their OWN screenshot of the stream (see the
+    dashboard's facecam box picker) — resolution-independent by construction,
+    so it doesn't matter that the screenshot's pixel dimensions differ from
+    the actual source video's, only that they share the same aspect ratio.
 
+    Facecam placement varies by streamer/game and the face detector can miss
+    or mis-locate the overlay, so this lets someone who knows their own
+    layout pin it directly instead of relying on a guess.
+    ``expand_box_to_aspect`` (applied downstream in ``create_gaming_frame``)
+    reshapes this seed box to the output top zone's aspect ratio around its
+    centre, so only the centre and rough scale resolved here matter, not this
+    box's own aspect ratio.
 
-def resolve_manual_facecam_box(position, size, frame_width, frame_height):
-    """Build a facecam ``(x, y, w, h)`` box in source-frame pixel coordinates
-    from a user-picked corner + size preset, bypassing auto-detection
-    entirely. Facecam placement varies by streamer/game and the face detector
-    can miss or mis-locate the overlay, so this lets someone who knows their
-    own layout pin it directly instead. ``expand_box_to_aspect`` (applied
-    downstream in ``create_gaming_frame``) reshapes this seed box to the
-    output top zone's aspect ratio around its centre, so only the centre and
-    rough scale chosen here matter, not this box's own aspect ratio.
-
-    ``position`` is one of ``GAMING_FACECAM_POSITIONS``; ``size`` is a key of
-    ``S``/``M``/``L`` (unknown values fall back to ``M``).
+    Fractions are clamped to ``[0, 1]`` before converting to pixels — the API
+    layer is expected to have already validated them, but a pure geometry
+    function should never trust its input blindly. The result is handed
+    straight to ``create_gaming_frame``, which re-clamps any facecam box
+    (detected or manual alike) to the actual frame bounds before use, so a
+    rounding-edge box here is not the last line of defense.
     """
-    frac = _GAMING_FACECAM_SIZE_FRACTIONS.get(size, _GAMING_FACECAM_SIZE_FRACTIONS[DEFAULT_GAMING_FACECAM_SIZE])
-    w = max(1, int(round(frac * frame_width)))
-    h = max(1, int(round(frac * frame_height)))
-    x = 0 if position.endswith("left") else frame_width - w
-    y = 0 if position.startswith("top") else frame_height - h
-    return (x, y, w, h)
+    x = max(0.0, min(1.0, x))
+    y = max(0.0, min(1.0, y))
+    w = max(0.0, min(1.0 - x, w))
+    h = max(0.0, min(1.0 - y, h))
+    px = int(round(x * frame_width))
+    py = int(round(y * frame_height))
+    pw = max(1, int(round(w * frame_width)))
+    ph = max(1, int(round(h * frame_height)))
+    return (px, py, pw, ph)

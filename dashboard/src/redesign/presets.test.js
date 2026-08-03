@@ -21,10 +21,8 @@ test('PRESET_KEYS includes the hook fields the drawer sets', () => {
   }
 });
 
-test('PRESET_KEYS includes the gaming facecam fields the Gaming hint sets', () => {
-  for (const k of ['gamingFacecamPosition', 'gamingFacecamSize']) {
-    expect(PRESET_KEYS).toContain(k);
-  }
+test('PRESET_KEYS includes the gaming facecam box the picker sets', () => {
+  expect(PRESET_KEYS).toContain('gamingFacecamBox');
 });
 
 test('captureOpts only keeps keys that are present and in PRESET_KEYS', () => {

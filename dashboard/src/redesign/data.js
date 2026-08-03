@@ -82,19 +82,6 @@ export const PLAYER_IMAGE_POSITIONS = [
 ];
 export const PLAYER_IMAGE_SIZES = [['S', 'S'], ['M', 'M'], ['L', 'L']];
 
-// Gaming reframe mode's facecam placement. 'auto' (default) runs the usual
-// detection scan; a corner value pins the facecam there directly instead —
-// facecam placement varies per streamer/game, and the detector can miss or
-// mis-locate the overlay, so a user who knows their own layout can set it.
-// No centre option, same reasoning as hooks/logo: corners only, matches
-// domain/job_results.ALLOWED_GAMING_FACECAM_POSITIONS.
-export const GAMING_FACECAM_POSITIONS = [
-  ['auto', 'Auto'],
-  ['top-left', 'Top L'], ['top-right', 'Top R'],
-  ['bottom-left', 'Bot L'], ['bottom-right', 'Bot R'],
-];
-export const GAMING_FACECAM_SIZES = [['S', 'S'], ['M', 'M'], ['L', 'L']];
-
 // Colour-grade looks — ids MUST match backend GRADE_PRESETS keys
 // (clippyme/domain/grade.py). 'none' is represented by the Grade toggle being
 // off, so it is not offered as a pickable look here.

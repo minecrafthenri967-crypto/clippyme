@@ -20,14 +20,29 @@ ALLOWED_REFRAME_MODES = frozenset({"auto", "disabled", "subject", "object", "gam
 REFRAME_MODE_ALIASES = {"object": "subject"}
 MAX_INSTRUCTIONS_LEN = 5000
 
-# Gaming mode's facecam placement: 'auto' (default) runs the usual detection
-# scan; a corner value pins it there directly instead — facecam position
-# varies per streamer/game and the detector can miss or mis-locate it, so a
-# user who knows their own layout can set it rather than relying on a guess.
-ALLOWED_GAMING_FACECAM_POSITIONS = frozenset(
-    {"auto", "top-left", "top-right", "bottom-left", "bottom-right"}
-)
-ALLOWED_GAMING_FACECAM_SIZES = frozenset({"S", "M", "L"})
+# Gaming mode's facecam placement: unset (default) runs the usual detection
+# scan; a {"x","y","w","h"} box of 0..1 fractions — drawn by the user over
+# their own screenshot of the stream — pins it there directly instead.
+# Facecam position varies per streamer/game and the detector can miss or
+# mis-locate it, so a user who knows their own layout can draw it rather
+# than relying on a guess.
+_GAMING_FACECAM_BOX_KEYS = frozenset({"x", "y", "w", "h"})
+_GAMING_FACECAM_EPS = 1e-6
+
+
+def _validate_gaming_facecam_box(box) -> None:
+    if box is None:
+        return
+    if not isinstance(box, dict) or set(box) != _GAMING_FACECAM_BOX_KEYS:
+        raise ValueError(f"invalid gaming_facecam_box: {box!r}")
+    for key in _GAMING_FACECAM_BOX_KEYS:
+        value = box[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not (0.0 <= value <= 1.0):
+            raise ValueError(f"invalid gaming_facecam_box: {box!r}")
+    if box["w"] <= 0 or box["h"] <= 0:
+        raise ValueError(f"invalid gaming_facecam_box: {box!r}")
+    if box["x"] + box["w"] > 1.0 + _GAMING_FACECAM_EPS or box["y"] + box["h"] > 1.0 + _GAMING_FACECAM_EPS:
+        raise ValueError(f"invalid gaming_facecam_box: {box!r}")
 
 
 def canonical_reframe_mode(mode):
@@ -61,8 +76,7 @@ def build_main_cmd(
     aspect: str | None = None,
     model: str | None = None,
     monitor: bool = False,
-    gaming_facecam_position: str | None = None,
-    gaming_facecam_size: str | None = None,
+    gaming_facecam_box: dict | None = None,
 ) -> list[str]:
     """Build argv for the checkpointed backend pipeline.
 
@@ -72,10 +86,7 @@ def build_main_cmd(
     """
     if reframe_mode is not None and reframe_mode not in ALLOWED_REFRAME_MODES:
         raise ValueError(f"invalid reframe_mode: {reframe_mode!r}")
-    if gaming_facecam_position is not None and gaming_facecam_position not in ALLOWED_GAMING_FACECAM_POSITIONS:
-        raise ValueError(f"invalid gaming_facecam_position: {gaming_facecam_position!r}")
-    if gaming_facecam_size is not None and gaming_facecam_size not in ALLOWED_GAMING_FACECAM_SIZES:
-        raise ValueError(f"invalid gaming_facecam_size: {gaming_facecam_size!r}")
+    _validate_gaming_facecam_box(gaming_facecam_box)
     if model is not None:
         model = model.strip()
         if model and not GEMINI_MODEL_RE.match(model):
@@ -106,13 +117,11 @@ def build_main_cmd(
         cmd.extend(["--instructions", instructions])
     if reframe_mode and reframe_mode != "auto":
         cmd.extend(["--reframe-mode", reframe_mode])
-    if (
-        reframe_mode == "gaming"
-        and gaming_facecam_position
-        and gaming_facecam_position != "auto"
-    ):
-        cmd.extend(["--gaming-facecam-position", gaming_facecam_position])
-        cmd.extend(["--gaming-facecam-size", gaming_facecam_size or "M"])
+    if reframe_mode == "gaming" and gaming_facecam_box:
+        cmd.extend(["--gaming-facecam-x", str(gaming_facecam_box["x"])])
+        cmd.extend(["--gaming-facecam-y", str(gaming_facecam_box["y"])])
+        cmd.extend(["--gaming-facecam-w", str(gaming_facecam_box["w"])])
+        cmd.extend(["--gaming-facecam-h", str(gaming_facecam_box["h"])])
     if aspect and aspect != "9:16":
         cmd.extend(["--aspect", aspect])
     if language and language.strip() and language.strip() != "multi":

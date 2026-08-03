@@ -7,11 +7,33 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from clippyme.domain.job_results import ALLOWED_LANGUAGES, GEMINI_MODEL_RE, MAX_INSTRUCTIONS_LEN
 from clippyme.netutil import resolve_host_addresses
 from clippyme.schemas import ViralClip, ViralClipsResponse  # noqa: F401
+
+
+class GamingFacecamBox(BaseModel):
+    """A facecam region drawn by the user over their own screenshot of the
+    stream, as 0..1 fractions of the screenshot's width/height — see the
+    dashboard's facecam box picker. Only meaningful with reframe_mode ==
+    'gaming'; ``None`` (the field's default everywhere it's used) means "run
+    the usual auto-detection scan" instead."""
+
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+    w: float = Field(gt=0.0, le=1.0)
+    h: float = Field(gt=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _box_stays_inside_the_frame(self):
+        eps = 1e-6
+        if self.x + self.w > 1.0 + eps:
+            raise ValueError("x + w must not exceed 1.0")
+        if self.y + self.h > 1.0 + eps:
+            raise ValueError("y + h must not exceed 1.0")
+        return self
 
 
 def _reject_internal_host(host: str) -> None:
@@ -92,16 +114,12 @@ class ProcessRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
-    # Only used with reframe_mode == 'gaming'. 'auto' (default) runs the usual
-    # detection scan; a corner value pins the facecam there directly instead
-    # (see job_results.ALLOWED_GAMING_FACECAM_POSITIONS) — facecam placement
-    # varies per streamer/game and the detector can miss or mis-locate it, so
-    # a user who knows their own layout can set it rather than relying on a
-    # guess.
-    gaming_facecam_position: str = Field(
-        "auto", pattern=r"^(auto|top-left|top-right|bottom-left|bottom-right)$"
-    )
-    gaming_facecam_size: str = Field("M", pattern=r"^(S|M|L)$")
+    # Only used with reframe_mode == 'gaming'. None (default) runs the usual
+    # detection scan; a drawn box pins the facecam there directly instead —
+    # facecam placement varies per streamer/game and the detector can miss or
+    # mis-locate it, so a user who knows their own layout can draw it rather
+    # than relying on a guess.
+    gaming_facecam_box: Optional[GamingFacecamBox] = None
     # Which named Zernio account this job's clips are earmarked for (see
     # storage.config_store's profile namespace) — persisted alongside the job
     # (job_artifacts.save_job_campaign) so an external approval bot running
@@ -133,10 +151,7 @@ class BatchRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
-    gaming_facecam_position: str = Field(
-        "auto", pattern=r"^(auto|top-left|top-right|bottom-left|bottom-right)$"
-    )
-    gaming_facecam_size: str = Field("M", pattern=r"^(S|M|L)$")
+    gaming_facecam_box: Optional[GamingFacecamBox] = None
     zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
 
     @field_validator("urls")
@@ -184,10 +199,7 @@ class ConfigUpdateRequest(BaseModel):
 
 class ReframeRequest(BaseModel):
     reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object|gaming)$")
-    gaming_facecam_position: str = Field(
-        "auto", pattern=r"^(auto|top-left|top-right|bottom-left|bottom-right)$"
-    )
-    gaming_facecam_size: str = Field("M", pattern=r"^(S|M|L)$")
+    gaming_facecam_box: Optional[GamingFacecamBox] = None
 
 
 _OVERLAY_MAX_KEYS = 40

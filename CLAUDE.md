@@ -335,13 +335,18 @@ never re-tracked per frame like `auto`'s cameraman. No confident static region
 the rest of the function — comfort mode, global-smooth gating — behaves
 exactly as a normal `auto` job). This is a heuristic, not a guarantee — verify
 each `gaming` job's actual layout rather than assuming detection succeeded.
-A user who knows their own layout can skip detection entirely: `--gaming-
-facecam-position` (one of `reframe_ops.GAMING_FACECAM_POSITIONS` — the four
-corners, no centre option) + `--gaming-facecam-size` (`S`/`M`/`L`) pin the
-facecam directly via `reframe_ops.resolve_manual_facecam_box`, which
+A user who knows their own layout can skip detection entirely by drawing a
+rectangle over their own screenshot of the stream (dashboard: Create tab's
+Gaming section, `facecamBoxPicker.jsx` — the screenshot itself never leaves
+the browser, only the resulting `{x,y,w,h}` 0..1-fraction box is sent).
+`--gaming-facecam-x/-y/-w/-h` (all four required together — a partial box is
+ambiguous and falls back to detection) pin the facecam directly via
+`reframe_ops.resolve_facecam_box_from_fractions`, which
 `process_video_to_vertical` uses instead of `_detect_gaming_facecam` whenever
-`gaming_facecam_position` is set to anything but `'auto'` (the default,
-detection still runs when unset). `create_gaming_frame` stacks the
+`gaming_facecam_box` is set (the default `None` still runs detection). Being
+fraction-based, the box is resolution-independent — the screenshot's own
+pixel size doesn't need to match the source video's, only its aspect ratio.
+`create_gaming_frame` stacks the
 detected/manual region (expanded to the top zone's aspect via
 `expand_box_to_aspect`, never cropped smaller) over the bottom "gameplay"
 zone, a crop that is always HORIZONTALLY CENTRED on the source frame — never

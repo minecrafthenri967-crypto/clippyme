@@ -41,12 +41,11 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
   const model = (data.preselections?.model || '').trim();
 
   const zernioProfile = (data.preselections?.zernio_profile || '').trim();
-  // Only meaningful in gaming mode, and only worth sending when a manual
-  // (non-'auto') position was actually picked — otherwise the backend just
-  // runs its usual detection scan, same as omitting the fields entirely.
-  const facecamPosition = data.preselections?.gaming_facecam_position;
-  const hasManualFacecam = reframeMode === 'gaming' && facecamPosition && facecamPosition !== 'auto';
-  const facecamSize = data.preselections?.gaming_facecam_size;
+  // Only meaningful in gaming mode, and only worth sending when a box was
+  // actually drawn — otherwise the backend just runs its usual detection
+  // scan, same as omitting the field entirely.
+  const facecamBox = data.preselections?.gaming_facecam_box;
+  const hasManualFacecam = reframeMode === 'gaming' && !!facecamBox;
 
   if (data.type === 'url') {
     headers['Content-Type'] = 'application/json';
@@ -59,10 +58,7 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
     if (skipAnalysis) jsonBody.skip_analysis = true;
     if (model) jsonBody.model = model;
     if (zernioProfile) jsonBody.zernio_profile = zernioProfile;
-    if (hasManualFacecam) {
-      jsonBody.gaming_facecam_position = facecamPosition;
-      jsonBody.gaming_facecam_size = facecamSize || 'M';
-    }
+    if (hasManualFacecam) jsonBody.gaming_facecam_box = facecamBox;
     body = JSON.stringify(jsonBody);
   } else {
     if (data.payload?.size > 16 * 1024 * 1024 * 1024) throw new Error('File too large. Maximum size is 16 GB.');
@@ -76,10 +72,9 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
     if (skipAnalysis) formData.append('skip_analysis', 'true');
     if (model) formData.append('model', model);
     if (zernioProfile) formData.append('zernio_profile', zernioProfile);
-    if (hasManualFacecam) {
-      formData.append('gaming_facecam_position', facecamPosition);
-      formData.append('gaming_facecam_size', facecamSize || 'M');
-    }
+    // No natural form-field shape for a box — ride it as a JSON string
+    // (api/app.py's multipart branch parses it back with json.loads).
+    if (hasManualFacecam) formData.append('gaming_facecam_box', JSON.stringify(facecamBox));
     body = formData;
   }
 
@@ -98,10 +93,9 @@ export async function submitBatchJob(data, apiKey, { signal } = {}) {
   if (data.preselections?.skip_analysis === true) batchBody.skip_analysis = true;
   if ((data.preselections?.model || '').trim()) batchBody.model = data.preselections.model.trim();
   if ((data.preselections?.zernio_profile || '').trim()) batchBody.zernio_profile = data.preselections.zernio_profile.trim();
-  const batchFacecamPosition = data.preselections?.gaming_facecam_position;
-  if (data.preselections?.reframe_mode === 'gaming' && batchFacecamPosition && batchFacecamPosition !== 'auto') {
-    batchBody.gaming_facecam_position = batchFacecamPosition;
-    batchBody.gaming_facecam_size = data.preselections?.gaming_facecam_size || 'M';
+  const batchFacecamBox = data.preselections?.gaming_facecam_box;
+  if (data.preselections?.reframe_mode === 'gaming' && batchFacecamBox) {
+    batchBody.gaming_facecam_box = batchFacecamBox;
   }
   const res = await apiFetch(getApiUrl('/api/batch'), {
     method: 'POST',

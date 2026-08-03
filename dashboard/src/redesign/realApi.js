@@ -502,10 +502,11 @@ export function optsToPreselections(opts) {
     // per-campaign approval bot (Discord) filter /api/history to only its
     // own clips instead of every bot posting every clip.
     zernio_profile: opts.zernioProfile || 'default',
-    // Only meaningful when reframe_mode === 'gaming'; lib/api.js only sends
-    // these to the backend when a manual (non-'auto') position was picked.
-    gaming_facecam_position: opts.gamingFacecamPosition || 'auto',
-    gaming_facecam_size: opts.gamingFacecamSize || 'M',
+    // Only meaningful when reframe_mode === 'gaming'; a {x,y,w,h} box (0..1
+    // fractions) drawn by the user over their own screenshot of the stream,
+    // or null to keep auto-detection. lib/api.js only sends this to the
+    // backend when a box is actually set.
+    gaming_facecam_box: opts.gamingFacecamBox || null,
     subtitles: opts.subtitles
       ? {
           mode: opts.subMode, preset: opts.subPreset, position: opts.subPosition || 'bottom',

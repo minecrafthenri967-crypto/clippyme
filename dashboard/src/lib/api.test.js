@@ -65,67 +65,62 @@ test('submitBatchJob: zernio_profile rides the JSON body', async () => {
   expect(body.zernio_profile).toBe('dja');
 });
 
-test('submitProcessJob (url): manual gaming facecam position/size ride the JSON body', async () => {
+const FACECAM_BOX = { x: 0.6, y: 0.05, w: 0.35, h: 0.3 };
+
+test('submitProcessJob (url): manual gaming facecam box rides the JSON body', async () => {
   await submitProcessJob(
     {
       type: 'url', payload: 'https://youtu.be/x',
-      preselections: { reframe_mode: 'gaming', gaming_facecam_position: 'top-left', gaming_facecam_size: 'L' },
+      preselections: { reframe_mode: 'gaming', gaming_facecam_box: FACECAM_BOX },
     },
     'key',
   );
   const body = JSON.parse(apiFetch.mock.calls[0][1].body);
-  expect(body.gaming_facecam_position).toBe('top-left');
-  expect(body.gaming_facecam_size).toBe('L');
+  expect(body.gaming_facecam_box).toEqual(FACECAM_BOX);
 });
 
-test('submitProcessJob (url): auto facecam position omits both fields', async () => {
+test('submitProcessJob (url): no facecam box omits the field', async () => {
+  await submitProcessJob(
+    { type: 'url', payload: 'https://youtu.be/x', preselections: { reframe_mode: 'gaming' } },
+    'key',
+  );
+  const body = JSON.parse(apiFetch.mock.calls[0][1].body);
+  expect('gaming_facecam_box' in body).toBe(false);
+});
+
+test('submitProcessJob (url): manual facecam box outside gaming mode is not sent', async () => {
   await submitProcessJob(
     {
       type: 'url', payload: 'https://youtu.be/x',
-      preselections: { reframe_mode: 'gaming', gaming_facecam_position: 'auto' },
+      preselections: { reframe_mode: 'auto', gaming_facecam_box: FACECAM_BOX },
     },
     'key',
   );
   const body = JSON.parse(apiFetch.mock.calls[0][1].body);
-  expect('gaming_facecam_position' in body).toBe(false);
-  expect('gaming_facecam_size' in body).toBe(false);
+  expect('gaming_facecam_box' in body).toBe(false);
 });
 
-test('submitProcessJob (url): manual facecam position outside gaming mode is not sent', async () => {
-  await submitProcessJob(
-    {
-      type: 'url', payload: 'https://youtu.be/x',
-      preselections: { reframe_mode: 'auto', gaming_facecam_position: 'top-left' },
-    },
-    'key',
-  );
-  const body = JSON.parse(apiFetch.mock.calls[0][1].body);
-  expect('gaming_facecam_position' in body).toBe(false);
-});
-
-test('submitProcessJob (file): manual gaming facecam position/size ride the FormData body', async () => {
+test('submitProcessJob (file): manual gaming facecam box rides the FormData body as a JSON string', async () => {
   await submitProcessJob(
     {
       type: 'file', payload: new File(['x'], 'v.mp4'),
-      preselections: { reframe_mode: 'gaming', gaming_facecam_position: 'bottom-right', gaming_facecam_size: 'S' },
+      preselections: { reframe_mode: 'gaming', gaming_facecam_box: FACECAM_BOX },
     },
     'key',
   );
   const formData = apiFetch.mock.calls[0][1].body;
-  expect(formData.get('gaming_facecam_position')).toBe('bottom-right');
-  expect(formData.get('gaming_facecam_size')).toBe('S');
+  expect(JSON.parse(formData.get('gaming_facecam_box'))).toEqual(FACECAM_BOX);
 });
 
-test('submitBatchJob: manual gaming facecam position/size ride the JSON body', async () => {
+test('submitBatchJob: manual gaming facecam box rides the JSON body', async () => {
   apiFetch.mockResolvedValue(okJson({ jobs: [], total: 0 }));
   await submitBatchJob(
     {
       urls: ['https://youtu.be/x'],
-      preselections: { reframe_mode: 'gaming', gaming_facecam_position: 'top-right', gaming_facecam_size: 'M' },
+      preselections: { reframe_mode: 'gaming', gaming_facecam_box: FACECAM_BOX },
     },
     'key',
   );
   const body = JSON.parse(apiFetch.mock.calls[0][1].body);
-  expect(body.gaming_facecam_position).toBe('top-right');
-  expect(body.gaming_facecam_size).toBe('M');
+  expect(body.gaming_facecam_box).toEqual(FACECAM_BOX);
 });

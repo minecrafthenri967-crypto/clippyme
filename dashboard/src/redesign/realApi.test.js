@@ -46,13 +46,10 @@ test('zernio_profile defaults to "default" and passes a chosen campaign through'
   assert.equal(optsToPreselections({ zernioProfile: 'dja' }).zernio_profile, 'dja');
 });
 
-test('gaming facecam position/size default to auto/M and pass a manual choice through', () => {
-  const defaults = optsToPreselections({});
-  assert.equal(defaults.gaming_facecam_position, 'auto');
-  assert.equal(defaults.gaming_facecam_size, 'M');
-  const manual = optsToPreselections({ gamingFacecamPosition: 'top-left', gamingFacecamSize: 'L' });
-  assert.equal(manual.gaming_facecam_position, 'top-left');
-  assert.equal(manual.gaming_facecam_size, 'L');
+test('gaming facecam box defaults to null and passes a drawn box through', () => {
+  assert.equal(optsToPreselections({}).gaming_facecam_box, null);
+  const box = { x: 0.6, y: 0.05, w: 0.35, h: 0.3 };
+  assert.deepEqual(optsToPreselections({ gamingFacecamBox: box }).gaming_facecam_box, box);
 });
 
 test('classic subtitles carry font/border/background', () => {

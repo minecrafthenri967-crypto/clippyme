@@ -23,7 +23,6 @@ from typing import Any
 
 from clippyme.domain.runtime_state import RuntimeState
 from clippyme.pipeline.media_qa import inspect_clip, probe_media
-from clippyme.pipeline.reframe_ops import GAMING_FACECAM_POSITIONS
 from clippyme.pipeline.preflight import (
     PreflightInputs,
     PreflightRejected,
@@ -151,12 +150,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["auto", "disabled", "subject", "object", "gaming"],
         default="auto",
     )
-    parser.add_argument(
-        "--gaming-facecam-position",
-        choices=["auto", *GAMING_FACECAM_POSITIONS],
-        default="auto",
-    )
-    parser.add_argument("--gaming-facecam-size", choices=["S", "M", "L"], default="M")
+    parser.add_argument("--gaming-facecam-x", type=float, default=None)
+    parser.add_argument("--gaming-facecam-y", type=float, default=None)
+    parser.add_argument("--gaming-facecam-w", type=float, default=None)
+    parser.add_argument("--gaming-facecam-h", type=float, default=None)
     parser.add_argument("--language", type=str, default=None)
     parser.add_argument("--aspect", choices=["9:16", "1:1", "16:9"], default="9:16")
     parser.add_argument("--monitor", action="store_true")
@@ -511,8 +508,7 @@ def _render_one_clip(
             reframe_mode=args.reframe_mode,
             zoom_end=None if args.no_zoom else 1.05,
             aspect_ratio=aspect_ratio,
-            gaming_facecam_position=args.gaming_facecam_position,
-            gaming_facecam_size=args.gaming_facecam_size,
+            gaming_facecam_box=args.gaming_facecam_box,
         )
         if not success or not _valid_file(temp_output, 10_000):
             last_report = {
@@ -610,6 +606,13 @@ def _cleanup_completed(
 
 def run(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    # All four fractions or none — a partial box is ambiguous, so it is
+    # treated the same as none: fall back to detection.
+    _facecam_fracs = (args.gaming_facecam_x, args.gaming_facecam_y, args.gaming_facecam_w, args.gaming_facecam_h)
+    args.gaming_facecam_box = (
+        {"x": _facecam_fracs[0], "y": _facecam_fracs[1], "w": _facecam_fracs[2], "h": _facecam_fracs[3]}
+        if all(v is not None for v in _facecam_fracs) else None
+    )
     output_dir = os.path.abspath(resolve_output_dir(args.output, default="."))
     os.makedirs(output_dir, exist_ok=True)
     state = RuntimeState(output_dir, job_id=os.getenv("CLIPPYME_JOB_ID"))

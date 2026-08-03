@@ -128,7 +128,10 @@ def _make_job(tmp_path, job_id):
     return output_root
 
 
-def test_run_reframe_forwards_manual_gaming_facecam_position(tmp_path, monkeypatch):
+_BOX = {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.25}
+
+
+def test_run_reframe_forwards_manual_gaming_facecam_box(tmp_path, monkeypatch):
     captured_cmd = []
 
     async def _capture_cmd(*cmd, **kwargs):
@@ -140,13 +143,15 @@ def test_run_reframe_forwards_manual_gaming_facecam_position(tmp_path, monkeypat
     output_root = _make_job(tmp_path, job_id)
 
     _run(job_id=job_id, clip_index=0, mode="gaming", output_root=output_root, jobs={},
-         gaming_facecam_position="top-left", gaming_facecam_size="L")
+         gaming_facecam_box=_BOX)
 
-    assert captured_cmd[captured_cmd.index("--gaming-facecam-position") + 1] == "top-left"
-    assert captured_cmd[captured_cmd.index("--gaming-facecam-size") + 1] == "L"
+    assert captured_cmd[captured_cmd.index("--gaming-facecam-x") + 1] == "0.1"
+    assert captured_cmd[captured_cmd.index("--gaming-facecam-y") + 1] == "0.2"
+    assert captured_cmd[captured_cmd.index("--gaming-facecam-w") + 1] == "0.3"
+    assert captured_cmd[captured_cmd.index("--gaming-facecam-h") + 1] == "0.25"
 
 
-def test_run_reframe_omits_facecam_flags_for_auto_position(tmp_path, monkeypatch):
+def test_run_reframe_omits_facecam_flags_without_a_box(tmp_path, monkeypatch):
     captured_cmd = []
 
     async def _capture_cmd(*cmd, **kwargs):
@@ -157,13 +162,12 @@ def test_run_reframe_omits_facecam_flags_for_auto_position(tmp_path, monkeypatch
     job_id = "88888888-8888-4888-8888-888888888888"
     output_root = _make_job(tmp_path, job_id)
 
-    _run(job_id=job_id, clip_index=0, mode="gaming", output_root=output_root, jobs={},
-         gaming_facecam_position="auto")
+    _run(job_id=job_id, clip_index=0, mode="gaming", output_root=output_root, jobs={})
 
-    assert "--gaming-facecam-position" not in captured_cmd
+    assert "--gaming-facecam-x" not in captured_cmd
 
 
-def test_run_reframe_ignores_facecam_position_outside_gaming_mode(tmp_path, monkeypatch):
+def test_run_reframe_ignores_facecam_box_outside_gaming_mode(tmp_path, monkeypatch):
     captured_cmd = []
 
     async def _capture_cmd(*cmd, **kwargs):
@@ -175,6 +179,6 @@ def test_run_reframe_ignores_facecam_position_outside_gaming_mode(tmp_path, monk
     output_root = _make_job(tmp_path, job_id)
 
     _run(job_id=job_id, clip_index=0, mode="auto", output_root=output_root, jobs={},
-         gaming_facecam_position="top-left")
+         gaming_facecam_box=_BOX)
 
-    assert "--gaming-facecam-position" not in captured_cmd
+    assert "--gaming-facecam-x" not in captured_cmd

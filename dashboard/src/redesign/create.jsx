@@ -2,11 +2,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { Icon, Btn, Panel, Segmented, Switch, Stepper } from './primitives';
 import { Hero } from './chrome';
-import { LANGUAGES, GEMINI_MODELS, HOOK_STYLE_DEFAULT, GAMING_FACECAM_POSITIONS, GAMING_FACECAM_SIZES } from './data';
+import { LANGUAGES, GEMINI_MODELS, HOOK_STYLE_DEFAULT } from './data';
 import { HookStyleControls, HookPreview } from './hookStyle';
 import { SubtitleControls } from './subtitleControls';
 import { LogoControls, PlayerImageControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
+import { FacecamBoxPicker } from './facecamBoxPicker';
 import { getZernioProfiles } from './realApi';
 import { validateCreateOptions } from '../lib/createValidation';
 import { useT } from '../i18n/context.jsx';
@@ -356,22 +357,8 @@ function OptionsPanel({ opts, set, onSaveAsDefault }) {
         <>
           <div className="od" style={{ marginTop: -8, marginBottom: 10 }}>{t('create.reframe.gamingHint')}</div>
           <div className="cfg-drawer" style={{ marginBottom: 14 }}>
-            <div className="cf-row">
-              <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>{t('create.reframe.gamingFacecamPosition')}</span>
-              <div className="seg-grid">
-                {GAMING_FACECAM_POSITIONS.map(([v, l]) => (
-                  <button key={v} type="button" className={'seg-cell' + ((opts.gamingFacecamPosition || 'auto') === v ? ' on' : '')}
-                    onClick={() => set({ gamingFacecamPosition: v })}>{l}</button>
-                ))}
-              </div>
-            </div>
-            {(opts.gamingFacecamPosition && opts.gamingFacecamPosition !== 'auto') && (
-              <div className="cf-row">
-                <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>{t('create.reframe.gamingFacecamSize')}</span>
-                <Segmented full value={opts.gamingFacecamSize || 'M'} onChange={(id) => set({ gamingFacecamSize: id })}
-                  options={GAMING_FACECAM_SIZES.map(([v, l]) => ({ id: v, label: l }))} />
-              </div>
-            )}
+            <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>{t('create.reframe.gamingFacecamBox')}</span>
+            <FacecamBoxPicker box={opts.gamingFacecamBox || null} onChange={(box) => set({ gamingFacecamBox: box })} />
           </div>
         </>
       )}

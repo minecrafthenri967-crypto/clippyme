@@ -33,7 +33,7 @@ const DEFAULT_OPTS = {
   mode: 'single', source: 'url', url: '', file: null, fileName: '', batch: '', batchFiles: [], instructions: '',
   clipsAuto: true, clips: 7, aspect: '9:16',
   detect: true, reframeMode: 'auto', smartcut: true, zoom: true, model: '',
-  gamingFacecamPosition: 'auto', gamingFacecamSize: 'M',
+  gamingFacecamBox: null,
   subtitles: true, subMode: 'karaoke', subPreset: 'hormozi_bold', subPosition: 'center',
   subFont: 'Montserrat-Black', subColor: '#FFFFFF',
   hooks: true, hookPos: 'top', hookSize: 'M', hookStyle: { ...HOOK_STYLE_DEFAULT },

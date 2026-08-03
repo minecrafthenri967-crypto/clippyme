@@ -85,34 +85,35 @@ def test_reframe_rejects_tampered_aspect(monkeypatch, tmp_path):
     assert "--aspect" not in captured["cmd"]
 
 
-def test_reframe_gaming_manual_facecam_position_reaches_argv(monkeypatch, tmp_path):
+def test_reframe_gaming_manual_facecam_box_reaches_argv(monkeypatch, tmp_path):
     client, captured = _make_client(monkeypatch, tmp_path, aspect="9:16")
     r = client.post(
         f"/api/reframe/{JOB_ID}/0",
         json={
             "reframe_mode": "gaming",
-            "gaming_facecam_position": "bottom-left",
-            "gaming_facecam_size": "L",
+            "gaming_facecam_box": {"x": 0.05, "y": 0.6, "w": 0.3, "h": 0.35},
         },
     )
     assert r.status_code == 200, r.text
     cmd = captured["cmd"]
-    assert cmd[cmd.index("--gaming-facecam-position") + 1] == "bottom-left"
-    assert cmd[cmd.index("--gaming-facecam-size") + 1] == "L"
+    assert cmd[cmd.index("--gaming-facecam-x") + 1] == "0.05"
+    assert cmd[cmd.index("--gaming-facecam-y") + 1] == "0.6"
+    assert cmd[cmd.index("--gaming-facecam-w") + 1] == "0.3"
+    assert cmd[cmd.index("--gaming-facecam-h") + 1] == "0.35"
 
 
-def test_reframe_gaming_auto_facecam_omits_flags(monkeypatch, tmp_path):
+def test_reframe_gaming_no_box_omits_flags(monkeypatch, tmp_path):
     client, captured = _make_client(monkeypatch, tmp_path, aspect="9:16")
     r = client.post(f"/api/reframe/{JOB_ID}/0", json={"reframe_mode": "gaming"})
     assert r.status_code == 200, r.text
-    assert "--gaming-facecam-position" not in captured["cmd"]
+    assert "--gaming-facecam-x" not in captured["cmd"]
 
 
 def test_reframe_non_gaming_mode_omits_facecam_flags_even_if_supplied(monkeypatch, tmp_path):
     client, captured = _make_client(monkeypatch, tmp_path, aspect="9:16")
     r = client.post(
         f"/api/reframe/{JOB_ID}/0",
-        json={"reframe_mode": "auto", "gaming_facecam_position": "top-left"},
+        json={"reframe_mode": "auto", "gaming_facecam_box": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}},
     )
     assert r.status_code == 200, r.text
-    assert "--gaming-facecam-position" not in captured["cmd"]
+    assert "--gaming-facecam-x" not in captured["cmd"]

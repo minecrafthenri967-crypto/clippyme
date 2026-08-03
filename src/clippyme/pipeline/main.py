@@ -20,12 +20,7 @@ from google import genai
 from dotenv import load_dotenv
 import json
 
-from clippyme.pipeline.reframe_ops import (
-    GAMING_FACECAM_POSITIONS,
-    OneEuroFilter,
-    drift_to_center,
-    salient_crop_center,
-)
+from clippyme.pipeline.reframe_ops import OneEuroFilter, drift_to_center, salient_crop_center
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='google.protobuf')
@@ -614,13 +609,15 @@ if __name__ == '__main__':
                              'crop; "object" is a legacy alias), disabled (4:3 crop with black bars), '
                              'or gaming (facecam+gameplay split-screen; falls back to auto if no '
                              'static facecam overlay is confidently detected)')
-    parser.add_argument('--gaming-facecam-position', choices=['auto', *GAMING_FACECAM_POSITIONS], default='auto',
-                        help="Only used with --reframe-mode gaming. 'auto' (default) scans for a "
-                             "static facecam overlay; a corner value pins the facecam there directly "
-                             "and skips detection — facecam placement varies per streamer/game, so this "
-                             "lets a user who knows their own layout set it instead of relying on a guess.")
-    parser.add_argument('--gaming-facecam-size', choices=['S', 'M', 'L'], default='M',
-                        help="Size of the manually-pinned facecam box (--gaming-facecam-position). Ignored in auto mode.")
+    parser.add_argument('--gaming-facecam-x', type=float, default=None,
+                        help="Only used with --reframe-mode gaming, together with -y/-w/-h (all four "
+                             "required together). A 0..1 fraction of the source frame's width/height, "
+                             "from a rectangle the user drew over their own screenshot of the stream — "
+                             "pins the facecam there directly and skips detection. Omitted (any of the "
+                             "four) → the usual auto-detection scan runs instead.")
+    parser.add_argument('--gaming-facecam-y', type=float, default=None)
+    parser.add_argument('--gaming-facecam-w', type=float, default=None)
+    parser.add_argument('--gaming-facecam-h', type=float, default=None)
     parser.add_argument('--reframe-only', action='store_true',
                         help='Skip download/analysis/cutting: take --input (an existing 16:9 '
                              'source slice) and re-run reframing + zoom/normalize/cover only. '
@@ -641,6 +638,14 @@ if __name__ == '__main__':
                              "GEMINI_MODEL from env / Settings (default gemini-3.5-flash).")
 
     args = parser.parse_args()
+
+    # All four fractions or none — a partial box (e.g. -x without -y) is
+    # ambiguous, so it is treated the same as none: fall back to detection.
+    _facecam_fracs = (args.gaming_facecam_x, args.gaming_facecam_y, args.gaming_facecam_w, args.gaming_facecam_h)
+    args.gaming_facecam_box = (
+        {"x": _facecam_fracs[0], "y": _facecam_fracs[1], "w": _facecam_fracs[2], "h": _facecam_fracs[3]}
+        if all(v is not None for v in _facecam_fracs) else None
+    )
 
     # Output aspect ratio drives the crop dimensions + SmoothedCameraman crop
     # box. Passed explicitly to every process_video_to_vertical call below
@@ -704,8 +709,7 @@ if __name__ == '__main__':
                 args.input, tmp_output, reframe_mode=args.reframe_mode,
                 zoom_end=None if args.no_zoom else 1.05,
                 aspect_ratio=aspect_ratio,
-                gaming_facecam_position=args.gaming_facecam_position,
-                gaming_facecam_size=args.gaming_facecam_size)
+                gaming_facecam_box=args.gaming_facecam_box)
             if not success:
                 print("❌ Reframe failed.")
                 if os.path.exists(tmp_output):
@@ -758,8 +762,7 @@ if __name__ == '__main__':
         output_file = args.output if args.output else os.path.join(output_dir, f"{video_title}_vertical.mp4")
         process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
                                   aspect_ratio=aspect_ratio,
-                                  gaming_facecam_position=args.gaming_facecam_position,
-                                  gaming_facecam_size=args.gaming_facecam_size)
+                                  gaming_facecam_box=args.gaming_facecam_box)
     else:
         # 3. Transcribe (with cache for URL-based jobs)
         cached = _load_cached_transcript(args.url) if args.url else None
@@ -819,8 +822,7 @@ if __name__ == '__main__':
                 output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
                 process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
                                           aspect_ratio=aspect_ratio,
-                                          gaming_facecam_position=args.gaming_facecam_position,
-                                          gaming_facecam_size=args.gaming_facecam_size)
+                                          gaming_facecam_box=args.gaming_facecam_box)
         else:
             print(f"🔥 Found {len(clips_data['shorts'])} viral clips!")
             
@@ -958,8 +960,7 @@ if __name__ == '__main__':
                     reframe_mode=args.reframe_mode,
                     zoom_end=None if args.no_zoom else 1.05,
                     aspect_ratio=aspect_ratio,
-                    gaming_facecam_position=args.gaming_facecam_position,
-                    gaming_facecam_size=args.gaming_facecam_size)
+                    gaming_facecam_box=args.gaming_facecam_box)
 
                 if success:
                     normalize_audio(clip_final_path)

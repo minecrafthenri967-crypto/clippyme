@@ -822,37 +822,41 @@ def test_expand_box_to_aspect_result_has_the_requested_ratio():
     assert w / h == pytest.approx(9 / 16, rel=1e-2)
 
 
-def test_manual_facecam_box_top_left_is_pinned_to_the_origin_corner():
-    x, y, w, h = ro.resolve_manual_facecam_box("top-left", "M", 1920, 1080)
+def test_facecam_box_from_fractions_converts_to_pixels():
+    x, y, w, h = ro.resolve_facecam_box_from_fractions(0.6, 0.05, 0.35, 0.30, 1920, 1080)
+    assert (x, y) == (pytest.approx(1152, abs=1), pytest.approx(54, abs=1))
+    assert w == pytest.approx(672, abs=1)
+    assert h == pytest.approx(324, abs=1)
+
+
+def test_facecam_box_from_fractions_top_left_corner():
+    x, y, w, h = ro.resolve_facecam_box_from_fractions(0.0, 0.0, 0.3, 0.3, 1920, 1080)
     assert (x, y) == (0, 0)
     assert w > 0 and h > 0
 
 
-def test_manual_facecam_box_top_right_hugs_the_right_edge():
-    x, y, w, h = ro.resolve_manual_facecam_box("top-right", "M", 1920, 1080)
-    assert y == 0
-    assert x + w == 1920
+def test_facecam_box_from_fractions_bottom_right_corner_stays_in_frame():
+    x, y, w, h = ro.resolve_facecam_box_from_fractions(0.7, 0.7, 0.3, 0.3, 1920, 1080)
+    assert x + w <= 1920
+    assert y + h <= 1080
 
 
-def test_manual_facecam_box_bottom_left_hugs_the_bottom_edge():
-    x, y, w, h = ro.resolve_manual_facecam_box("bottom-left", "M", 1920, 1080)
-    assert x == 0
-    assert y + h == 1080
+def test_facecam_box_from_fractions_clamps_out_of_range_inputs():
+    # A box that would run off the frame edge (x+w > 1) is clamped, not
+    # rejected — the API layer validates this before it ever reaches here,
+    # but the pure function must not trust its input blindly.
+    x, y, w, h = ro.resolve_facecam_box_from_fractions(0.9, 0.9, 0.5, 0.5, 1920, 1080)
+    assert x + w <= 1920
+    assert y + h <= 1080
 
 
-def test_manual_facecam_box_bottom_right_hugs_bottom_right_corner():
-    x, y, w, h = ro.resolve_manual_facecam_box("bottom-right", "M", 1920, 1080)
-    assert x + w == 1920
-    assert y + h == 1080
+def test_facecam_box_from_fractions_negative_inputs_clamp_to_zero():
+    x, y, w, h = ro.resolve_facecam_box_from_fractions(-0.2, -0.2, 0.3, 0.3, 1920, 1080)
+    assert x >= 0 and y >= 0
 
 
-def test_manual_facecam_box_size_presets_scale_monotonically():
-    _, _, w_s, _ = ro.resolve_manual_facecam_box("top-left", "S", 1920, 1080)
-    _, _, w_m, _ = ro.resolve_manual_facecam_box("top-left", "M", 1920, 1080)
-    _, _, w_l, _ = ro.resolve_manual_facecam_box("top-left", "L", 1920, 1080)
-    assert w_s < w_m < w_l
-
-
-def test_manual_facecam_box_unknown_size_falls_back_to_default():
-    default = ro.resolve_manual_facecam_box("top-left", "M", 1920, 1080)
-    assert ro.resolve_manual_facecam_box("top-left", "nonsense", 1920, 1080) == default
+def test_facecam_box_from_fractions_scales_with_frame_size():
+    small = ro.resolve_facecam_box_from_fractions(0.1, 0.1, 0.2, 0.2, 640, 360)
+    large = ro.resolve_facecam_box_from_fractions(0.1, 0.1, 0.2, 0.2, 1920, 1080)
+    assert large[2] > small[2]
+    assert large[3] > small[3]

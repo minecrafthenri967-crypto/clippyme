@@ -3,6 +3,7 @@ import sys
 import uuid
 import shutil
 import asyncio
+import json
 import logging
 from dotenv import load_dotenv
 from typing import Dict, Optional
@@ -320,8 +321,7 @@ async def process_endpoint(
     skip_analysis = False
     model = None
     zernio_profile = "default"
-    gaming_facecam_position = "auto"
-    gaming_facecam_size = "M"
+    gaming_facecam_box = None
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         try:
@@ -340,8 +340,7 @@ async def process_endpoint(
         skip_analysis = bool(validated.skip_analysis)
         model = validated.model
         zernio_profile = validated.zernio_profile
-        gaming_facecam_position = validated.gaming_facecam_position
-        gaming_facecam_size = validated.gaming_facecam_size
+        gaming_facecam_box = validated.gaming_facecam_box.model_dump() if validated.gaming_facecam_box else None
 
     # For multipart/form-data uploads, extract reframe_mode + language from form fields
     if "multipart/form-data" in content_type:
@@ -357,8 +356,14 @@ async def process_endpoint(
         skip_analysis = str(form.get("skip_analysis", "")).lower() in {"1", "true", "yes"} or skip_analysis
         model = form.get("model", model) or None
         zernio_profile = form.get("zernio_profile", zernio_profile) or "default"
-        gaming_facecam_position = form.get("gaming_facecam_position", gaming_facecam_position) or "auto"
-        gaming_facecam_size = form.get("gaming_facecam_size", gaming_facecam_size) or "M"
+        # The facecam box has no natural form-field shape, so it rides as a
+        # JSON string (the dashboard JSON.stringify's it before appending).
+        raw_facecam_box = form.get("gaming_facecam_box")
+        if raw_facecam_box:
+            try:
+                gaming_facecam_box = json.loads(raw_facecam_box)
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise HTTPException(status_code=400, detail=f"invalid gaming_facecam_box: {exc}")
         # Validate the multipart values through the same schema for
         # consistency — we drop the url requirement since we're using
         # an uploaded file path.
@@ -373,14 +378,12 @@ async def process_endpoint(
                 "skip_analysis": skip_analysis,
                 "model": model or None,
                 "zernio_profile": zernio_profile,
-                "gaming_facecam_position": gaming_facecam_position,
-                "gaming_facecam_size": gaming_facecam_size,
+                "gaming_facecam_box": gaming_facecam_box,
             })
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
         zernio_profile = validated.zernio_profile
-        gaming_facecam_position = validated.gaming_facecam_position
-        gaming_facecam_size = validated.gaming_facecam_size
+        gaming_facecam_box = validated.gaming_facecam_box.model_dump() if validated.gaming_facecam_box else None
 
     if not url and not file:
         raise HTTPException(status_code=400, detail="Must provide URL or File")
@@ -441,8 +444,7 @@ async def process_endpoint(
             no_zoom=no_zoom,
             skip_analysis=skip_analysis,
             model=model,
-            gaming_facecam_position=gaming_facecam_position,
-            gaming_facecam_size=gaming_facecam_size,
+            gaming_facecam_box=gaming_facecam_box,
         )
     except ValueError as exc:
         await asyncio.to_thread(shutil.rmtree, job_output_dir, True)
@@ -497,8 +499,7 @@ async def batch_process(req: BatchRequest, request: Request):
                 no_zoom=bool(getattr(req, "no_zoom", False)),
                 skip_analysis=bool(getattr(req, "skip_analysis", False)),
                 model=getattr(req, "model", None),
-                gaming_facecam_position=getattr(req, "gaming_facecam_position", None),
-                gaming_facecam_size=getattr(req, "gaming_facecam_size", None),
+                gaming_facecam_box=req.gaming_facecam_box.model_dump() if req.gaming_facecam_box else None,
             )
         except ValueError as exc:
             # This item's output dir was already created above but it never
@@ -756,8 +757,7 @@ async def reframe_clip(job_id: str, clip_index: int, req: ReframeRequest, reques
     return await run_reframe(
         job_id=job_id, clip_index=clip_index, mode=mode,
         output_root=OUTPUT_DIR, jobs=jobs,
-        gaming_facecam_position=req.gaming_facecam_position,
-        gaming_facecam_size=req.gaming_facecam_size,
+        gaming_facecam_box=req.gaming_facecam_box.model_dump() if req.gaming_facecam_box else None,
     )
 
 

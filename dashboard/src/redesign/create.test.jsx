@@ -126,30 +126,23 @@ test('reframe picker: hint is hidden for non-gaming modes', () => {
   expect(screen.queryByText(/Detects a static facecam overlay/)).not.toBeInTheDocument();
 });
 
-test('gaming facecam controls: hidden outside gaming mode', () => {
+test('gaming facecam box picker: hidden outside gaming mode', () => {
   mount({ reframeMode: 'auto' });
   expect(screen.queryByText('Facecam position')).not.toBeInTheDocument();
+  expect(screen.queryByText('Upload a screenshot')).not.toBeInTheDocument();
 });
 
-test('gaming facecam controls: position grid defaults to Auto and size row is hidden', () => {
+test('gaming facecam box picker: upload control shown in gaming mode, no reset button when unset', () => {
   mount({ reframeMode: 'gaming' });
-  const positionRow = screen.getByText('Facecam position').closest('.cf-row');
-  expect(within(positionRow).getByRole('button', { name: 'Auto' })).toHaveClass('on');
-  expect(screen.queryByText('Facecam size')).not.toBeInTheDocument();
+  expect(screen.getByText('Facecam position')).toBeInTheDocument();
+  expect(screen.getByText('Upload a screenshot')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Reset to Auto-detect' })).not.toBeInTheDocument();
 });
 
-test('gaming facecam controls: picking a corner patches gamingFacecamPosition and reveals size row', () => {
-  const set = mount({ reframeMode: 'gaming' });
-  const positionRow = screen.getByText('Facecam position').closest('.cf-row');
-  fireEvent.click(within(positionRow).getByRole('button', { name: 'Top L' }));
-  expect(set).toHaveBeenLastCalledWith({ gamingFacecamPosition: 'top-left' });
-});
-
-test('gaming facecam controls: size segment patches gamingFacecamSize once a manual position is set', () => {
-  const set = mount({ reframeMode: 'gaming', gamingFacecamPosition: 'bottom-right' });
-  const sizeRow = screen.getByText('Facecam size').closest('.cf-row');
-  fireEvent.click(within(sizeRow).getByRole('button', { name: 'L' }));
-  expect(set).toHaveBeenLastCalledWith({ gamingFacecamSize: 'L' });
+test('gaming facecam box picker: reset button clears a previously drawn box', () => {
+  const set = mount({ reframeMode: 'gaming', gamingFacecamBox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
+  fireEvent.click(screen.getByRole('button', { name: 'Reset to Auto-detect' }));
+  expect(set).toHaveBeenLastCalledWith({ gamingFacecamBox: null });
 });
 
 test('Save as default button in the recipe panel header calls onSaveAsDefault', () => {

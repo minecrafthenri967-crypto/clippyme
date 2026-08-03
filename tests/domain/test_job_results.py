@@ -85,55 +85,50 @@ def test_reframe_mode_gaming_is_forwarded():
     assert cmd[cmd.index("--reframe-mode") + 1] == "gaming"
 
 
-def test_gaming_facecam_manual_position_is_forwarded():
+_BOX = {"x": 0.6, "y": 0.05, "w": 0.35, "h": 0.3}
+
+
+def test_gaming_facecam_box_is_forwarded():
     cmd = build_main_cmd(
         url="https://x.com/v", output_dir="o", reframe_mode="gaming",
-        gaming_facecam_position="top-left", gaming_facecam_size="L",
+        gaming_facecam_box=_BOX,
     )
-    assert cmd[cmd.index("--gaming-facecam-position") + 1] == "top-left"
-    assert cmd[cmd.index("--gaming-facecam-size") + 1] == "L"
+    assert cmd[cmd.index("--gaming-facecam-x") + 1] == "0.6"
+    assert cmd[cmd.index("--gaming-facecam-y") + 1] == "0.05"
+    assert cmd[cmd.index("--gaming-facecam-w") + 1] == "0.35"
+    assert cmd[cmd.index("--gaming-facecam-h") + 1] == "0.3"
 
 
-def test_gaming_facecam_auto_position_omits_flags():
-    cmd = build_main_cmd(
-        url="https://x.com/v", output_dir="o", reframe_mode="gaming",
-        gaming_facecam_position="auto",
-    )
-    assert "--gaming-facecam-position" not in cmd
-    assert "--gaming-facecam-size" not in cmd
+def test_gaming_facecam_no_box_omits_flags():
+    cmd = build_main_cmd(url="https://x.com/v", output_dir="o", reframe_mode="gaming")
+    assert "--gaming-facecam-x" not in cmd
 
 
-def test_gaming_facecam_position_ignored_outside_gaming_mode():
-    # A manual facecam position only makes sense in gaming mode — it must not
-    # leak into argv for other reframe modes even if somehow supplied.
+def test_gaming_facecam_box_ignored_outside_gaming_mode():
+    # A manual facecam box only makes sense in gaming mode — it must not leak
+    # into argv for other reframe modes even if somehow supplied.
     cmd = build_main_cmd(
         url="https://x.com/v", output_dir="o", reframe_mode="auto",
-        gaming_facecam_position="top-left",
+        gaming_facecam_box=_BOX,
     )
-    assert "--gaming-facecam-position" not in cmd
+    assert "--gaming-facecam-x" not in cmd
 
 
-def test_gaming_facecam_size_defaults_to_M_when_unset():
-    cmd = build_main_cmd(
-        url="https://x.com/v", output_dir="o", reframe_mode="gaming",
-        gaming_facecam_position="bottom-right",
-    )
-    assert cmd[cmd.index("--gaming-facecam-size") + 1] == "M"
-
-
-def test_invalid_gaming_facecam_position_rejected():
-    with pytest.raises(ValueError, match="invalid gaming_facecam_position"):
+@pytest.mark.parametrize("bad_box", [
+    {"x": 0.6, "y": 0.05, "w": 0.35},  # missing key
+    {"x": 0.6, "y": 0.05, "w": 0.35, "h": 0.3, "extra": 1},  # extra key
+    {"x": 1.5, "y": 0.05, "w": 0.35, "h": 0.3},  # out of [0,1]
+    {"x": -0.1, "y": 0.05, "w": 0.35, "h": 0.3},  # negative
+    {"x": 0.6, "y": 0.05, "w": 0, "h": 0.3},  # zero width
+    {"x": 0.8, "y": 0.05, "w": 0.35, "h": 0.3},  # x+w > 1
+    {"x": 0.6, "y": 0.85, "w": 0.35, "h": 0.3},  # y+h > 1
+    {"x": "0.6", "y": 0.05, "w": 0.35, "h": 0.3},  # wrong type
+])
+def test_invalid_gaming_facecam_box_rejected(bad_box):
+    with pytest.raises(ValueError, match="invalid gaming_facecam_box"):
         build_main_cmd(
             url="https://x.com/v", output_dir="o", reframe_mode="gaming",
-            gaming_facecam_position="middle-earth",
-        )
-
-
-def test_invalid_gaming_facecam_size_rejected():
-    with pytest.raises(ValueError, match="invalid gaming_facecam_size"):
-        build_main_cmd(
-            url="https://x.com/v", output_dir="o", reframe_mode="gaming",
-            gaming_facecam_position="top-left", gaming_facecam_size="XL",
+            gaming_facecam_box=bad_box,
         )
 
 
