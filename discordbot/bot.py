@@ -320,6 +320,13 @@ async def _compose_full(job_id: str, idx: int, hook_text: str):
                 print(f"Compose failed for {job_id}/{idx}: {resp.status} {text[:200]}", flush=True)
                 return None
             composed = (await resp.json()).get("composed_url", "")
+    except asyncio.TimeoutError:
+        # str(exc) is empty for asyncio.TimeoutError, which used to print as
+        # "Compose request failed for X/Y: " with nothing after the colon —
+        # indistinguishable from a crash. Name it so a slow/overloaded host
+        # is visible in the logs instead of looking like a silent failure.
+        print(f"Compose request timed out for {job_id}/{idx} after 300s", flush=True)
+        return None
     except Exception as exc:
         print(f"Compose request failed for {job_id}/{idx}: {exc}", flush=True)
         return None
@@ -632,6 +639,11 @@ async def handle_download_request(message, user, job_id, clip_index):
     title = meta.get("title") or "Clip"
     hook_text = meta.get("hook_text", "")
     video_url = meta.get("video_url", "")
+
+    # Composing (subtitles/hook burn-in) can take minutes on a loaded host —
+    # without this, the reaction looks like it did nothing at all (unlike
+    # handle_approval, which sends its own "Publishing..." ack immediately).
+    await message.reply(f"⏳ Preparing full-quality download of **{title}**…")
 
     full_path = await _compose_full(job_id, clip_index, hook_text)
     local_path = full_path or _local_clip_path(video_url)
