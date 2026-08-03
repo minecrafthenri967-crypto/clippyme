@@ -23,11 +23,16 @@ logger = logging.getLogger(__name__)
 
 
 async def run_reframe(*, job_id: str, clip_index: int, mode: str,
-                      output_root: str, jobs: dict) -> dict:
+                      output_root: str, jobs: dict,
+                      gaming_facecam_position: str | None = None,
+                      gaming_facecam_size: str | None = None) -> dict:
     """Re-render one clip with a different reframe mode via ``main.py
     --reframe-only`` and update metadata + in-memory job state.
 
     ``mode`` must already be canonical ('auto' / 'subject' / 'disabled').
+    ``gaming_facecam_position``/``gaming_facecam_size`` only apply when
+    ``mode == 'gaming'`` — see ``job_results.ALLOWED_GAMING_FACECAM_POSITIONS``
+    for accepted values; the caller validates them before this is invoked.
     Returns the endpoint response payload (cache-busted ``new_video_url``).
     """
     output_dir = os.path.join(output_root, job_id)
@@ -70,6 +75,9 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
         "-o", target_path,
         "--reframe-mode", mode,
     ]
+    if mode == "gaming" and gaming_facecam_position and gaming_facecam_position != "auto":
+        cmd += ["--gaming-facecam-position", gaming_facecam_position]
+        cmd += ["--gaming-facecam-size", gaming_facecam_size or "M"]
 
     # Re-render at the job's ORIGINAL aspect (persisted in metadata at process
     # time). Omitting this defaults main.py to 9:16 and squashes a 1:1/16:9 clip

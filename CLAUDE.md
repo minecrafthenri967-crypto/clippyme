@@ -333,12 +333,21 @@ a near-constant position, not a normal subject a camera would pan to follow),
 never re-tracked per frame like `auto`'s cameraman. No confident static region
 → silent fallback to `auto` for that clip (reassigns `reframe_mode` itself, so
 the rest of the function — comfort mode, global-smooth gating — behaves
-exactly as a normal `auto` job). `create_gaming_frame` stacks the detected
-region (expanded to the top zone's aspect via `expand_box_to_aspect`, never
-cropped smaller) over a centred gameplay crop that `offset_crop_away_from_box`
-shifts sideways when it would otherwise show the facecam's corner twice. This
-is a heuristic, not a guarantee — verify each `gaming` job's actual layout
-rather than assuming detection succeeded.
+exactly as a normal `auto` job). This is a heuristic, not a guarantee — verify
+each `gaming` job's actual layout rather than assuming detection succeeded.
+A user who knows their own layout can skip detection entirely: `--gaming-
+facecam-position` (one of `reframe_ops.GAMING_FACECAM_POSITIONS` — the four
+corners, no centre option) + `--gaming-facecam-size` (`S`/`M`/`L`) pin the
+facecam directly via `reframe_ops.resolve_manual_facecam_box`, which
+`process_video_to_vertical` uses instead of `_detect_gaming_facecam` whenever
+`gaming_facecam_position` is set to anything but `'auto'` (the default,
+detection still runs when unset). `create_gaming_frame` stacks the
+detected/manual region (expanded to the top zone's aspect via
+`expand_box_to_aspect`, never cropped smaller) over the bottom "gameplay"
+zone, a crop that is always HORIZONTALLY CENTRED on the source frame — never
+shifted to dodge the facecam — since that shows the most of the actual
+gameplay, and a corner-positioned facecam rarely reaches into the centre
+column anyway.
 ⚠️ `REFRAME_GLOBAL_METHOD=kalman|l2` only runs with `REFRAME_STATIC_AUTO=0`;
 the default static-auto policy never reaches the trajectory smoother.
 ⚠️ Output canvas sizing has a CEILING and a FLOOR, set independently:

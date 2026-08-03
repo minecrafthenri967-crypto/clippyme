@@ -114,3 +114,67 @@ def test_run_reframe_applies_settings_over_compose_env_defaults(tmp_path, monkey
 
     assert captured["TRANSCRIPTION_PROVIDER"] == "elevenlabs"
     assert captured["DEEPGRAM_API_KEY"] == "dg-from-settings"
+
+
+def _make_job(tmp_path, job_id):
+    output_root = str(tmp_path)
+    job_dir = os.path.join(output_root, job_id)
+    os.makedirs(job_dir)
+    clip_filename = "clip_clip_1.mp4"
+    with open(os.path.join(job_dir, "vid_metadata.json"), "w") as f:
+        json.dump({"aspect": "9:16",
+                   "shorts": [{"start": 0.0, "end": 5.0, "clip_filename": clip_filename}]}, f)
+    open(os.path.join(job_dir, f"source_{clip_filename}"), "wb").close()
+    return output_root
+
+
+def test_run_reframe_forwards_manual_gaming_facecam_position(tmp_path, monkeypatch):
+    captured_cmd = []
+
+    async def _capture_cmd(*cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        return _FakeProc()
+
+    monkeypatch.setattr(reframe_service.asyncio, "create_subprocess_exec", _capture_cmd)
+    job_id = "77777777-7777-4777-8777-777777777777"
+    output_root = _make_job(tmp_path, job_id)
+
+    _run(job_id=job_id, clip_index=0, mode="gaming", output_root=output_root, jobs={},
+         gaming_facecam_position="top-left", gaming_facecam_size="L")
+
+    assert captured_cmd[captured_cmd.index("--gaming-facecam-position") + 1] == "top-left"
+    assert captured_cmd[captured_cmd.index("--gaming-facecam-size") + 1] == "L"
+
+
+def test_run_reframe_omits_facecam_flags_for_auto_position(tmp_path, monkeypatch):
+    captured_cmd = []
+
+    async def _capture_cmd(*cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        return _FakeProc()
+
+    monkeypatch.setattr(reframe_service.asyncio, "create_subprocess_exec", _capture_cmd)
+    job_id = "88888888-8888-4888-8888-888888888888"
+    output_root = _make_job(tmp_path, job_id)
+
+    _run(job_id=job_id, clip_index=0, mode="gaming", output_root=output_root, jobs={},
+         gaming_facecam_position="auto")
+
+    assert "--gaming-facecam-position" not in captured_cmd
+
+
+def test_run_reframe_ignores_facecam_position_outside_gaming_mode(tmp_path, monkeypatch):
+    captured_cmd = []
+
+    async def _capture_cmd(*cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        return _FakeProc()
+
+    monkeypatch.setattr(reframe_service.asyncio, "create_subprocess_exec", _capture_cmd)
+    job_id = "99999999-9999-4999-8999-999999999999"
+    output_root = _make_job(tmp_path, job_id)
+
+    _run(job_id=job_id, clip_index=0, mode="auto", output_root=output_root, jobs={},
+         gaming_facecam_position="top-left")
+
+    assert "--gaming-facecam-position" not in captured_cmd

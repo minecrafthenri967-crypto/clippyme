@@ -92,6 +92,16 @@ class ProcessRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
+    # Only used with reframe_mode == 'gaming'. 'auto' (default) runs the usual
+    # detection scan; a corner value pins the facecam there directly instead
+    # (see job_results.ALLOWED_GAMING_FACECAM_POSITIONS) — facecam placement
+    # varies per streamer/game and the detector can miss or mis-locate it, so
+    # a user who knows their own layout can set it rather than relying on a
+    # guess.
+    gaming_facecam_position: str = Field(
+        "auto", pattern=r"^(auto|top-left|top-right|bottom-left|bottom-right)$"
+    )
+    gaming_facecam_size: str = Field("M", pattern=r"^(S|M|L)$")
     # Which named Zernio account this job's clips are earmarked for (see
     # storage.config_store's profile namespace) — persisted alongside the job
     # (job_artifacts.save_job_campaign) so an external approval bot running
@@ -123,6 +133,10 @@ class BatchRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
+    gaming_facecam_position: str = Field(
+        "auto", pattern=r"^(auto|top-left|top-right|bottom-left|bottom-right)$"
+    )
+    gaming_facecam_size: str = Field("M", pattern=r"^(S|M|L)$")
     zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
 
     @field_validator("urls")
@@ -170,6 +184,10 @@ class ConfigUpdateRequest(BaseModel):
 
 class ReframeRequest(BaseModel):
     reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object|gaming)$")
+    gaming_facecam_position: str = Field(
+        "auto", pattern=r"^(auto|top-left|top-right|bottom-left|bottom-right)$"
+    )
+    gaming_facecam_size: str = Field("M", pattern=r"^(S|M|L)$")
 
 
 _OVERLAY_MAX_KEYS = 40

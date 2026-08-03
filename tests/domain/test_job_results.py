@@ -85,6 +85,58 @@ def test_reframe_mode_gaming_is_forwarded():
     assert cmd[cmd.index("--reframe-mode") + 1] == "gaming"
 
 
+def test_gaming_facecam_manual_position_is_forwarded():
+    cmd = build_main_cmd(
+        url="https://x.com/v", output_dir="o", reframe_mode="gaming",
+        gaming_facecam_position="top-left", gaming_facecam_size="L",
+    )
+    assert cmd[cmd.index("--gaming-facecam-position") + 1] == "top-left"
+    assert cmd[cmd.index("--gaming-facecam-size") + 1] == "L"
+
+
+def test_gaming_facecam_auto_position_omits_flags():
+    cmd = build_main_cmd(
+        url="https://x.com/v", output_dir="o", reframe_mode="gaming",
+        gaming_facecam_position="auto",
+    )
+    assert "--gaming-facecam-position" not in cmd
+    assert "--gaming-facecam-size" not in cmd
+
+
+def test_gaming_facecam_position_ignored_outside_gaming_mode():
+    # A manual facecam position only makes sense in gaming mode — it must not
+    # leak into argv for other reframe modes even if somehow supplied.
+    cmd = build_main_cmd(
+        url="https://x.com/v", output_dir="o", reframe_mode="auto",
+        gaming_facecam_position="top-left",
+    )
+    assert "--gaming-facecam-position" not in cmd
+
+
+def test_gaming_facecam_size_defaults_to_M_when_unset():
+    cmd = build_main_cmd(
+        url="https://x.com/v", output_dir="o", reframe_mode="gaming",
+        gaming_facecam_position="bottom-right",
+    )
+    assert cmd[cmd.index("--gaming-facecam-size") + 1] == "M"
+
+
+def test_invalid_gaming_facecam_position_rejected():
+    with pytest.raises(ValueError, match="invalid gaming_facecam_position"):
+        build_main_cmd(
+            url="https://x.com/v", output_dir="o", reframe_mode="gaming",
+            gaming_facecam_position="middle-earth",
+        )
+
+
+def test_invalid_gaming_facecam_size_rejected():
+    with pytest.raises(ValueError, match="invalid gaming_facecam_size"):
+        build_main_cmd(
+            url="https://x.com/v", output_dir="o", reframe_mode="gaming",
+            gaming_facecam_position="top-left", gaming_facecam_size="XL",
+        )
+
+
 def test_model_forwarded_when_valid():
     cmd = build_main_cmd(url="https://x.com/v", output_dir="o", model="gemini-2.5-pro")
     assert cmd[cmd.index("--model") + 1] == "gemini-2.5-pro"

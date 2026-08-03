@@ -320,6 +320,8 @@ async def process_endpoint(
     skip_analysis = False
     model = None
     zernio_profile = "default"
+    gaming_facecam_position = "auto"
+    gaming_facecam_size = "M"
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         try:
@@ -338,6 +340,8 @@ async def process_endpoint(
         skip_analysis = bool(validated.skip_analysis)
         model = validated.model
         zernio_profile = validated.zernio_profile
+        gaming_facecam_position = validated.gaming_facecam_position
+        gaming_facecam_size = validated.gaming_facecam_size
 
     # For multipart/form-data uploads, extract reframe_mode + language from form fields
     if "multipart/form-data" in content_type:
@@ -353,6 +357,8 @@ async def process_endpoint(
         skip_analysis = str(form.get("skip_analysis", "")).lower() in {"1", "true", "yes"} or skip_analysis
         model = form.get("model", model) or None
         zernio_profile = form.get("zernio_profile", zernio_profile) or "default"
+        gaming_facecam_position = form.get("gaming_facecam_position", gaming_facecam_position) or "auto"
+        gaming_facecam_size = form.get("gaming_facecam_size", gaming_facecam_size) or "M"
         # Validate the multipart values through the same schema for
         # consistency — we drop the url requirement since we're using
         # an uploaded file path.
@@ -367,10 +373,14 @@ async def process_endpoint(
                 "skip_analysis": skip_analysis,
                 "model": model or None,
                 "zernio_profile": zernio_profile,
+                "gaming_facecam_position": gaming_facecam_position,
+                "gaming_facecam_size": gaming_facecam_size,
             })
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
         zernio_profile = validated.zernio_profile
+        gaming_facecam_position = validated.gaming_facecam_position
+        gaming_facecam_size = validated.gaming_facecam_size
 
     if not url and not file:
         raise HTTPException(status_code=400, detail="Must provide URL or File")
@@ -431,6 +441,8 @@ async def process_endpoint(
             no_zoom=no_zoom,
             skip_analysis=skip_analysis,
             model=model,
+            gaming_facecam_position=gaming_facecam_position,
+            gaming_facecam_size=gaming_facecam_size,
         )
     except ValueError as exc:
         await asyncio.to_thread(shutil.rmtree, job_output_dir, True)
@@ -485,6 +497,8 @@ async def batch_process(req: BatchRequest, request: Request):
                 no_zoom=bool(getattr(req, "no_zoom", False)),
                 skip_analysis=bool(getattr(req, "skip_analysis", False)),
                 model=getattr(req, "model", None),
+                gaming_facecam_position=getattr(req, "gaming_facecam_position", None),
+                gaming_facecam_size=getattr(req, "gaming_facecam_size", None),
             )
         except ValueError as exc:
             # This item's output dir was already created above but it never
@@ -742,6 +756,8 @@ async def reframe_clip(job_id: str, clip_index: int, req: ReframeRequest, reques
     return await run_reframe(
         job_id=job_id, clip_index=clip_index, mode=mode,
         output_root=OUTPUT_DIR, jobs=jobs,
+        gaming_facecam_position=req.gaming_facecam_position,
+        gaming_facecam_size=req.gaming_facecam_size,
     )
 
 

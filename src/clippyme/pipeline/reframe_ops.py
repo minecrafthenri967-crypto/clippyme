@@ -822,26 +822,27 @@ def expand_box_to_aspect(x, y, w, h, frame_width, frame_height, target_ar):
     return (int(round(new_x)), int(round(new_y)), int(round(new_w)), int(round(new_h)))
 
 
-def offset_crop_away_from_box(crop_x, crop_w, box_x, box_w, frame_width):
-    """Shift a horizontal crop window as far as possible from an excluded box.
+GAMING_FACECAM_POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right")
+_GAMING_FACECAM_SIZE_FRACTIONS = {"S": 0.20, "M": 0.28, "L": 0.38}
+DEFAULT_GAMING_FACECAM_SIZE = "M"
 
-    Used so the "gameplay" half of a split-screen layout doesn't just show the
-    facecam a second time when the default centred crop happens to overlap it.
-    No-op (returns ``crop_x`` unchanged) when the two don't overlap. When they
-    do, slides the crop to whichever side of the frame has more room, clamped
-    to stay within ``[0, frame_width - crop_w]`` — it may still graze the box
-    at the frame's edges if ``crop_w`` is close to ``frame_width``, since
-    there is nowhere else for it to go.
+
+def resolve_manual_facecam_box(position, size, frame_width, frame_height):
+    """Build a facecam ``(x, y, w, h)`` box in source-frame pixel coordinates
+    from a user-picked corner + size preset, bypassing auto-detection
+    entirely. Facecam placement varies by streamer/game and the face detector
+    can miss or mis-locate the overlay, so this lets someone who knows their
+    own layout pin it directly instead. ``expand_box_to_aspect`` (applied
+    downstream in ``create_gaming_frame``) reshapes this seed box to the
+    output top zone's aspect ratio around its centre, so only the centre and
+    rough scale chosen here matter, not this box's own aspect ratio.
+
+    ``position`` is one of ``GAMING_FACECAM_POSITIONS``; ``size`` is a key of
+    ``S``/``M``/``L`` (unknown values fall back to ``M``).
     """
-    box_x2 = box_x + box_w
-    crop_x2 = crop_x + crop_w
-    overlap = min(crop_x2, box_x2) - max(crop_x, box_x)
-    if overlap <= 0:
-        return crop_x
-    room_left = box_x  # space to the left of the box, from frame edge 0
-    room_right = frame_width - box_x2  # space to the right of the box
-    if room_right >= room_left:
-        new_x = box_x2
-    else:
-        new_x = box_x - crop_w
-    return int(round(max(0.0, min(frame_width - crop_w, new_x))))
+    frac = _GAMING_FACECAM_SIZE_FRACTIONS.get(size, _GAMING_FACECAM_SIZE_FRACTIONS[DEFAULT_GAMING_FACECAM_SIZE])
+    w = max(1, int(round(frac * frame_width)))
+    h = max(1, int(round(frac * frame_height)))
+    x = 0 if position.endswith("left") else frame_width - w
+    y = 0 if position.startswith("top") else frame_height - h
+    return (x, y, w, h)

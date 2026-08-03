@@ -55,6 +55,45 @@ def test_reframe_request_accepts_gaming_mode():
     assert ReframeRequest(reframe_mode="gaming").reframe_mode == "gaming"
 
 
+def test_process_gaming_facecam_defaults_and_accepts_corners():
+    request = ProcessRequest(url="https://upload.invalid/local")
+    assert request.gaming_facecam_position == "auto"
+    assert request.gaming_facecam_size == "M"
+    request = ProcessRequest(
+        url="https://upload.invalid/local", reframe_mode="gaming",
+        gaming_facecam_position="bottom-right", gaming_facecam_size="L",
+    )
+    assert request.gaming_facecam_position == "bottom-right"
+    assert request.gaming_facecam_size == "L"
+    with pytest.raises(ValidationError):
+        ProcessRequest(url="https://upload.invalid/local", gaming_facecam_position="middle")
+    with pytest.raises(ValidationError):
+        ProcessRequest(url="https://upload.invalid/local", gaming_facecam_size="XL")
+
+
+def test_batch_gaming_facecam_defaults_and_accepts_corners():
+    request = BatchRequest(urls=["https://example.com/video"])
+    assert request.gaming_facecam_position == "auto"
+    assert request.gaming_facecam_size == "M"
+    request = BatchRequest(
+        urls=["https://example.com/video"], reframe_mode="gaming",
+        gaming_facecam_position="top-left", gaming_facecam_size="S",
+    )
+    assert request.gaming_facecam_position == "top-left"
+    assert request.gaming_facecam_size == "S"
+
+
+def test_reframe_request_gaming_facecam_defaults_and_accepts_corners():
+    request = ReframeRequest(reframe_mode="gaming")
+    assert request.gaming_facecam_position == "auto"
+    assert request.gaming_facecam_size == "M"
+    request = ReframeRequest(
+        reframe_mode="gaming", gaming_facecam_position="top-right", gaming_facecam_size="L",
+    )
+    assert request.gaming_facecam_position == "top-right"
+    assert request.gaming_facecam_size == "L"
+
+
 def test_batch_zernio_profile_defaults_and_is_bounded():
     assert BatchRequest(urls=["https://example.com/video"]).zernio_profile == "default"
     assert BatchRequest(

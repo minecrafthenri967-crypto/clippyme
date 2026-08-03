@@ -20,7 +20,12 @@ from google import genai
 from dotenv import load_dotenv
 import json
 
-from clippyme.pipeline.reframe_ops import OneEuroFilter, drift_to_center, salient_crop_center
+from clippyme.pipeline.reframe_ops import (
+    GAMING_FACECAM_POSITIONS,
+    OneEuroFilter,
+    drift_to_center,
+    salient_crop_center,
+)
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='google.protobuf')
@@ -609,6 +614,13 @@ if __name__ == '__main__':
                              'crop; "object" is a legacy alias), disabled (4:3 crop with black bars), '
                              'or gaming (facecam+gameplay split-screen; falls back to auto if no '
                              'static facecam overlay is confidently detected)')
+    parser.add_argument('--gaming-facecam-position', choices=['auto', *GAMING_FACECAM_POSITIONS], default='auto',
+                        help="Only used with --reframe-mode gaming. 'auto' (default) scans for a "
+                             "static facecam overlay; a corner value pins the facecam there directly "
+                             "and skips detection — facecam placement varies per streamer/game, so this "
+                             "lets a user who knows their own layout set it instead of relying on a guess.")
+    parser.add_argument('--gaming-facecam-size', choices=['S', 'M', 'L'], default='M',
+                        help="Size of the manually-pinned facecam box (--gaming-facecam-position). Ignored in auto mode.")
     parser.add_argument('--reframe-only', action='store_true',
                         help='Skip download/analysis/cutting: take --input (an existing 16:9 '
                              'source slice) and re-run reframing + zoom/normalize/cover only. '
@@ -691,7 +703,9 @@ if __name__ == '__main__':
             success = process_video_to_vertical(
                 args.input, tmp_output, reframe_mode=args.reframe_mode,
                 zoom_end=None if args.no_zoom else 1.05,
-                aspect_ratio=aspect_ratio)
+                aspect_ratio=aspect_ratio,
+                gaming_facecam_position=args.gaming_facecam_position,
+                gaming_facecam_size=args.gaming_facecam_size)
             if not success:
                 print("❌ Reframe failed.")
                 if os.path.exists(tmp_output):
@@ -743,7 +757,9 @@ if __name__ == '__main__':
         print("⏩ Skipping analysis, processing entire video...")
         output_file = args.output if args.output else os.path.join(output_dir, f"{video_title}_vertical.mp4")
         process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
-                                  aspect_ratio=aspect_ratio)
+                                  aspect_ratio=aspect_ratio,
+                                  gaming_facecam_position=args.gaming_facecam_position,
+                                  gaming_facecam_size=args.gaming_facecam_size)
     else:
         # 3. Transcribe (with cache for URL-based jobs)
         cached = _load_cached_transcript(args.url) if args.url else None
@@ -802,7 +818,9 @@ if __name__ == '__main__':
                 print("❌ Failed to identify clips. Converting whole video as fallback.")
                 output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
                 process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
-                                          aspect_ratio=aspect_ratio)
+                                          aspect_ratio=aspect_ratio,
+                                          gaming_facecam_position=args.gaming_facecam_position,
+                                          gaming_facecam_size=args.gaming_facecam_size)
         else:
             print(f"🔥 Found {len(clips_data['shorts'])} viral clips!")
             
@@ -939,7 +957,9 @@ if __name__ == '__main__':
                     clip_source_path, clip_final_path,
                     reframe_mode=args.reframe_mode,
                     zoom_end=None if args.no_zoom else 1.05,
-                    aspect_ratio=aspect_ratio)
+                    aspect_ratio=aspect_ratio,
+                    gaming_facecam_position=args.gaming_facecam_position,
+                    gaming_facecam_size=args.gaming_facecam_size)
 
                 if success:
                     normalize_audio(clip_final_path)

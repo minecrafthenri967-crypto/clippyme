@@ -745,7 +745,7 @@ def test_compute_output_dimensions_dimensions_are_always_even():
     assert h % 2 == 0
 
 
-# --- detect_static_facecam_region / expand_box_to_aspect / offset_crop -----
+# --- detect_static_facecam_region / expand_box_to_aspect / manual facecam --
 
 def test_facecam_detected_when_static_high_frequency_and_small():
     # Same corner box across 8 of 10 sampled frames — classic static facecam.
@@ -822,22 +822,37 @@ def test_expand_box_to_aspect_result_has_the_requested_ratio():
     assert w / h == pytest.approx(9 / 16, rel=1e-2)
 
 
-def test_offset_crop_away_from_box_noop_when_no_overlap():
-    assert ro.offset_crop_away_from_box(0, 500, 1000, 300, 1920) == 0
+def test_manual_facecam_box_top_left_is_pinned_to_the_origin_corner():
+    x, y, w, h = ro.resolve_manual_facecam_box("top-left", "M", 1920, 1080)
+    assert (x, y) == (0, 0)
+    assert w > 0 and h > 0
 
 
-def test_offset_crop_away_from_box_shifts_to_the_side_with_more_room():
-    # Box sits centre-right; overlapping crop should shift left (more room there).
-    new_x = ro.offset_crop_away_from_box(700, 600, 900, 300, 1920)
-    assert new_x + 600 <= 900  # no longer overlaps the box
-    assert new_x < 700  # moved toward the larger free side (left)
+def test_manual_facecam_box_top_right_hugs_the_right_edge():
+    x, y, w, h = ro.resolve_manual_facecam_box("top-right", "M", 1920, 1080)
+    assert y == 0
+    assert x + w == 1920
 
 
-def test_offset_crop_away_from_box_shifts_right_when_more_room_there():
-    new_x = ro.offset_crop_away_from_box(100, 400, 0, 300, 1920)
-    assert new_x >= 300  # cleared the box, moved right (more room on that side)
+def test_manual_facecam_box_bottom_left_hugs_the_bottom_edge():
+    x, y, w, h = ro.resolve_manual_facecam_box("bottom-left", "M", 1920, 1080)
+    assert x == 0
+    assert y + h == 1080
 
 
-def test_offset_crop_away_from_box_clamped_when_crop_as_wide_as_frame():
-    new_x = ro.offset_crop_away_from_box(0, 1920, 800, 200, 1920)
-    assert 0 <= new_x <= 1920 - 1920
+def test_manual_facecam_box_bottom_right_hugs_bottom_right_corner():
+    x, y, w, h = ro.resolve_manual_facecam_box("bottom-right", "M", 1920, 1080)
+    assert x + w == 1920
+    assert y + h == 1080
+
+
+def test_manual_facecam_box_size_presets_scale_monotonically():
+    _, _, w_s, _ = ro.resolve_manual_facecam_box("top-left", "S", 1920, 1080)
+    _, _, w_m, _ = ro.resolve_manual_facecam_box("top-left", "M", 1920, 1080)
+    _, _, w_l, _ = ro.resolve_manual_facecam_box("top-left", "L", 1920, 1080)
+    assert w_s < w_m < w_l
+
+
+def test_manual_facecam_box_unknown_size_falls_back_to_default():
+    default = ro.resolve_manual_facecam_box("top-left", "M", 1920, 1080)
+    assert ro.resolve_manual_facecam_box("top-left", "nonsense", 1920, 1080) == default

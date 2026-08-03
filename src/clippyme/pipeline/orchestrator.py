@@ -23,6 +23,7 @@ from typing import Any
 
 from clippyme.domain.runtime_state import RuntimeState
 from clippyme.pipeline.media_qa import inspect_clip, probe_media
+from clippyme.pipeline.reframe_ops import GAMING_FACECAM_POSITIONS
 from clippyme.pipeline.preflight import (
     PreflightInputs,
     PreflightRejected,
@@ -150,6 +151,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["auto", "disabled", "subject", "object", "gaming"],
         default="auto",
     )
+    parser.add_argument(
+        "--gaming-facecam-position",
+        choices=["auto", *GAMING_FACECAM_POSITIONS],
+        default="auto",
+    )
+    parser.add_argument("--gaming-facecam-size", choices=["S", "M", "L"], default="M")
     parser.add_argument("--language", type=str, default=None)
     parser.add_argument("--aspect", choices=["9:16", "1:1", "16:9"], default="9:16")
     parser.add_argument("--monitor", action="store_true")
@@ -504,6 +511,8 @@ def _render_one_clip(
             reframe_mode=args.reframe_mode,
             zoom_end=None if args.no_zoom else 1.05,
             aspect_ratio=aspect_ratio,
+            gaming_facecam_position=args.gaming_facecam_position,
+            gaming_facecam_size=args.gaming_facecam_size,
         )
         if not success or not _valid_file(temp_output, 10_000):
             last_report = {

@@ -83,3 +83,36 @@ def test_reframe_rejects_tampered_aspect(monkeypatch, tmp_path):
     r = client.post(f"/api/reframe/{JOB_ID}/0", json={"reframe_mode": "auto"})
     assert r.status_code == 200, r.text
     assert "--aspect" not in captured["cmd"]
+
+
+def test_reframe_gaming_manual_facecam_position_reaches_argv(monkeypatch, tmp_path):
+    client, captured = _make_client(monkeypatch, tmp_path, aspect="9:16")
+    r = client.post(
+        f"/api/reframe/{JOB_ID}/0",
+        json={
+            "reframe_mode": "gaming",
+            "gaming_facecam_position": "bottom-left",
+            "gaming_facecam_size": "L",
+        },
+    )
+    assert r.status_code == 200, r.text
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--gaming-facecam-position") + 1] == "bottom-left"
+    assert cmd[cmd.index("--gaming-facecam-size") + 1] == "L"
+
+
+def test_reframe_gaming_auto_facecam_omits_flags(monkeypatch, tmp_path):
+    client, captured = _make_client(monkeypatch, tmp_path, aspect="9:16")
+    r = client.post(f"/api/reframe/{JOB_ID}/0", json={"reframe_mode": "gaming"})
+    assert r.status_code == 200, r.text
+    assert "--gaming-facecam-position" not in captured["cmd"]
+
+
+def test_reframe_non_gaming_mode_omits_facecam_flags_even_if_supplied(monkeypatch, tmp_path):
+    client, captured = _make_client(monkeypatch, tmp_path, aspect="9:16")
+    r = client.post(
+        f"/api/reframe/{JOB_ID}/0",
+        json={"reframe_mode": "auto", "gaming_facecam_position": "top-left"},
+    )
+    assert r.status_code == 200, r.text
+    assert "--gaming-facecam-position" not in captured["cmd"]

@@ -126,6 +126,32 @@ test('reframe picker: hint is hidden for non-gaming modes', () => {
   expect(screen.queryByText(/Detects a static facecam overlay/)).not.toBeInTheDocument();
 });
 
+test('gaming facecam controls: hidden outside gaming mode', () => {
+  mount({ reframeMode: 'auto' });
+  expect(screen.queryByText('Facecam position')).not.toBeInTheDocument();
+});
+
+test('gaming facecam controls: position grid defaults to Auto and size row is hidden', () => {
+  mount({ reframeMode: 'gaming' });
+  const positionRow = screen.getByText('Facecam position').closest('.cf-row');
+  expect(within(positionRow).getByRole('button', { name: 'Auto' })).toHaveClass('on');
+  expect(screen.queryByText('Facecam size')).not.toBeInTheDocument();
+});
+
+test('gaming facecam controls: picking a corner patches gamingFacecamPosition and reveals size row', () => {
+  const set = mount({ reframeMode: 'gaming' });
+  const positionRow = screen.getByText('Facecam position').closest('.cf-row');
+  fireEvent.click(within(positionRow).getByRole('button', { name: 'Top L' }));
+  expect(set).toHaveBeenLastCalledWith({ gamingFacecamPosition: 'top-left' });
+});
+
+test('gaming facecam controls: size segment patches gamingFacecamSize once a manual position is set', () => {
+  const set = mount({ reframeMode: 'gaming', gamingFacecamPosition: 'bottom-right' });
+  const sizeRow = screen.getByText('Facecam size').closest('.cf-row');
+  fireEvent.click(within(sizeRow).getByRole('button', { name: 'L' }));
+  expect(set).toHaveBeenLastCalledWith({ gamingFacecamSize: 'L' });
+});
+
 test('Save as default button in the recipe panel header calls onSaveAsDefault', () => {
   const onSaveAsDefault = vi.fn();
   mount({}, { onSaveAsDefault });

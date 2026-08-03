@@ -40,7 +40,7 @@ from clippyme.pipeline.reframe_ops import (
     detect_static_facecam_region,
     expand_box_to_aspect,
     min_output_short_edge,
-    offset_crop_away_from_box,
+    resolve_manual_facecam_box,
     salient_crop_center,
     weighted_interest_center,
 )
@@ -650,10 +650,12 @@ def _detect_gaming_facecam(input_video, total_frames):
 
 
 def create_gaming_frame(frame, output_width, output_height, facecam_box):
-    """Split-screen gaming layout: the detected facecam region fills the top
-    zone, a centred crop of the rest of the frame fills the bottom zone —
-    offset away from the facecam (offset_crop_away_from_box) so the same
-    corner isn't shown twice when the default centred crop would overlap it.
+    """Split-screen gaming layout: the detected/manual facecam region fills
+    the top zone, a horizontally CENTRED crop of the source frame fills the
+    bottom zone — always centred (never shifted to dodge the facecam), since
+    that shows the most of the actual gameplay, which is usually what's
+    interesting; a corner-positioned facecam overlay rarely reaches into the
+    centre column anyway.
     """
     orig_h, orig_w = frame.shape[:2]
     fx, fy, fw, fh = facecam_box
@@ -676,7 +678,6 @@ def create_gaming_frame(frame, output_width, output_height, facecam_box):
 
     game_w = min(orig_w, int(round(orig_h * (output_width / float(bottom_h)))))
     game_x = (orig_w - game_w) // 2
-    game_x = offset_crop_away_from_box(game_x, game_w, fx, fw, orig_w)
     game_crop = frame[:, game_x:game_x + game_w]
     bottom_zone = _resize_to_output(game_crop, output_width, bottom_h)
 
@@ -907,7 +908,8 @@ def _render_global_smooth(input_video, ffmpeg_process, cameraman, speaker_tracke
 
 
 def process_video_to_vertical(input_video, final_output_video, reframe_mode='auto',
-                              zoom_end=None, aspect_ratio: float = 9 / 16):
+                              zoom_end=None, aspect_ratio: float = 9 / 16,
+                              gaming_facecam_position=None, gaming_facecam_size='M'):
     """
     Core logic to convert horizontal video to vertical using scene detection and Active Speaker Tracking (MediaPipe).
 
@@ -920,6 +922,13 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     aspect_ratio: output width/height ratio (9/16 vertical default; 1.0 and
     16/9 for square/landscape jobs). Passed explicitly by main.py per job —
     this replaced the old ``reframe.ASPECT_RATIO`` module global.
+
+    gaming_facecam_position: only used when reframe_mode == 'gaming'. ``None``
+    or ``'auto'`` (default) runs the usual _detect_gaming_facecam scan; one of
+    reframe_ops.GAMING_FACECAM_POSITIONS pins the facecam to that corner
+    directly, skipping detection — facecam placement varies per
+    streamer/game, and the detector can miss or mis-locate the overlay, so a
+    user who knows their own layout can set it instead of relying on a guess.
     """
     # 'object' is the legacy name for the FrameShift face-first 'subject' mode —
     # normalize once here so the rest of this function only ever sees 'subject'.
@@ -974,8 +983,11 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
         print("   🧩 Reframe mode: SUBJECT — FrameShift face-first 9:16 crop (faces 1.0 → persons 0.8 → objects 0.5).")
         print("      (Weighted-interest centroid per frame; black-padded letterbox when no subject is detected.)")
     elif reframe_mode == 'gaming':
-        print("   🎮 Reframe mode: GAMING — split-screen (facecam top, gameplay bottom) if a static facecam is found.")
-        print("      (Falls back to AUTO face tracking when no confident facecam overlay is detected.)")
+        if gaming_facecam_position and gaming_facecam_position != 'auto':
+            print(f"   🎮 Reframe mode: GAMING — split-screen, facecam pinned manually at {gaming_facecam_position} ({gaming_facecam_size}).")
+        else:
+            print("   🎮 Reframe mode: GAMING — split-screen (facecam top, gameplay bottom) if a static facecam is found.")
+            print("      (Falls back to AUTO face tracking when no confident facecam overlay is detected.)")
     else:
         print("   🎯 Reframe mode: AUTO — face tracking + dynamic 9:16 crop.")
     print("   Step 1: Detecting scenes...")
@@ -1055,6 +1067,12 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     elif reframe_mode == 'subject':
         print("\n   🤖 Step 3: Skipping scene analysis (subject mode — every scene is FrameShift face-first cropped).")
         scene_strategies = ['OBJECT'] * len(scenes)
+    elif reframe_mode == 'gaming' and gaming_facecam_position and gaming_facecam_position != 'auto':
+        print(f"\n   🤖 Step 3: Using manual facecam position ({gaming_facecam_position}, size {gaming_facecam_size}) — skipping detection.")
+        facecam_box = resolve_manual_facecam_box(
+            gaming_facecam_position, gaming_facecam_size, original_width, original_height
+        )
+        scene_strategies = ['GAMING'] * len(scenes)
     elif reframe_mode == 'gaming':
         print("\n   🤖 Step 3: Scanning for a static facecam overlay (gaming split-screen)...")
         facecam_box = _detect_gaming_facecam(input_video, _probe_total_frames)
@@ -1202,9 +1220,10 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                         )
 
                     elif current_strategy == 'GAMING':
-                        # Facecam position was detected ONCE up front (see
-                        # _detect_gaming_facecam) — every frame reuses the same
-                        # box, it is not re-tracked per frame.
+                        # Facecam position was resolved ONCE up front — either
+                        # detected (_detect_gaming_facecam) or pinned manually
+                        # (resolve_manual_facecam_box) — every frame reuses the
+                        # same box, it is not re-tracked per frame.
                         output_frame = create_gaming_frame(
                             frame, OUTPUT_WIDTH, OUTPUT_HEIGHT, facecam_box,
                         )
