@@ -422,11 +422,13 @@ def _build_publish_body(title: str, hook_text: str):
 
 async def _compose_full(job_id: str, idx: int, hook_text: str):
     """Compose (subtitles/hook — same recipe as publish) via the backend and
-    return the FULL-quality composed file's local path, or None when there is
-    nothing to burn in (raw clip already looks final) or compose failed.
-    Shared by ``_compose_preview`` (which additionally shrinks the result for
-    Discord) and the download-reaction handler (which sends this file as-is,
-    since it's the same quality that would actually publish)."""
+    return (local_path, composed_url) for the FULL-quality composed file, or
+    None when there is nothing to burn in (raw clip already looks final) or
+    compose failed. Shared by ``_compose_preview`` (which additionally
+    shrinks the result for Discord and only needs local_path) and the
+    download-reaction handler, which also needs composed_url — linking a
+    clip that IS composed by its own pre-compose ``video_url`` would serve a
+    file missing the burned-in subtitles/hook."""
     toggles, hook_params, subtitle_params = _build_compose_toggles(hook_text)
     if not any(toggles.values()):
         return None  # nothing to burn in — raw clip already looks final
@@ -456,7 +458,8 @@ async def _compose_full(job_id: str, idx: int, hook_text: str):
         print(f"Compose request failed for {job_id}/{idx}: {exc}", flush=True)
         return None
 
-    return _local_clip_path(composed)
+    local_path = _local_clip_path(composed)
+    return (local_path, composed) if local_path else None
 
 
 async def _compose_preview(job_id: str, idx: int, hook_text: str):
@@ -465,9 +468,10 @@ async def _compose_preview(job_id: str, idx: int, hook_text: str):
     limit, and a dead oversized-clip link isn't a preview. Returns a path to a
     small temp file the caller must delete, or None if compose/shrink failed
     (caller falls back to posting the raw clip)."""
-    composed_path = await _compose_full(job_id, idx, hook_text)
-    if not composed_path:
+    composed = await _compose_full(job_id, idx, hook_text)
+    if not composed:
         return None
+    composed_path, _composed_url = composed
 
     preview_path = f"/tmp/preview_{job_id}_{idx}.mp4"
     cmd = [
@@ -778,8 +782,13 @@ async def handle_download_request(message, user, job_id, clip_index):
     # handle_approval, which sends its own "Publishing..." ack immediately).
     await message.reply(f"⏳ Preparing full-quality download of **{title}**…")
 
-    full_path = await _compose_full(job_id, clip_index, hook_text)
+    composed = await _compose_full(job_id, clip_index, hook_text)
+    full_path, composed_url = composed if composed else (None, None)
     local_path = full_path or _local_clip_path(video_url)
+    # The link must point at whatever local_path actually is — video_url is
+    # the pre-compose raw clip, missing any burned-in subtitles/hook that
+    # composed_url (when compose ran) has.
+    link_url = composed_url if full_path else video_url
 
     try:
         if local_path:
@@ -797,9 +806,9 @@ async def handle_download_request(message, user, job_id, clip_index):
                     f"_({size_mb:.1f} MB — over Discord's {MAX_UPLOAD_MB} MB limit, uploaded to Google Drive instead)_"
                 )
                 return
-            if CLIPPYME_PUBLIC_URL and video_url:
+            if CLIPPYME_PUBLIC_URL and link_url:
                 await message.reply(
-                    f"**{title}**\n{CLIPPYME_PUBLIC_URL}{video_url}\n"
+                    f"**{title}**\n{CLIPPYME_PUBLIC_URL}{link_url}\n"
                     f"_({size_mb:.1f} MB — over Discord's {MAX_UPLOAD_MB} MB limit, linked instead)_"
                 )
                 return
@@ -809,8 +818,8 @@ async def handle_download_request(message, user, job_id, clip_index):
                 "is set to link it instead."
             )
             return
-        if CLIPPYME_PUBLIC_URL and video_url:
-            await message.reply(f"**{title}**\n{CLIPPYME_PUBLIC_URL}{video_url}")
+        if CLIPPYME_PUBLIC_URL and link_url:
+            await message.reply(f"**{title}**\n{CLIPPYME_PUBLIC_URL}{link_url}")
             return
         await message.reply(
             f"{REJECT_EMOJI} Could not find the full-quality file for **{title}** "
@@ -821,9 +830,9 @@ async def handle_download_request(message, user, job_id, clip_index):
         drive_link = await _upload_to_drive(local_path, os.path.basename(local_path)) if local_path else None
         if drive_link:
             await message.reply(f"**{title}**\n{drive_link}\n_(Discord upload failed, uploaded to Google Drive instead)_")
-        elif CLIPPYME_PUBLIC_URL and video_url:
+        elif CLIPPYME_PUBLIC_URL and link_url:
             await message.reply(
-                f"**{title}**\n{CLIPPYME_PUBLIC_URL}{video_url}\n_(upload failed, linked instead)_"
+                f"**{title}**\n{CLIPPYME_PUBLIC_URL}{link_url}\n_(upload failed, linked instead)_"
             )
 
 
