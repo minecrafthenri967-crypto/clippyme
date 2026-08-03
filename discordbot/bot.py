@@ -19,12 +19,14 @@ HOW THE VIDEO REACHES DISCORD (four tiers, in order):
      full quality from the untouched source, so the shrink never touches what
      actually gets uploaded to TikTok/YouTube. Falls back to the raw clip
      (marked as such in the message) if compose or the shrink fails.
-  2. A Google Drive link, for clips over Discord's limit, when
-     GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE + GOOGLE_DRIVE_FOLDER_ID are set (see
-     the constants below for the one-time Google Cloud setup). Preferred over
-     CLIPPYME_PUBLIC_URL because it needs no public exposure of the backend.
+  2. A Cloudflare R2 link, for clips over Discord's limit, when R2_ACCOUNT_ID
+     + R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY + R2_BUCKET_NAME +
+     R2_PUBLIC_URL_BASE are all set (see the constants below for the
+     one-time Cloudflare dashboard setup). Preferred over CLIPPYME_PUBLIC_URL
+     because it needs no public exposure of the backend, no reverse-proxy
+     setup, and no per-file size cap (unlike some managed upload APIs).
   3. A public link via CLIPPYME_PUBLIC_URL, for clips over Discord's limit,
-     when Drive isn't configured.
+     when R2 isn't configured.
   4. No video, plus a message saying exactly what to configure.
 A localhost URL is never posted: it would resolve on the *viewer's* machine,
 so it is always dead. Requires ffmpeg in this container's image (the backend
@@ -44,6 +46,7 @@ would re-publish clips already approved here.
 import asyncio
 import json
 import os
+import time
 from urllib.parse import quote
 
 import aiohttp
@@ -51,16 +54,16 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-# Optional: only needed for the Google Drive oversized-clip fallback. Guarded
+# Optional: only needed for the Cloudflare R2 oversized-clip fallback. Guarded
 # so a standalone run (bare `python discordbot/bot.py`, per this module's own
-# docstring) without `pip install google-auth` still starts — Drive support
-# just degrades to unavailable rather than crashing the whole bot.
+# docstring) without `pip install boto3` still starts — R2 support just
+# degrades to unavailable rather than crashing the whole bot.
 try:
-    from google.auth.transport.requests import Request as _GoogleAuthRequest
-    from google.oauth2 import service_account as _google_service_account
-    _GOOGLE_AUTH_AVAILABLE = True
+    import boto3
+    from botocore.config import Config as _BotoConfig
+    _BOTO3_AVAILABLE = True
 except ImportError:
-    _GOOGLE_AUTH_AVAILABLE = False
+    _BOTO3_AVAILABLE = False
 
 # Compose supplies these via env_file; standalone runs read the file directly.
 # Never overrides an already-set variable, so compose always wins.
@@ -93,17 +96,22 @@ CLIPPYME_API = os.getenv("CLIPPYME_API_URL", "http://localhost:8000")
 # Publicly reachable address of the SAME instance, e.g. https://clips.example.de
 # — only used for clickable links. Leave empty if the backend is not exposed.
 CLIPPYME_PUBLIC_URL = (os.getenv("CLIPPYME_PUBLIC_URL", "") or "").rstrip("/")
-# Google Drive fallback for clips too large for Discord's upload limit —
+# Cloudflare R2 fallback for clips too large for Discord's upload limit —
 # preferred over CLIPPYME_PUBLIC_URL since it needs no public exposure of the
-# backend. One-time setup (Google Cloud Console): create a project, enable
-# the Drive API, create a service account, download its JSON key, drop it
-# into this bot's state directory (the same volume as DISCORD_STATE_FILE —
-# e.g. data/discordbot/service_account.json on the host), then share a
-# Drive folder with the service account's email (Editor access) and put that
-# folder's ID here. Both must be set for Drive uploads to be attempted.
-GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE = (os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", "") or "").strip()
-GOOGLE_DRIVE_FOLDER_ID = (os.getenv("GOOGLE_DRIVE_FOLDER_ID", "") or "").strip()
-_GOOGLE_DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+# backend, no reverse-proxy setup, and no per-file size cap. One-time setup
+# (Cloudflare dashboard): create an R2 bucket, enable public access on it
+# (Bucket settings -> Public access -> Allow Access, copy the r2.dev URL it
+# gives you, or map your own domain), then create an API token scoped to
+# that bucket (R2 -> Manage API tokens) for the access key id/secret below.
+# All five must be set for R2 uploads to be attempted.
+R2_ACCOUNT_ID = (os.getenv("R2_ACCOUNT_ID", "") or "").strip()
+R2_ACCESS_KEY_ID = (os.getenv("R2_ACCESS_KEY_ID", "") or "").strip()
+R2_SECRET_ACCESS_KEY = (os.getenv("R2_SECRET_ACCESS_KEY", "") or "").strip()
+R2_BUCKET_NAME = (os.getenv("R2_BUCKET_NAME", "") or "").strip()
+# The public base URL Cloudflare gave you for the bucket (r2.dev or a custom
+# domain), no trailing slash — {R2_PUBLIC_URL_BASE}/{object_key} is what gets
+# posted as the clickable link.
+R2_PUBLIC_URL_BASE = (os.getenv("R2_PUBLIC_URL_BASE", "") or "").rstrip("/")
 # Where finished clips live (ClippyMe's output/). Enables direct upload.
 CLIPPYME_OUTPUT_DIR = os.getenv("CLIPPYME_OUTPUT_DIR", "output")
 # Must match the backend's PUBLISH_GATE_TOKEN when that's set. That gate
@@ -220,102 +228,61 @@ def _local_clip_path(video_url: str):
     return candidate if os.path.isfile(candidate) else None
 
 
-# Loaded lazily (first upload attempt), cached — building/refreshing
-# credentials is cheap but there's no reason to touch the key file every time.
-# `False` is a "tried once, unusable" sentinel distinct from `None` ("not
-# attempted yet") so a missing/malformed key file doesn't get re-parsed (and
-# re-logged) on every single oversized clip.
-_drive_credentials = None
+# Loaded lazily (first upload attempt), cached — building the client is
+# cheap but there's no reason to redo it every time. `False` is a "tried
+# once, unusable" sentinel distinct from `None` ("not attempted yet") so
+# missing/invalid config doesn't get re-checked (and re-logged) on every
+# single oversized clip.
+_r2_client = None
 
 
-def _load_drive_credentials():
-    global _drive_credentials
-    if _drive_credentials is not None:
-        return _drive_credentials or None
-    if not _GOOGLE_AUTH_AVAILABLE or not GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE or not GOOGLE_DRIVE_FOLDER_ID:
-        _drive_credentials = False
+def _load_r2_client():
+    global _r2_client
+    if _r2_client is not None:
+        return _r2_client or None
+    if not (_BOTO3_AVAILABLE and R2_ACCOUNT_ID and R2_ACCESS_KEY_ID
+            and R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME and R2_PUBLIC_URL_BASE):
+        _r2_client = False
         return None
     try:
-        _drive_credentials = _google_service_account.Credentials.from_service_account_file(
-            GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE, scopes=_GOOGLE_DRIVE_SCOPES
+        _r2_client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            config=_BotoConfig(signature_version="s3v4"),
+            region_name="auto",
         )
     except Exception as exc:
-        print(f"WARNING: could not load Google Drive service account key: {exc}", flush=True)
-        _drive_credentials = False
+        print(f"WARNING: could not init Cloudflare R2 client: {exc}", flush=True)
+        _r2_client = False
         return None
-    return _drive_credentials
+    return _r2_client
 
 
-def _drive_access_token():
-    """Blocking: mints/refreshes the service-account access token. Run via
-    asyncio.to_thread — google-auth's HTTP calls are synchronous."""
-    creds = _load_drive_credentials()
-    if not creds:
-        return None
-    if not creds.valid:
-        try:
-            creds.refresh(_GoogleAuthRequest())
-        except Exception as exc:
-            print(f"WARNING: Google Drive token refresh failed: {exc}", flush=True)
-            return None
-    return creds.token
-
-
-async def _upload_to_drive(local_path: str, filename: str):
-    """Upload a clip too large for Discord to Google Drive (resumable upload,
-    service-account auth) and return a shareable 'anyone with the link' view
-    URL, or None if Drive isn't configured or anything about the upload
-    failed — this is a best-effort fallback, never fatal to the bot."""
-    token = await asyncio.to_thread(_drive_access_token)
-    if not token:
+def _upload_to_r2_blocking(local_path: str, object_key: str):
+    """Blocking: boto3 handles multipart upload automatically for large
+    files (no size cap like some managed upload APIs). Run via
+    asyncio.to_thread — boto3 has no async API."""
+    client = _load_r2_client()
+    if not client:
         return None
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=UTF-8"},
-                json={"name": filename, "parents": [GOOGLE_DRIVE_FOLDER_ID]},
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    print(f"Drive upload session init failed: {resp.status} {text[:200]}", flush=True)
-                    return None
-                upload_url = resp.headers.get("Location")
-            if not upload_url:
-                print("Drive upload session init returned no Location header", flush=True)
-                return None
-
-            size = os.path.getsize(local_path)
-            with open(local_path, "rb") as fh:
-                async with session.put(
-                    upload_url, data=fh, headers={"Content-Length": str(size)},
-                    timeout=aiohttp.ClientTimeout(total=1800),
-                ) as resp:
-                    if resp.status not in (200, 201):
-                        text = await resp.text()
-                        print(f"Drive upload failed: {resp.status} {text[:200]}", flush=True)
-                        return None
-                    file_id = (await resp.json()).get("id")
-            if not file_id:
-                return None
-
-            async with session.post(
-                f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json={"type": "anyone", "role": "reader"},
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                if resp.status not in (200, 201):
-                    text = await resp.text()
-                    # Upload itself succeeded — only the "anyone with the
-                    # link" sharing failed. Still return the link; worst case
-                    # only the service account can open it until fixed.
-                    print(f"Drive permission grant failed: {resp.status} {text[:200]}", flush=True)
-        return f"https://drive.google.com/file/d/{file_id}/view"
+        client.upload_file(local_path, R2_BUCKET_NAME, object_key)
     except Exception as exc:
-        print(f"Drive upload error: {exc}", flush=True)
+        print(f"R2 upload failed: {exc}", flush=True)
         return None
+    return f"{R2_PUBLIC_URL_BASE}/{quote(object_key)}"
+
+
+async def _upload_to_r2(local_path: str, filename: str):
+    """Upload a clip too large for Discord to Cloudflare R2 and return its
+    public URL, or None if R2 isn't configured or the upload failed — this
+    is a best-effort fallback, never fatal to the bot."""
+    # Timestamp prefix so a retried download request (or two clips that
+    # happen to share a basename) never overwrites another object.
+    object_key = f"{int(time.time())}_{filename}"
+    return await asyncio.to_thread(_upload_to_r2_blocking, local_path, object_key)
 
 
 async def _fetch_zernio_accounts() -> dict:
@@ -609,19 +576,19 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
                 attachment = discord.File(local_path, filename=os.path.basename(local_path))
                 body += note
             else:
-                # Google Drive is preferred over CLIPPYME_PUBLIC_URL for
+                # Cloudflare R2 is preferred over CLIPPYME_PUBLIC_URL for
                 # oversized clips — no need to expose the backend publicly.
-                drive_link = await _upload_to_drive(local_path, os.path.basename(local_path))
-                if drive_link:
-                    body += (f"{drive_link}\n"
-                             f"_({size_mb:.1f} MB — too large for Discord, uploaded to Google Drive instead)_\n\n{note}")
+                r2_link = await _upload_to_r2(local_path, os.path.basename(local_path))
+                if r2_link:
+                    body += (f"{r2_link}\n"
+                             f"_({size_mb:.1f} MB — too large for Discord, uploaded to Cloudflare R2 instead)_\n\n{note}")
                 elif CLIPPYME_PUBLIC_URL:
                     body += (f"{CLIPPYME_PUBLIC_URL}{video_url}\n"
                              f"_({size_mb:.1f} MB — too large to upload)_\n\n{note}")
                 else:
                     body += (f"_Clip is {size_mb:.1f} MB, over Discord's {MAX_UPLOAD_MB} MB limit. "
-                             f"Set GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE/GOOGLE_DRIVE_FOLDER_ID or "
-                             f"CLIPPYME_PUBLIC_URL to link it instead._\n\n{note}")
+                             f"Set R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET_NAME/"
+                             f"R2_PUBLIC_URL_BASE or CLIPPYME_PUBLIC_URL to link it instead._\n\n{note}")
         elif CLIPPYME_PUBLIC_URL:
             body += f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n{note}"
         else:
@@ -799,11 +766,11 @@ async def handle_download_request(message, user, job_id, clip_index):
                     file=discord.File(local_path, filename=os.path.basename(local_path)),
                 )
                 return
-            drive_link = await _upload_to_drive(local_path, os.path.basename(local_path))
-            if drive_link:
+            r2_link = await _upload_to_r2(local_path, os.path.basename(local_path))
+            if r2_link:
                 await message.reply(
-                    f"**{title}**\n{drive_link}\n"
-                    f"_({size_mb:.1f} MB — over Discord's {MAX_UPLOAD_MB} MB limit, uploaded to Google Drive instead)_"
+                    f"**{title}**\n{r2_link}\n"
+                    f"_({size_mb:.1f} MB — over Discord's {MAX_UPLOAD_MB} MB limit, uploaded to Cloudflare R2 instead)_"
                 )
                 return
             if CLIPPYME_PUBLIC_URL and link_url:
@@ -814,7 +781,7 @@ async def handle_download_request(message, user, job_id, clip_index):
                 return
             await message.reply(
                 f"{REJECT_EMOJI} **{title}** is {size_mb:.1f} MB — over Discord's "
-                f"{MAX_UPLOAD_MB} MB limit and no Google Drive or CLIPPYME_PUBLIC_URL "
+                f"{MAX_UPLOAD_MB} MB limit and no Cloudflare R2 or CLIPPYME_PUBLIC_URL "
                 "is set to link it instead."
             )
             return
@@ -827,9 +794,9 @@ async def handle_download_request(message, user, job_id, clip_index):
         )
     except discord.HTTPException as exc:
         print(f"Could not send full-quality clip {clip_index} (job {job_id}): {exc}", flush=True)
-        drive_link = await _upload_to_drive(local_path, os.path.basename(local_path)) if local_path else None
-        if drive_link:
-            await message.reply(f"**{title}**\n{drive_link}\n_(Discord upload failed, uploaded to Google Drive instead)_")
+        r2_link = await _upload_to_r2(local_path, os.path.basename(local_path)) if local_path else None
+        if r2_link:
+            await message.reply(f"**{title}**\n{r2_link}\n_(Discord upload failed, uploaded to Cloudflare R2 instead)_")
         elif CLIPPYME_PUBLIC_URL and link_url:
             await message.reply(
                 f"**{title}**\n{CLIPPYME_PUBLIC_URL}{link_url}\n_(upload failed, linked instead)_"
@@ -865,8 +832,8 @@ async def status(ctx):
               else "NO video (not configured)")
     )
     oversized_fallback = (
-        "Google Drive"
-        if (GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE and GOOGLE_DRIVE_FOLDER_ID)
+        "Cloudflare R2"
+        if (R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME and R2_PUBLIC_URL_BASE)
         else (f"link via {CLIPPYME_PUBLIC_URL}" if CLIPPYME_PUBLIC_URL else "none configured")
     )
     await ctx.send(
