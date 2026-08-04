@@ -19,14 +19,14 @@ HOW THE VIDEO REACHES DISCORD (four tiers, in order):
      full quality from the untouched source, so the shrink never touches what
      actually gets uploaded to TikTok/YouTube. Falls back to the raw clip
      (marked as such in the message) if compose or the shrink fails.
-  2. A Cloudflare R2 link, for clips over Discord's limit, when R2_ACCOUNT_ID
-     + R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY + R2_BUCKET_NAME +
-     R2_PUBLIC_URL_BASE are all set (see the constants below for the
-     one-time Cloudflare dashboard setup). Preferred over CLIPPYME_PUBLIC_URL
+  2. A Backblaze B2 link, for clips over Discord's limit, when B2_ENDPOINT +
+     B2_ACCESS_KEY_ID + B2_SECRET_ACCESS_KEY + B2_BUCKET_NAME are all set
+     (see the constants below for the one-time Backblaze dashboard setup —
+     free tier, no credit card required). Preferred over CLIPPYME_PUBLIC_URL
      because it needs no public exposure of the backend, no reverse-proxy
      setup, and no per-file size cap (unlike some managed upload APIs).
   3. A public link via CLIPPYME_PUBLIC_URL, for clips over Discord's limit,
-     when R2 isn't configured.
+     when B2 isn't configured.
   4. No video, plus a message saying exactly what to configure.
 A localhost URL is never posted: it would resolve on the *viewer's* machine,
 so it is always dead. Requires ffmpeg in this container's image (the backend
@@ -54,9 +54,9 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-# Optional: only needed for the Cloudflare R2 oversized-clip fallback. Guarded
+# Optional: only needed for the Backblaze B2 oversized-clip fallback. Guarded
 # so a standalone run (bare `python discordbot/bot.py`, per this module's own
-# docstring) without `pip install boto3` still starts — R2 support just
+# docstring) without `pip install boto3` still starts — B2 support just
 # degrades to unavailable rather than crashing the whole bot.
 try:
     import boto3
@@ -96,22 +96,19 @@ CLIPPYME_API = os.getenv("CLIPPYME_API_URL", "http://localhost:8000")
 # Publicly reachable address of the SAME instance, e.g. https://clips.example.de
 # — only used for clickable links. Leave empty if the backend is not exposed.
 CLIPPYME_PUBLIC_URL = (os.getenv("CLIPPYME_PUBLIC_URL", "") or "").rstrip("/")
-# Cloudflare R2 fallback for clips too large for Discord's upload limit —
+# Backblaze B2 fallback for clips too large for Discord's upload limit —
 # preferred over CLIPPYME_PUBLIC_URL since it needs no public exposure of the
-# backend, no reverse-proxy setup, and no per-file size cap. One-time setup
-# (Cloudflare dashboard): create an R2 bucket, enable public access on it
-# (Bucket settings -> Public access -> Allow Access, copy the r2.dev URL it
-# gives you, or map your own domain), then create an API token scoped to
-# that bucket (R2 -> Manage API tokens) for the access key id/secret below.
-# All five must be set for R2 uploads to be attempted.
-R2_ACCOUNT_ID = (os.getenv("R2_ACCOUNT_ID", "") or "").strip()
-R2_ACCESS_KEY_ID = (os.getenv("R2_ACCESS_KEY_ID", "") or "").strip()
-R2_SECRET_ACCESS_KEY = (os.getenv("R2_SECRET_ACCESS_KEY", "") or "").strip()
-R2_BUCKET_NAME = (os.getenv("R2_BUCKET_NAME", "") or "").strip()
-# The public base URL Cloudflare gave you for the bucket (r2.dev or a custom
-# domain), no trailing slash — {R2_PUBLIC_URL_BASE}/{object_key} is what gets
-# posted as the clickable link.
-R2_PUBLIC_URL_BASE = (os.getenv("R2_PUBLIC_URL_BASE", "") or "").rstrip("/")
+# backend, no reverse-proxy setup, and no per-file size cap. Free tier (10 GB)
+# needs no credit card, unlike some other S3-compatible providers. One-time
+# setup (backblaze.com dashboard): create a bucket with "Files in Bucket are
+# Public", note the per-bucket Endpoint it shows you (e.g.
+# s3.us-west-004.backblazeb2.com), then create an Application Key scoped to
+# that bucket (Account -> App Keys) for the key id/secret below. All four
+# must be set for B2 uploads to be attempted.
+B2_ENDPOINT = (os.getenv("B2_ENDPOINT", "") or "").strip()
+B2_ACCESS_KEY_ID = (os.getenv("B2_ACCESS_KEY_ID", "") or "").strip()
+B2_SECRET_ACCESS_KEY = (os.getenv("B2_SECRET_ACCESS_KEY", "") or "").strip()
+B2_BUCKET_NAME = (os.getenv("B2_BUCKET_NAME", "") or "").strip()
 # Where finished clips live (ClippyMe's output/). Enables direct upload.
 CLIPPYME_OUTPUT_DIR = os.getenv("CLIPPYME_OUTPUT_DIR", "output")
 # Must match the backend's PUBLISH_GATE_TOKEN when that's set. That gate
@@ -233,56 +230,62 @@ def _local_clip_path(video_url: str):
 # once, unusable" sentinel distinct from `None` ("not attempted yet") so
 # missing/invalid config doesn't get re-checked (and re-logged) on every
 # single oversized clip.
-_r2_client = None
+_b2_client = None
 
 
-def _load_r2_client():
-    global _r2_client
-    if _r2_client is not None:
-        return _r2_client or None
-    if not (_BOTO3_AVAILABLE and R2_ACCOUNT_ID and R2_ACCESS_KEY_ID
-            and R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME and R2_PUBLIC_URL_BASE):
-        _r2_client = False
+def _load_b2_client():
+    global _b2_client
+    if _b2_client is not None:
+        return _b2_client or None
+    if not (_BOTO3_AVAILABLE and B2_ENDPOINT and B2_ACCESS_KEY_ID
+            and B2_SECRET_ACCESS_KEY and B2_BUCKET_NAME):
+        _b2_client = False
         return None
     try:
-        _r2_client = boto3.client(
+        # B2's endpoint is "s3.<region>.backblazeb2.com" — SigV4 needs the
+        # region to match what's embedded in the endpoint, unlike R2's
+        # wildcard "auto".
+        region = B2_ENDPOINT.split(".")[1]
+        _b2_client = boto3.client(
             "s3",
-            endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-            aws_access_key_id=R2_ACCESS_KEY_ID,
-            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            endpoint_url=f"https://{B2_ENDPOINT}",
+            aws_access_key_id=B2_ACCESS_KEY_ID,
+            aws_secret_access_key=B2_SECRET_ACCESS_KEY,
             config=_BotoConfig(signature_version="s3v4"),
-            region_name="auto",
+            region_name=region,
         )
     except Exception as exc:
-        print(f"WARNING: could not init Cloudflare R2 client: {exc}", flush=True)
-        _r2_client = False
+        print(f"WARNING: could not init Backblaze B2 client: {exc}", flush=True)
+        _b2_client = False
         return None
-    return _r2_client
+    return _b2_client
 
 
-def _upload_to_r2_blocking(local_path: str, object_key: str):
+def _upload_to_b2_blocking(local_path: str, object_key: str):
     """Blocking: boto3 handles multipart upload automatically for large
     files (no size cap like some managed upload APIs). Run via
     asyncio.to_thread — boto3 has no async API."""
-    client = _load_r2_client()
+    client = _load_b2_client()
     if not client:
         return None
     try:
-        client.upload_file(local_path, R2_BUCKET_NAME, object_key)
+        client.upload_file(local_path, B2_BUCKET_NAME, object_key)
     except Exception as exc:
-        print(f"R2 upload failed: {exc}", flush=True)
+        print(f"B2 upload failed: {exc}", flush=True)
         return None
-    return f"{R2_PUBLIC_URL_BASE}/{quote(object_key)}"
+    # Virtual-hosted-style URL for a public bucket — unauthenticated, no
+    # signed-URL expiry.
+    return f"https://{B2_BUCKET_NAME}.{B2_ENDPOINT}/{quote(object_key)}"
 
 
-async def _upload_to_r2(local_path: str, filename: str):
-    """Upload a clip too large for Discord to Cloudflare R2 and return its
-    public URL, or None if R2 isn't configured or the upload failed — this
+async def _upload_to_b2(local_path: str, filename: str):
+    """Upload a clip too large for Discord to Backblaze B2 and return its
+    public URL, or None if B2 isn't configured or the upload failed — this
     is a best-effort fallback, never fatal to the bot."""
     # Timestamp prefix so a retried download request (or two clips that
     # happen to share a basename) never overwrites another object.
     object_key = f"{int(time.time())}_{filename}"
-    return await asyncio.to_thread(_upload_to_r2_blocking, local_path, object_key)
+    return await asyncio.to_thread(_upload_to_b2_blocking, local_path, object_key)
 
 
 async def _fetch_zernio_accounts() -> dict:
@@ -576,19 +579,19 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
                 attachment = discord.File(local_path, filename=os.path.basename(local_path))
                 body += note
             else:
-                # Cloudflare R2 is preferred over CLIPPYME_PUBLIC_URL for
+                # Backblaze B2 is preferred over CLIPPYME_PUBLIC_URL for
                 # oversized clips — no need to expose the backend publicly.
-                r2_link = await _upload_to_r2(local_path, os.path.basename(local_path))
-                if r2_link:
-                    body += (f"{r2_link}\n"
-                             f"_({size_mb:.1f} MB — too large for Discord, uploaded to Cloudflare R2 instead)_\n\n{note}")
+                b2_link = await _upload_to_b2(local_path, os.path.basename(local_path))
+                if b2_link:
+                    body += (f"{b2_link}\n"
+                             f"_({size_mb:.1f} MB — too large for Discord, uploaded to Backblaze B2 instead)_\n\n{note}")
                 elif CLIPPYME_PUBLIC_URL:
                     body += (f"{CLIPPYME_PUBLIC_URL}{video_url}\n"
                              f"_({size_mb:.1f} MB — too large to upload)_\n\n{note}")
                 else:
                     body += (f"_Clip is {size_mb:.1f} MB, over Discord's {MAX_UPLOAD_MB} MB limit. "
-                             f"Set R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET_NAME/"
-                             f"R2_PUBLIC_URL_BASE or CLIPPYME_PUBLIC_URL to link it instead._\n\n{note}")
+                             f"Set B2_ENDPOINT/B2_ACCESS_KEY_ID/B2_SECRET_ACCESS_KEY/B2_BUCKET_NAME "
+                             f"or CLIPPYME_PUBLIC_URL to link it instead._\n\n{note}")
         elif CLIPPYME_PUBLIC_URL:
             body += f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n{note}"
         else:
@@ -766,11 +769,11 @@ async def handle_download_request(message, user, job_id, clip_index):
                     file=discord.File(local_path, filename=os.path.basename(local_path)),
                 )
                 return
-            r2_link = await _upload_to_r2(local_path, os.path.basename(local_path))
-            if r2_link:
+            b2_link = await _upload_to_b2(local_path, os.path.basename(local_path))
+            if b2_link:
                 await message.reply(
-                    f"**{title}**\n{r2_link}\n"
-                    f"_({size_mb:.1f} MB — over Discord's {MAX_UPLOAD_MB} MB limit, uploaded to Cloudflare R2 instead)_"
+                    f"**{title}**\n{b2_link}\n"
+                    f"_({size_mb:.1f} MB — over Discord's {MAX_UPLOAD_MB} MB limit, uploaded to Backblaze B2 instead)_"
                 )
                 return
             if CLIPPYME_PUBLIC_URL and link_url:
@@ -781,7 +784,7 @@ async def handle_download_request(message, user, job_id, clip_index):
                 return
             await message.reply(
                 f"{REJECT_EMOJI} **{title}** is {size_mb:.1f} MB — over Discord's "
-                f"{MAX_UPLOAD_MB} MB limit and no Cloudflare R2 or CLIPPYME_PUBLIC_URL "
+                f"{MAX_UPLOAD_MB} MB limit and no Backblaze B2 or CLIPPYME_PUBLIC_URL "
                 "is set to link it instead."
             )
             return
@@ -794,9 +797,9 @@ async def handle_download_request(message, user, job_id, clip_index):
         )
     except discord.HTTPException as exc:
         print(f"Could not send full-quality clip {clip_index} (job {job_id}): {exc}", flush=True)
-        r2_link = await _upload_to_r2(local_path, os.path.basename(local_path)) if local_path else None
-        if r2_link:
-            await message.reply(f"**{title}**\n{r2_link}\n_(Discord upload failed, uploaded to Cloudflare R2 instead)_")
+        b2_link = await _upload_to_b2(local_path, os.path.basename(local_path)) if local_path else None
+        if b2_link:
+            await message.reply(f"**{title}**\n{b2_link}\n_(Discord upload failed, uploaded to Backblaze B2 instead)_")
         elif CLIPPYME_PUBLIC_URL and link_url:
             await message.reply(
                 f"**{title}**\n{CLIPPYME_PUBLIC_URL}{link_url}\n_(upload failed, linked instead)_"
@@ -832,8 +835,8 @@ async def status(ctx):
               else "NO video (not configured)")
     )
     oversized_fallback = (
-        "Cloudflare R2"
-        if (R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME and R2_PUBLIC_URL_BASE)
+        "Backblaze B2"
+        if (B2_ENDPOINT and B2_ACCESS_KEY_ID and B2_SECRET_ACCESS_KEY and B2_BUCKET_NAME)
         else (f"link via {CLIPPYME_PUBLIC_URL}" if CLIPPYME_PUBLIC_URL else "none configured")
     )
     await ctx.send(
