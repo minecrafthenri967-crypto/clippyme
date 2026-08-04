@@ -386,6 +386,51 @@ def _clamp_fontsize(size, default):
     return max(_SUB_FONTSIZE_MIN, min(_SUB_FONTSIZE_MAX, s))
 
 
+#: The ASS canvas both subtitle paths declare (PlayResY). Positions expressed
+#: as a 0..1 fraction of the delivered frame are resolved against this.
+_ASS_PLAY_RES_Y = 1920
+
+
+def parse_position_fraction(position):
+    """Return ``position`` as a 0..1 fraction, or ``None`` if it is a keyword.
+
+    The layout editor stores "where the subtitles sit" as a fraction of the
+    output height (the user drags a box on a 9:16 preview). Keywords
+    top/center/bottom stay supported and take their historical margins, so an
+    existing recipe renders byte-identically.
+    """
+    if isinstance(position, bool) or position is None:
+        return None
+    try:
+        value = float(position)
+    except (TypeError, ValueError):
+        return None
+    if not 0.0 <= value <= 1.0:
+        return None
+    return value
+
+
+def margin_v_for_fraction(fraction, font_size, play_res_y=_ASS_PLAY_RES_Y):
+    """MarginV placing a bottom-anchored caption's CENTRE at ``fraction``.
+
+    With ASS alignment 2 the margin is the gap from the frame's bottom edge to
+    the text, so a fraction measured from the TOP inverts to
+    ``play_res_y * (1 - fraction)``; half the font size then converts "bottom
+    of the text" into "centre of the text", which is what a box drawn in the
+    editor means. Clamped at 0 — a fraction at the very bottom would otherwise
+    ask libass for a negative margin.
+    """
+    try:
+        frac = float(fraction)
+    except (TypeError, ValueError):
+        return 0
+    try:
+        half_text = float(font_size) / 2.0
+    except (TypeError, ValueError):
+        half_text = 0.0
+    return max(0, int(round(play_res_y * (1.0 - frac) - half_text)))
+
+
 def _offset_margin(position_norm, base_margin_v, offset_y):
     """Apply a vertical offset (percent of the 1920px frame) to a base MarginV.
 
@@ -501,10 +546,20 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
 
     # Position → ASS alignment + margin. Positive offset_y moves the caption
     # DOWN (see _offset_margin).
+    position_fraction = parse_position_fraction(position)
     position_norm = str(position).lower()
     if position_norm == "middle":
         position_norm = "center"  # frontend alias
-    if position_norm == "top":
+    if position_fraction is not None:
+        # Drawn in the layout editor: an absolute height on the delivered
+        # frame, so it is anchored from the bottom and offset_y still nudges.
+        vpos = "bottom"
+        margin_v = _offset_margin(
+            "bottom",
+            margin_v_for_fraction(position_fraction, style["fontsize"]),
+            offset_y,
+        )
+    elif position_norm == "top":
         vpos = "top"
         margin_v = _offset_margin("top", 260, offset_y)
     elif position_norm == "center":

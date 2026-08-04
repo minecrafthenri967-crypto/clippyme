@@ -422,3 +422,47 @@ def test_caption_presets_delete_removes_it(client):
 def test_caption_presets_delete_missing_is_404(client):
     r = client.delete("/api/config/caption-presets/ghost")
     assert r.status_code == 404
+
+
+# --- stream layout templates -------------------------------------------------
+
+class TestStreamLayoutRoutes:
+    def test_crud_roundtrip(self, client):
+        body = {
+            "id": "shakyboat", "label": "ShakyBoat Fortnite",
+            "facecam": {"x": 0.0, "y": 0.0, "w": 0.25, "h": 0.28},
+            "gameplay": {"x": 0.33, "y": 0.43, "w": 0.36, "h": 0.5},
+            "split": 0.4, "hook_y": 0.42, "subtitle_y": 0.78,
+        }
+        r = client.post("/api/config/stream-layouts", json=body)
+        assert r.status_code == 200
+        (saved,) = r.json()["layouts"]
+        assert saved["label"] == "ShakyBoat Fortnite"
+        assert saved["gameplay"]["w"] == 0.36
+
+        assert client.get("/api/config/stream-layouts").json()["layouts"]
+
+        r = client.delete("/api/config/stream-layouts/shakyboat")
+        assert r.status_code == 200 and r.json()["layouts"] == []
+
+    def test_geometry_is_optional(self, client):
+        r = client.post("/api/config/stream-layouts",
+                        json={"id": "bare", "label": "Bare"})
+        assert r.status_code == 200
+        (saved,) = r.json()["layouts"]
+        assert saved["facecam"] is None and saved["split"] is None
+
+    def test_out_of_range_split_is_a_400(self, client):
+        r = client.post("/api/config/stream-layouts",
+                        json={"id": "x", "label": "X", "split": 0.95})
+        assert r.status_code == 422
+
+    def test_box_off_the_frame_is_rejected(self, client):
+        r = client.post("/api/config/stream-layouts", json={
+            "id": "x", "label": "X",
+            "gameplay": {"x": 0.8, "y": 0.0, "w": 0.5, "h": 0.5},
+        })
+        assert r.status_code == 422
+
+    def test_delete_unknown_is_404(self, client):
+        assert client.delete("/api/config/stream-layouts/nope").status_code == 404

@@ -405,14 +405,41 @@ def _enable_suffix(enable_end, enable_start=0):
 HOOK_POSITIONS = ("top", "center", "bottom", "seam")
 
 
+def parse_hook_position_fraction(position):
+    """Return ``position`` as a 0..1 fraction, or ``None`` for a keyword.
+
+    The layout editor stores the hook's height as a fraction of the output
+    frame (a box dragged on the 9:16 preview); the named positions stay
+    supported and keep their historical placement.
+    """
+    if isinstance(position, bool) or position is None:
+        return None
+    try:
+        value = float(position)
+    except (TypeError, ValueError):
+        return None
+    return value if 0.0 <= value <= 1.0 else None
+
+
 def resolve_hook_overlay_y(position, video_height, box_h, offset_y=0):
     """Top-edge y for the hook box, before it is handed to ffmpeg's overlay.
+
+    ``position`` is either a keyword (top/center/bottom/seam) or a 0..1
+    fraction of the frame height, in which case the box is CENTRED on it —
+    the same convention as the seam, so a box drawn in the editor lands where
+    it was drawn.
 
     ``offset_y`` is a percentage of frame height (the dashboard's nudge
     slider), applied after the base placement. The result is clamped to the
     frame so neither a tall box nor a large nudge can push the overlay
     off-canvas.
     """
+    fraction = parse_hook_position_fraction(position)
+    if fraction is not None:
+        overlay_y = int(round(video_height * fraction - box_h / 2.0))
+        overlay_y += int(video_height * offset_y / 100)
+        return max(0, min(overlay_y, video_height - box_h))
+
     position_norm = "center" if position == "middle" else position
     if position_norm == "center":
         overlay_y = (video_height - box_h) // 2

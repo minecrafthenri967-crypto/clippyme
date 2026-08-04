@@ -575,6 +575,26 @@ class ZernioProfileRenameRequest(BaseModel):
     label: str = Field(..., min_length=1, max_length=64)
 
 
+class StreamLayoutRequest(BaseModel):
+    """A saved per-streamer layout — upserted by id via
+    POST /api/config/stream-layouts.
+
+    Every geometry field is independently optional so a streamer who only
+    needs, say, the gameplay region pinned is not forced to draw the rest;
+    omitted fields fall back to the pipeline's own defaults.
+    """
+
+    id: str = Field(..., pattern=r"^[a-z0-9_-]{1,40}$")
+    label: str = Field(..., min_length=1, max_length=60)
+    #: Regions of the SOURCE frame (drawn over a screenshot of the stream).
+    facecam: Optional[GamingFacecamBox] = None
+    gameplay: Optional[GamingGameplayBox] = None
+    #: Positions on the DELIVERED 9:16 frame.
+    split: Optional[float] = Field(default=None, ge=GAMING_SPLIT_MIN, le=GAMING_SPLIT_MAX)
+    hook_y: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    subtitle_y: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
 class CaptionPresetRequest(BaseModel):
     """A saved caption template (e.g. one per seller in a multi-account
     clipping campaign) — upserted by id via POST /api/config/caption-presets."""

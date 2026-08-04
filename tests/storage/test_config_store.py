@@ -342,3 +342,69 @@ def test_zernio_config_status_accepts_profile(tmp_config):
     assert "..." in status["api_key_masked"]
     # Default profile is untouched.
     assert config_store.zernio_config_status()["configured"] is False
+
+
+# --- stream layout templates -------------------------------------------------
+
+class TestStreamLayouts:
+    """One saved layout per streamer/game. Every geometry field is optional:
+    pinning only the gameplay region must not force drawing a facecam too."""
+
+    def _box(self, **over):
+        box = {"x": 0.3, "y": 0.4, "w": 0.35, "h": 0.5}
+        box.update(over)
+        return box
+
+    def test_roundtrip_full_layout(self, tmp_config):
+        config_store.save_stream_layout(
+            "shakyboat", "ShakyBoat Fortnite",
+            facecam=self._box(x=0.0, y=0.0, w=0.25, h=0.28),
+            gameplay=self._box(), split=0.4, hook_y=0.42, subtitle_y=0.78,
+        )
+        (saved,) = config_store.list_stream_layouts()
+        assert saved["id"] == "shakyboat"
+        assert saved["label"] == "ShakyBoat Fortnite"
+        assert saved["gameplay"]["w"] == 0.35
+        assert saved["split"] == 0.4
+        assert saved["subtitle_y"] == 0.78
+
+    def test_geometry_fields_are_independently_optional(self, tmp_config):
+        config_store.save_stream_layout("only-game", "Only gameplay", gameplay=self._box())
+        (saved,) = config_store.list_stream_layouts()
+        assert saved["gameplay"] is not None
+        assert saved["facecam"] is None
+        assert saved["split"] is None and saved["hook_y"] is None
+
+    def test_upsert_by_id_replaces_rather_than_duplicates(self, tmp_config):
+        config_store.save_stream_layout("a", "First", split=0.3)
+        config_store.save_stream_layout("a", "Second", split=0.5)
+        layouts = config_store.list_stream_layouts()
+        assert len(layouts) == 1
+        assert layouts[0]["label"] == "Second" and layouts[0]["split"] == 0.5
+
+    def test_box_running_off_the_frame_is_rejected_not_clamped(self, tmp_config):
+        # Silently shrinking it would render something never drawn.
+        with pytest.raises(ValueError, match="inside the frame"):
+            config_store.save_stream_layout("bad", "Bad", gameplay=self._box(x=0.8, w=0.5))
+
+    def test_split_bounds_mirror_the_renderer_clamp(self, tmp_config):
+        with pytest.raises(ValueError, match="split"):
+            config_store.save_stream_layout("bad", "Bad", split=0.9)
+        with pytest.raises(ValueError, match="split"):
+            config_store.save_stream_layout("bad", "Bad", split=0.05)
+
+    def test_zero_size_box_is_rejected(self, tmp_config):
+        with pytest.raises(ValueError, match="positive width"):
+            config_store.save_stream_layout("bad", "Bad", gameplay=self._box(w=0.0))
+
+    def test_bad_id_and_blank_label_are_rejected(self, tmp_config):
+        with pytest.raises(ValueError, match="layout id"):
+            config_store.save_stream_layout("Has Spaces", "X")
+        with pytest.raises(ValueError, match="label"):
+            config_store.save_stream_layout("ok", "   ")
+
+    def test_delete_returns_false_for_unknown_id(self, tmp_config):
+        config_store.save_stream_layout("a", "A")
+        assert config_store.delete_stream_layout("a") is True
+        assert config_store.delete_stream_layout("a") is False
+        assert config_store.list_stream_layouts() == []

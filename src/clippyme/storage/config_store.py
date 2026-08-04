@@ -299,6 +299,128 @@ def delete_caption_preset(preset_id: str) -> bool:
         return _write_raw_config(raw)
 
 
+# --- stream layout templates -------------------------------------------------
+# One saved layout per streamer/game: which part of the source is the facecam,
+# which part is the game, and where the hook + subtitles sit on the delivered
+# 9:16 frame. Stored as 0..1 fractions so a template drawn over a 1080p
+# screenshot applies unchanged to a 4K source of the same aspect ratio.
+STREAM_LAYOUTS_NAMESPACE = "stream_layouts"
+MAX_STREAM_LAYOUTS = 50
+_STREAM_LAYOUT_ID_RE = re.compile(r"^[a-z0-9_-]{1,40}$")
+_STREAM_LAYOUT_LABEL_MAX = 60
+_LAYOUT_BOX_KEYS = ("x", "y", "w", "h")
+
+
+def _clean_layout_box(box):
+    """Validate one drawn rectangle, or return None when it is absent.
+
+    A box that runs off the frame edge is rejected rather than clamped: it
+    means the editor and the renderer disagree about the frame, and silently
+    shrinking it would render something the user never drew.
+    """
+    if box is None:
+        return None
+    if not isinstance(box, dict):
+        raise ValueError("layout box must be an object")
+    out = {}
+    for key in _LAYOUT_BOX_KEYS:
+        value = box.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"layout box {key} must be a number")
+        value = float(value)
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"layout box {key} must be within 0..1")
+        out[key] = value
+    if out["w"] <= 0 or out["h"] <= 0:
+        raise ValueError("layout box must have a positive width and height")
+    eps = 1e-6
+    if out["x"] + out["w"] > 1.0 + eps or out["y"] + out["h"] > 1.0 + eps:
+        raise ValueError("layout box must stay inside the frame")
+    return out
+
+
+def _clean_layout_fraction(value, name, low=0.0, high=1.0):
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number")
+    value = float(value)
+    if not low <= value <= high:
+        raise ValueError(f"{name} must be within {low}..{high}")
+    return value
+
+
+def list_stream_layouts() -> list[dict]:
+    """Every saved layout, sorted by id for a stable display order."""
+    raw = _read_raw_config()
+    layouts = raw.get(STREAM_LAYOUTS_NAMESPACE) or {}
+    if not isinstance(layouts, dict):
+        return []
+    result = []
+    for layout_id in sorted(layouts):
+        entry = layouts[layout_id]
+        if not isinstance(entry, dict):
+            continue
+        result.append({
+            "id": layout_id,
+            "label": entry.get("label") or layout_id,
+            "facecam": entry.get("facecam"),
+            "gameplay": entry.get("gameplay"),
+            "split": entry.get("split"),
+            "hook_y": entry.get("hook_y"),
+            "subtitle_y": entry.get("subtitle_y"),
+        })
+    return result
+
+
+def save_stream_layout(layout_id: str, label: str, *, facecam=None, gameplay=None,
+                       split=None, hook_y=None, subtitle_y=None) -> bool:
+    """Create or update (upsert by id) a stream layout template.
+
+    Every geometry field is optional and independently omittable: a streamer
+    who only ever needs the gameplay region pinned should not be forced to
+    draw a facecam box too. Absent fields simply fall back to the pipeline's
+    own defaults (facecam auto-detection, centred gameplay crop, the env
+    split, keyword hook/subtitle positions).
+    """
+    if not _STREAM_LAYOUT_ID_RE.match(layout_id or ""):
+        raise ValueError("layout id must match ^[a-z0-9_-]{1,40}$")
+    label = (label or "").strip()[:_STREAM_LAYOUT_LABEL_MAX]
+    if not label:
+        raise ValueError("label must not be blank")
+    entry = {
+        "label": label,
+        "facecam": _clean_layout_box(facecam),
+        "gameplay": _clean_layout_box(gameplay),
+        # Mirrors reframe_ops.gaming_facecam_fraction's clamp range.
+        "split": _clean_layout_fraction(split, "split", 0.15, 0.75),
+        "hook_y": _clean_layout_fraction(hook_y, "hook_y"),
+        "subtitle_y": _clean_layout_fraction(subtitle_y, "subtitle_y"),
+    }
+    with _CONFIG_LOCK:
+        raw = _read_raw_config()
+        layouts = raw.get(STREAM_LAYOUTS_NAMESPACE) or {}
+        if not isinstance(layouts, dict):
+            layouts = {}
+        if layout_id not in layouts and len(layouts) >= MAX_STREAM_LAYOUTS:
+            raise ValueError(f"maximum of {MAX_STREAM_LAYOUTS} stream layouts reached")
+        layouts[layout_id] = entry
+        raw[STREAM_LAYOUTS_NAMESPACE] = layouts
+        return _write_raw_config(raw)
+
+
+def delete_stream_layout(layout_id: str) -> bool:
+    """Remove a saved layout. Returns False if it did not exist."""
+    with _CONFIG_LOCK:
+        raw = _read_raw_config()
+        layouts = raw.get(STREAM_LAYOUTS_NAMESPACE) or {}
+        if not isinstance(layouts, dict) or layout_id not in layouts:
+            return False
+        del layouts[layout_id]
+        raw[STREAM_LAYOUTS_NAMESPACE] = layouts
+        return _write_raw_config(raw)
+
+
 def _normalize_incoming_keys(data: dict) -> dict:
     if not data:
         return {}

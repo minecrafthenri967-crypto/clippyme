@@ -176,3 +176,33 @@ def test_extreme_fontsize_clamped_in_output(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "100000" not in text
     assert f"Viral,Montserrat-Black,{_SUB_FONTSIZE_MAX}," in text
+
+
+# --- fractional subtitle placement (drawn in the layout editor) --------------
+
+from clippyme.domain.subtitles import (  # noqa: E402
+    margin_v_for_fraction,
+    parse_position_fraction,
+)
+
+
+def test_fraction_converts_to_a_bottom_anchored_margin():
+    # 0.75 down a 1920 frame with 64px text: 1920*0.25 - 32 = 448.
+    assert margin_v_for_fraction(0.75, 64) == 448
+
+
+def test_lower_fraction_means_larger_margin():
+    # MarginV is measured from the BOTTOM, so moving the caption UP (smaller
+    # fraction) must INCREASE it — the easy sign error here.
+    assert margin_v_for_fraction(0.4, 64) > margin_v_for_fraction(0.8, 64)
+
+
+def test_fraction_at_the_very_bottom_clamps_at_zero():
+    assert margin_v_for_fraction(1.0, 64) == 0
+
+
+def test_parse_position_fraction_rejects_keywords_and_out_of_range():
+    assert parse_position_fraction("bottom") is None
+    assert parse_position_fraction(1.4) is None
+    assert parse_position_fraction(True) is None
+    assert parse_position_fraction(0.78) == 0.78

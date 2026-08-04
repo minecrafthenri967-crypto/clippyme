@@ -22,6 +22,7 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, Path, Query, R
 
 from clippyme.api.schemas import (
     CaptionPresetRequest,
+    StreamLayoutRequest,
     ConfigUpdateRequest,
     ZernioConfigRequest,
     ZernioProfileCreateRequest,
@@ -33,7 +34,10 @@ from clippyme.storage.config_store import (
     create_zernio_profile,
     delete_caption_preset,
     delete_zernio_profile,
+    delete_stream_layout,
     list_caption_presets,
+    list_stream_layouts,
+    save_stream_layout,
     list_zernio_profiles,
     load_persistent_config,
     load_zernio_config,
@@ -553,3 +557,46 @@ async def delete_caption_preset_route(
     if not removed:
         raise HTTPException(status_code=404, detail="preset not found")
     return {"presets": await asyncio.to_thread(list_caption_presets)}
+
+
+# --- stream layout templates -------------------------------------------------
+# One saved layout per streamer/game: which source regions are facecam and
+# gameplay, and where the hook + subtitles sit on the delivered frame. Stored
+# as 0..1 fractions, so a template drawn over a 1080p screenshot applies
+# unchanged to a 4K source of the same aspect ratio.
+
+@router.get("/api/config/stream-layouts")
+async def get_stream_layouts(request: Request):
+    """List every saved stream layout."""
+    require_trusted_config_request(request)
+    return {"layouts": await asyncio.to_thread(list_stream_layouts)}
+
+
+@router.post("/api/config/stream-layouts")
+async def save_stream_layout_route(req: StreamLayoutRequest, request: Request):
+    """Create or update (upsert by id) a stream layout."""
+    require_trusted_config_request(request)
+    try:
+        ok = await asyncio.to_thread(
+            save_stream_layout, req.id, req.label,
+            facecam=req.facecam.model_dump() if req.facecam else None,
+            gameplay=req.gameplay.model_dump() if req.gameplay else None,
+            split=req.split, hook_y=req.hook_y, subtitle_y=req.subtitle_y,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to save stream layout")
+    return {"layouts": await asyncio.to_thread(list_stream_layouts)}
+
+
+@router.delete("/api/config/stream-layouts/{layout_id}")
+async def delete_stream_layout_route(
+    request: Request, layout_id: str = Path(..., pattern=r"^[a-z0-9_-]{1,40}$")
+):
+    """Delete a saved stream layout."""
+    require_trusted_config_request(request)
+    removed = await asyncio.to_thread(delete_stream_layout, layout_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="layout not found")
+    return {"layouts": await asyncio.to_thread(list_stream_layouts)}

@@ -117,3 +117,38 @@ def test_offset_cannot_push_the_box_off_canvas():
 
 def test_seam_is_an_advertised_position():
     assert "seam" in HOOK_POSITIONS
+
+
+# --- fractional hook placement (drawn in the layout editor) ------------------
+
+from clippyme.domain.hooks import parse_hook_position_fraction  # noqa: E402
+
+
+def test_fraction_centres_the_box_on_that_height():
+    # Drawn at 40% of the frame: the box's MIDDLE lands there, matching how
+    # the seam and the editor's preview both behave.
+    assert resolve_hook_overlay_y(0.4, 1920, 200) == 668
+
+
+def test_fraction_accepts_a_numeric_string():
+    # Overlay params ride as a free-form scalar dict; a form/JSON round-trip
+    # can hand this over as text.
+    assert resolve_hook_overlay_y("0.4", 1920, 200) == 668
+
+
+def test_fraction_is_clamped_to_the_frame():
+    assert resolve_hook_overlay_y(1.0, 1920, 200) == 1720
+    assert resolve_hook_overlay_y(0.0, 1920, 200) == 0
+
+
+def test_keywords_still_win_over_fraction_parsing():
+    # "top" is not a number, so the keyword branch must still run.
+    assert resolve_hook_overlay_y("top", 1920, 200) == 384
+
+
+def test_parse_rejects_out_of_range_and_non_numeric():
+    assert parse_hook_position_fraction(1.5) is None
+    assert parse_hook_position_fraction(-0.1) is None
+    assert parse_hook_position_fraction("bottom") is None
+    assert parse_hook_position_fraction(True) is None  # bool is not a position
+    assert parse_hook_position_fraction(0.5) == 0.5
