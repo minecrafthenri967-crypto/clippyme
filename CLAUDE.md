@@ -169,7 +169,12 @@ generator does not rebase. The `ass=` filter goes LAST in the graph (after
 crop→scale) because the ASS declares PlayRes 1080x1920, the delivery frame.
 Captions reuse `clippyme.domain.subtitles.generate_ass_karaoke` (semantic line
 breaks, six presets) scaled by `DEFAULT_FONT_SCALE` — the presets are sized
-~2% of frame height, short-form captions want ~5%.
+~3% of frame height, short-form captions want ~5%. ⚠️ That scale is a RATIO to
+the shared presets, not an independent size: changing `SUBTITLE_PRESETS`
+sizes moves clipper-pro's delivered captions too, so the two move together
+(the presets went 35-43 → 52-64, and the scale 2.4 → 1.6 to hold the same
+delivered size). `tests/clipperpro/test_captions.py` pins the resulting
+percentage band and fails if only one side is edited.
 
 ⚠️ Text hooks (`render/hooks_ops.py` pure + `render/hooks.py` writer) follow the
 same source-time rule, and three product constraints that are NOT negotiable
@@ -352,7 +357,13 @@ detected/manual region (expanded to the top zone's aspect via
 zone, a crop that is always HORIZONTALLY CENTRED on the source frame — never
 shifted to dodge the facecam — since that shows the most of the actual
 gameplay, and a corner-positioned facecam rarely reaches into the centre
-column anyway.
+column anyway. The split sits at `reframe_ops.gaming_facecam_fraction()`
+(env `REFRAME_GAMING_FACECAM_FRACTION`, default 0.45, clamped 0.15-0.75) —
+in `reframe_ops` rather than cv2-bound `reframe.py` because `domain/hooks.py`
+reads the same number for the `seam` hook position (`gaming_seam_overlay_y`
+centres the hook box ON the cut, so hook and split can't drift apart). The
+fraction also sets the top zone's ASPECT, so raising it keeps more of the
+source around the streamer instead of stretching the same crop.
 ⚠️ `REFRAME_GLOBAL_METHOD=kalman|l2` only runs with `REFRAME_STATIC_AUTO=0`;
 the default static-auto policy never reaches the trajectory smoother.
 ⚠️ Output canvas sizing has a CEILING and a FLOOR, set independently:

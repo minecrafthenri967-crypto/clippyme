@@ -191,6 +191,8 @@ export const en = {
   'create.hook.pos.top': 'Top',
   'create.hook.pos.center': 'Center',
   'create.hook.pos.bottom': 'Bottom',
+  'create.hook.pos.seam': 'Seam',
+  'create.hook.pos.seamHint': 'Sits on the edge between facecam and gameplay — only meaningful with the Gaming reframe.',
   'create.hook.sizeLabel': 'Size',
   'create.hook.size.small': 'Small',
   'create.hook.size.medium': 'Medium',

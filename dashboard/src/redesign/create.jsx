@@ -241,7 +241,9 @@ function HookConfig({ opts, set }) {
       <div className="cf-row" style={{ marginTop: 12 }}>
         <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>{t('create.hook.positionLabel')}</span>
         <Segmented full value={opts.hookPos} onChange={(id) => set({ hookPos: id })}
-          options={[{ id: 'top', label: t('create.hook.pos.top') }, { id: 'center', label: t('create.hook.pos.center') }, { id: 'bottom', label: t('create.hook.pos.bottom') }]} />
+          options={[{ id: 'top', label: t('create.hook.pos.top') }, { id: 'center', label: t('create.hook.pos.center') },
+                    { id: 'bottom', label: t('create.hook.pos.bottom') }, { id: 'seam', label: t('create.hook.pos.seam') }]} />
+        {opts.hookPos === 'seam' && <div className="od" style={{ marginTop: 6 }}>{t('create.hook.pos.seamHint')}</div>}
       </div>
       <div className="cf-row">
         <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>{t('create.hook.sizeLabel')}</span>

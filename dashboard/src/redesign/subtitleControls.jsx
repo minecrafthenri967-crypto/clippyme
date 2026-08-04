@@ -73,7 +73,7 @@ export function SubtitleControls({ value: v, onChange, variant = 'edit' }) {
             <span className="field-label" style={{ marginBottom: 9, display: 'flex', justifyContent: 'space-between' }}>
               <span>Font size</span><span className={desc}>{v.font_size > 0 ? v.font_size : 'Auto'}</span>
             </span>
-            <input type="range" min="0" max="80" step="1" value={v.font_size} aria-label="Subtitle font size"
+            <input type="range" min="0" max="120" step="1" value={v.font_size} aria-label="Subtitle font size"
               onChange={(e) => onChange({ font_size: Number(e.target.value) })} style={{ width: '100%' }} />
           </div>
           <div className="cf-row" style={{ display: 'flex', gap: 12 }}>

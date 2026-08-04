@@ -10,6 +10,9 @@ from urllib.parse import urlparse
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from clippyme.domain.encode import ffmpeg_timeout, x264_intermediate_crf, x264_video_args
+# Pure geometry (no cv2) — the "seam" position must land on the SAME split line
+# create_gaming_frame renders, so both read one shared fraction.
+from clippyme.pipeline.reframe_ops import gaming_seam_overlay_y
 
 logger = logging.getLogger(__name__)
 
@@ -394,6 +397,39 @@ def _enable_suffix(enable_end, enable_start=0):
     return f":enable='between(t,0,{enable_end})'"
 
 
+#: Hook box placements. "seam" only means something on a `gaming` reframe,
+#: where it lands on the facecam/gameplay cut; elsewhere it reads as a
+#: lower-third. Unknown values fall back to "top" rather than raising — the
+#: overlay params are a free-form dict by design (api.schemas validates them
+#: as scalars, not against an allow-list), and a typo should still render.
+HOOK_POSITIONS = ("top", "center", "bottom", "seam")
+
+
+def resolve_hook_overlay_y(position, video_height, box_h, offset_y=0):
+    """Top-edge y for the hook box, before it is handed to ffmpeg's overlay.
+
+    ``offset_y`` is a percentage of frame height (the dashboard's nudge
+    slider), applied after the base placement. The result is clamped to the
+    frame so neither a tall box nor a large nudge can push the overlay
+    off-canvas.
+    """
+    position_norm = "center" if position == "middle" else position
+    if position_norm == "center":
+        overlay_y = (video_height - box_h) // 2
+    elif position_norm == "bottom":
+        overlay_y = int(video_height * 0.70)
+    elif position_norm == "seam":
+        # Straddles the facecam/gameplay split of a `gaming` reframe, so the
+        # hook bridges the cut instead of covering the streamer's face
+        # ("top") or the gameplay ("bottom").
+        overlay_y = gaming_seam_overlay_y(video_height, box_h)
+    else:
+        overlay_y = int(video_height * 0.20)
+
+    overlay_y += int(video_height * offset_y / 100)
+    return max(0, min(overlay_y, video_height - box_h))
+
+
 def build_hook_overlay_filter(x, y0, animate=False, dur=0.4, slide_px=40, enable_end=None):
     """Build the ffmpeg graph overlaying hook input ``[1:v]`` on ``[0:v]``."""
     x = int(x)
@@ -454,16 +490,7 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         )
 
         overlay_x = (video_width - box_w) // 2
-        position_norm = "center" if position == "middle" else position
-        if position_norm == "center":
-            overlay_y = (video_height - box_h) // 2
-        elif position_norm == "bottom":
-            overlay_y = int(video_height * 0.70)
-        else:
-            overlay_y = int(video_height * 0.20)
-
-        overlay_y += int(video_height * offset_y / 100)
-        overlay_y = max(0, min(overlay_y, video_height - box_h))
+        overlay_y = resolve_hook_overlay_y(position, video_height, box_h, offset_y)
 
         animate = bool((style or {}).get("animate", False))
         extra_inputs = []

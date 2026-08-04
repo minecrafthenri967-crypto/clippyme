@@ -737,6 +737,53 @@ _DEFAULT_GAMING_MIN_SIZE_FRAC = 0.03
 _DEFAULT_GAMING_MAX_SIZE_FRAC = 0.45
 _DEFAULT_GAMING_MIN_SAMPLES = 5
 
+# Portion of the vertical canvas the facecam zone gets in `gaming` mode; the
+# gameplay crop fills the rest. This also sets the top zone's ASPECT
+# (output_width / top_h), which is what `expand_box_to_aspect` reshapes the
+# detected/manual facecam box to — so a taller zone does not merely stretch
+# the same crop, it keeps MORE of the source around the streamer's face.
+# Lives here rather than in cv2-bound reframe.py so the hook overlay
+# (domain/hooks.py, which must place text on the seam between the two zones)
+# can read the same number instead of hardcoding a second copy that drifts.
+_DEFAULT_GAMING_FACECAM_FRACTION = 0.45
+# A degenerate split (all facecam / all gameplay) is never what someone means
+# by a knob nudge, so the env override is clamped rather than trusted.
+_GAMING_FACECAM_FRACTION_MIN = 0.15
+_GAMING_FACECAM_FRACTION_MAX = 0.75
+
+
+def gaming_facecam_fraction() -> float:
+    """Fraction of the output height given to the facecam zone — 0.45 default.
+
+    ``REFRAME_GAMING_FACECAM_FRACTION`` overrides it, clamped to
+    ``[0.15, 0.75]``; anything unparseable keeps the default.
+    """
+    raw = (os.environ.get("REFRAME_GAMING_FACECAM_FRACTION") or "").strip()
+    if not raw:
+        return _DEFAULT_GAMING_FACECAM_FRACTION
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_GAMING_FACECAM_FRACTION
+    return max(_GAMING_FACECAM_FRACTION_MIN,
+               min(_GAMING_FACECAM_FRACTION_MAX, value))
+
+
+def gaming_seam_overlay_y(frame_height: int, box_height: int = 0,
+                          fraction: Optional[float] = None) -> int:
+    """Top-edge y for an overlay box CENTRED on the facecam/gameplay seam.
+
+    The split line sits at ``frame_height * fraction``; a box centred on it
+    straddles both zones, which reads as one element bridging the cut rather
+    than as a caption belonging to either half. Clamped so a box taller than
+    the frame still lands on screen instead of at a negative offset.
+    """
+    if fraction is None:
+        fraction = gaming_facecam_fraction()
+    seam = float(frame_height) * float(fraction)
+    y = int(round(seam - float(box_height) / 2.0))
+    return max(0, min(y, max(0, int(frame_height) - int(box_height))))
+
 
 def detect_static_facecam_region(
     face_boxes, frame_width, frame_height,

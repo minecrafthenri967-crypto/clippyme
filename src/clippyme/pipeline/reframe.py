@@ -39,6 +39,7 @@ from clippyme.pipeline.reframe_ops import (
     compute_output_dimensions,
     detect_static_facecam_region,
     expand_box_to_aspect,
+    gaming_facecam_fraction,
     min_output_short_edge,
     resolve_facecam_box_from_fractions,
     salient_crop_center,
@@ -606,7 +607,6 @@ def create_disabled_reframe(frame, output_width, output_height):
 # stream/session — unlike the face-tracking cameraman's per-frame target — so
 # it is detected ONCE up front from a handful of sampled frames, not tracked.
 _GAMING_SAMPLE_COUNT = 12
-_GAMING_FACECAM_FRACTION = 0.35  # portion of the vertical canvas given to the facecam zone
 
 
 def _detect_gaming_facecam(input_video, total_frames):
@@ -664,7 +664,7 @@ def create_gaming_frame(frame, output_width, output_height, facecam_box):
     fw = max(1, min(orig_w - fx, int(fw)))
     fh = max(1, min(orig_h - fy, int(fh)))
 
-    top_h = int(round(output_height * _GAMING_FACECAM_FRACTION))
+    top_h = int(round(output_height * gaming_facecam_fraction()))
     if top_h % 2:
         top_h += 1
     top_h = max(2, min(output_height - 2, top_h))

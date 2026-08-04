@@ -860,3 +860,51 @@ def test_facecam_box_from_fractions_scales_with_frame_size():
     large = ro.resolve_facecam_box_from_fractions(0.1, 0.1, 0.2, 0.2, 1920, 1080)
     assert large[2] > small[2]
     assert large[3] > small[3]
+
+
+# --- gaming layout: facecam zone fraction + hook seam ------------------------
+
+def test_gaming_facecam_fraction_default(monkeypatch):
+    monkeypatch.delenv("REFRAME_GAMING_FACECAM_FRACTION", raising=False)
+    assert ro.gaming_facecam_fraction() == pytest.approx(0.45)
+
+
+def test_gaming_facecam_fraction_env_override(monkeypatch):
+    monkeypatch.setenv("REFRAME_GAMING_FACECAM_FRACTION", "0.6")
+    assert ro.gaming_facecam_fraction() == pytest.approx(0.6)
+
+
+def test_gaming_facecam_fraction_clamps_degenerate_values(monkeypatch):
+    # A split that hands the whole canvas to one zone is never a knob nudge;
+    # clamp rather than render a frame with a 2px gameplay strip.
+    monkeypatch.setenv("REFRAME_GAMING_FACECAM_FRACTION", "0.99")
+    assert ro.gaming_facecam_fraction() == pytest.approx(0.75)
+    monkeypatch.setenv("REFRAME_GAMING_FACECAM_FRACTION", "0")
+    assert ro.gaming_facecam_fraction() == pytest.approx(0.15)
+
+
+def test_gaming_facecam_fraction_garbage_keeps_default(monkeypatch):
+    monkeypatch.setenv("REFRAME_GAMING_FACECAM_FRACTION", "not-a-number")
+    assert ro.gaming_facecam_fraction() == pytest.approx(0.45)
+
+
+def test_gaming_seam_overlay_y_centres_box_on_the_split(monkeypatch):
+    monkeypatch.delenv("REFRAME_GAMING_FACECAM_FRACTION", raising=False)
+    # 1920 * 0.45 = 864 is the seam; a 200px box centred on it starts at 764
+    # so its middle — not its top edge — lands on the cut.
+    assert ro.gaming_seam_overlay_y(1920, 200) == 764
+
+
+def test_gaming_seam_overlay_y_tracks_the_configured_fraction():
+    assert ro.gaming_seam_overlay_y(1000, 0, fraction=0.3) == 300
+
+
+def test_gaming_seam_overlay_y_keeps_an_oversized_box_on_screen():
+    # Box taller than the frame: clamped to 0 rather than a negative offset
+    # that ffmpeg's overlay would place off-canvas.
+    assert ro.gaming_seam_overlay_y(1920, 5000) == 0
+
+
+def test_gaming_seam_overlay_y_never_overflows_the_bottom():
+    y = ro.gaming_seam_overlay_y(1920, 300, fraction=0.75)
+    assert y + 300 <= 1920

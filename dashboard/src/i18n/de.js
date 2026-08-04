@@ -189,6 +189,8 @@ export const de = {
   'create.hook.pos.top': 'Oben',
   'create.hook.pos.center': 'Mitte',
   'create.hook.pos.bottom': 'Unten',
+  'create.hook.pos.seam': 'Übergang',
+  'create.hook.pos.seamHint': 'Sitzt auf der Kante zwischen Facecam und Gameplay — nur im Gaming-Reframe sinnvoll.',
   'create.hook.sizeLabel': 'Größe',
   'create.hook.size.small': 'Klein',
   'create.hook.size.medium': 'Mittel',

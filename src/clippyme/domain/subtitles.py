@@ -234,7 +234,7 @@ SUBTITLE_PRESETS = {
         "shadow": 0,
         "margin_v": 350,
         "uppercase": True,
-        "fontsize": 40,
+        "fontsize": 60,
     },
     "hormozi_bold": {
         "font": "Bangers-Regular",
@@ -246,7 +246,7 @@ SUBTITLE_PRESETS = {
         "shadow": 2,
         "margin_v": 350,
         "uppercase": True,
-        "fontsize": 43,
+        "fontsize": 64,
     },
     "neon_glow": {
         "font": "Montserrat-Black",
@@ -258,7 +258,7 @@ SUBTITLE_PRESETS = {
         "shadow": 3,
         "margin_v": 350,
         "uppercase": True,
-        "fontsize": 40,
+        "fontsize": 60,
     },
     "mrbeast_box": {
         "font": "Poppins-Black",
@@ -270,7 +270,7 @@ SUBTITLE_PRESETS = {
         "shadow": 0,
         "margin_v": 350,
         "uppercase": False,
-        "fontsize": 38,
+        "fontsize": 57,
     },
     "minimal_clean": {
         "font": "Poppins-Medium",
@@ -282,7 +282,7 @@ SUBTITLE_PRESETS = {
         "shadow": 0,
         "margin_v": 350,
         "uppercase": False,
-        "fontsize": 35,
+        "fontsize": 52,
     },
     "fire_impact": {
         "font": "Anton-Regular",
@@ -294,7 +294,7 @@ SUBTITLE_PRESETS = {
         "shadow": 0,
         "margin_v": 350,
         "uppercase": True,
-        "fontsize": 43,
+        "fontsize": 64,
     },
 }
 
@@ -364,9 +364,11 @@ def effective_fonts_dir():
 
 # --- Shared subtitle-style helpers (pure, host-tested) --------------------
 # Fontsize bounds shared by both subtitle paths. The karaoke ASS resolution is
-# 1080x1920 (preset sizes ~35-43); the SRT path scales by 0.85 afterwards. The
-# cap stops an out-of-range API value (validated up to 100000 by the generic
-# overlay validator) from reaching ffmpeg.
+# 1080x1920 (preset sizes ~52-64, i.e. ~3% of frame height — short-form
+# captions are read at arm's length on a phone, and the original ~2% sizing
+# was noticeably small in delivered clips); the SRT path scales by 0.85
+# afterwards. The cap stops an out-of-range API value (validated up to 100000
+# by the generic overlay validator) from reaching ffmpeg.
 _SUB_FONTSIZE_MIN = 10
 _SUB_FONTSIZE_MAX = 120
 

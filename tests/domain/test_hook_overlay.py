@@ -68,3 +68,52 @@ def test_logo_filter_enable_window_only_on_hook():
     )
     # logo overlay part must stay untouched (no enable clause)
     assert "overlay=5:7" in f and "overlay=5:7:enable" not in f
+
+
+# --- resolve_hook_overlay_y (placement policy, incl. the gaming seam) --------
+
+from clippyme.domain.hooks import HOOK_POSITIONS, resolve_hook_overlay_y  # noqa: E402
+
+
+def test_top_is_the_default_and_the_unknown_value_fallback():
+    # Overlay params are a free-form dict (validated as scalars, not against an
+    # allow-list), so a typo must still render rather than raise.
+    assert resolve_hook_overlay_y("top", 1920, 200) == 384
+    assert resolve_hook_overlay_y("wat", 1920, 200) == 384
+
+
+def test_center_centres_the_box_not_its_top_edge():
+    assert resolve_hook_overlay_y("center", 1920, 200) == 860
+    assert resolve_hook_overlay_y("middle", 1920, 200) == 860  # legacy alias
+
+
+def test_bottom_sits_at_70_percent():
+    assert resolve_hook_overlay_y("bottom", 1920, 200) == 1344
+
+
+def test_seam_straddles_the_gaming_split(monkeypatch):
+    monkeypatch.delenv("REFRAME_GAMING_FACECAM_FRACTION", raising=False)
+    # 1920 * 0.45 = 864; a 200px box centred on the cut starts at 764. The
+    # point is that the box's MIDDLE lands on the seam, so it reads as one
+    # element bridging facecam and gameplay.
+    assert resolve_hook_overlay_y("seam", 1920, 200) == 764
+
+
+def test_seam_follows_the_configured_facecam_fraction(monkeypatch):
+    monkeypatch.setenv("REFRAME_GAMING_FACECAM_FRACTION", "0.6")
+    # Moving the split must move the hook with it, or the two drift apart.
+    assert resolve_hook_overlay_y("seam", 1920, 200) == 1052
+
+
+def test_offset_nudges_by_percent_of_frame_height():
+    base = resolve_hook_overlay_y("top", 1920, 200)
+    assert resolve_hook_overlay_y("top", 1920, 200, offset_y=10) == base + 192
+
+
+def test_offset_cannot_push_the_box_off_canvas():
+    assert resolve_hook_overlay_y("top", 1920, 200, offset_y=500) == 1720
+    assert resolve_hook_overlay_y("top", 1920, 200, offset_y=-500) == 0
+
+
+def test_seam_is_an_advertised_position():
+    assert "seam" in HOOK_POSITIONS

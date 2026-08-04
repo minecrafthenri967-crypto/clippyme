@@ -59,13 +59,18 @@ DEFAULT_WORDS_PER_GROUP = 3
 
 #: Multiplier applied to a preset's own font size.
 #:
-#: The host repository's presets are sized 35-43 against a 1920-tall frame —
-#: about 2% of frame height, which is a readable *subtitle* but not the
+#: The host repository's presets are sized 52-64 against a 1920-tall frame —
+#: about 3% of frame height, which is a readable *subtitle* but not the
 #: scroll-stopping caption these presets are named after. Short-form captions
 #: sit nearer 5-6%. Scaling rather than overriding keeps each preset's relative
 #: proportions (minimal_clean stays smaller than fire_impact) instead of
 #: flattening six designs onto one number.
-DEFAULT_FONT_SCALE = 2.4
+#:
+#: Tracks the host presets: they were 35-43 (~2%) against a 2.4 scale, and
+#: were raised ~1.5x, so this drops by the same ratio. The DELIVERED caption
+#: size here is what the ~5-6% target fixes — it must not move just because
+#: the shared base did.
+DEFAULT_FONT_SCALE = 1.6
 
 
 @dataclass(frozen=True)
