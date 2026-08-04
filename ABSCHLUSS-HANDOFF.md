@@ -1,217 +1,188 @@
-# Abschluss-Handoff — AI-Clipper Pro
+# Abschluss-Handoff — Gaming-Layout-Editor & Discord-Bot-Fallback
 
-Stand: 27.07.2026 · Branch `claude/ai-clipper-pro-pipeline-ze09sn` · Commit `c659d9f`
-· PR [#1](https://github.com/minecrafthenri967-crypto/clippyme/pull/1) (offen, nicht gemerged)
+Stand: 04.08.2026 · Branch `claude/ai-clipper-pro-pipeline-ze09sn` · Commit `8a9d913`
+(auf dem VPS deployed, `docker compose up --build -d` lief dort zuletzt erfolgreich durch)
 
-Dieses Dokument beschreibt den Übergabestand: was gebaut wurde, was davon
-nachweislich funktioniert, was **nicht** verifiziert ist, und was als Nächstes
-zu tun ist. Es ist bewusst ehrlich bei den Lücken — die offenen Punkte in
-Abschnitt 4 sind der wichtigste Teil.
+Dieses Dokument beschreibt den Übergabestand der **letzten aktiven Arbeit** auf
+diesem Branch — nicht die AI-Clipper-Pro-Pipeline (die ist fertig, gemerged
+und läuft; siehe Git-Historie vor Commit `5cd2a7e`). Es ist bewusst ehrlich bei
+den Lücken — Abschnitt 4 ist der wichtigste Teil.
 
 ---
 
 ## 1. Das Ziel — was gebaut werden soll
 
-Ein **eigenständiges Programm namens „AI-Clipper Pro"**, das aus einem langen
-Video (YouTube-Link oder lokale Datei) automatisch fertige, hochkant-formatige
-Kurzvideos (9:16, für TikTok / Reels / Shorts) erzeugt — inklusive Untertitel,
-Text-Hook und Bewertung, welcher Clip das meiste Potenzial hat.
+Zwei getrennte, in dieser Reihenfolge entstandene Vorhaben:
 
-Es lebt im selben Repository wie ClippyMe, ist aber ein **separates Paket**
-(`src/clipper_pro/`). Es importiert weder die FastAPI-App noch die Job-Verwaltung
-von ClippyMe. Die einzige geteilte Nutzung sind reine Rechenmodule von ClippyMe
-(z. B. die Kantenschnitt-Mathematik in `cut_ops.py`), damit dieselbe Logik nicht
-zweimal existiert und auseinanderläuft.
+### 1.1 Discord-Bot: volle Clip-Qualität auch über Discords Upload-Limit hinaus
+Der Genehmigungs-Bot (`discordbot/bot.py`) postet Clips zur Freigabe; ein Clip
+über Discords Upload-Grenze (10/50/100 MB je nach Boost-Stufe) konnte bisher
+nicht als Datei geschickt werden. Ziel: ein Fallback, der den Clip stattdessen
+irgendwo hochlädt und einen Link postet — ohne dass der Nutzer eigene
+Bankdaten/Kreditkarte hinterlegen muss.
 
-### Die sieben Phasen
+### 1.2 Gaming-Reframe: Layout **zeichnen** statt Werte raten
+Bisher war das `gaming`-Reframe (Facecam oben, Gameplay unten im 9:16-Ausschnitt)
+weitgehend hartcodiert: Facecam-Anteil fix bei 35 %, Gameplay-Ausschnitt immer
+horizontal zentriert über die volle Bildhöhe. Der Nutzer hat das per Skizze
+konkretisiert (siehe Chat-Verlauf): **zu Beginn jedes Projekts einen
+Screenshot aus dem Stream hochladen, darauf selbst einzeichnen** —
 
-| # | Phase | Was sie tut |
-|---|-------|-------------|
-| 1 | `ingest` | Video herunterladen, Audiospur als mono 16 kHz FLAC extrahieren |
-| 2 | `transcribe` | Wortgenaues Transkript inkl. Sprecher-Zuordnung (Deepgram Nova-3 **oder** ElevenLabs Scribe) |
-| 3 | `rank` | Beste Momente nach einem 5-Achsen-Viralitäts-Raster bewerten (DeepSeek **oder** Gemini); liefert auch den Text-Hook mit |
-| 4 | `cut` | Clip-Ränder sauber auf Wort-, Satz- und Stille-Grenzen schnappen |
-| 5 | `reframe` | Kamerafahrt für den 9:16-Ausschnitt planen (folgt dem Sprecher, 200 ms Vorlauf, geglättet) |
-| 6 | `render` | Jeden Clip in **einem** ffmpeg-Durchlauf rendern — inkl. eingebrannter Karaoke-Untertitel und Text-Hook |
-| 7 | `export` | Bewerteten Entwurfs-Report als JSON + Markdown schreiben (für den manuellen Feinschliff in CapCut) |
+1. wo die Facecam ist,
+2. wo das eigentliche Gameplay ist (nicht zwangsläufig mittig — Taskbar/Chat/
+   Overlays sollen ausschließbar sein),
+3. wo im fertigen 9:16-Bild der Text-Hook sitzt,
+4. wo darin die Untertitel sitzen,
 
-### Zwei zusätzliche Bedienoberflächen (keine Phasen)
-
-- **`clipper-pro web`** — lokale Weboberfläche (nur localhost), um einen Lauf per
-  Browser zu starten und die Clips anzusehen.
-- **`clipper-pro watch`** — **Kanal-Beobachter**. Fragt YouTube-Kanäle regelmäßig
-  nach neuen Uploads und fährt bei jedem neuen Video die Phasen 1–7 durch. Gedacht
-  zum Laufenlassen über Tage, ohne dass jemand danebensitzt.
-
-### Die drei Kostenschutz-Regeln des Beobachters
-
-Weil der Beobachter unbeaufsichtigt läuft und jede Phase 2/3 echtes Geld kostet,
-sind drei Regeln fest eingebaut (`watch/state_ops.py`, rein rechnerisch, voll getestet):
-
-1. **Erster Kontakt mit einem Kanal verarbeitet nichts.** Die ~15 Videos, die
-   beim ersten Blick schon im Feed stehen, werden nur als „gesehen" vermerkt.
-   Sonst würde ein frisch gestarteter Beobachter sofort 15 Videos abrechnen.
-   Wer das ausdrücklich will, setzt `--catchup backfill`.
-2. **Ein fehlschlagendes Video wird höchstens `max_attempts`-mal (Standard 3)
-   erneut versucht**, danach in Ruhe gelassen. Sonst würde ein dauerhaft kaputtes
-   Video bei jedem Poll erneut Geld kosten.
-3. **Phasen, die im Manifest des Laufs schon eingetragen sind, werden übersprungen.**
-   Ein Wiederholungsversuch nach einem Render-Fehler zahlt Transkription und
-   Ranking **nicht** ein zweites Mal.
-
-Der Beobachter **veröffentlicht bewusst nichts**. Sein Ergebnis ist ein fertiger
-Arbeitsordner pro Video; was davon rausgeht, entscheidet ein separater Schritt.
+— und das **als benannte Vorlage pro Streamer/Spiel speichern**, damit es beim
+nächsten Projekt (auch für einen anderen Streamer) wiederverwendbar ist, statt
+jedes Mal neu einzuzeichnen.
 
 ---
 
 ## 2. Der aktuelle Stand — wo es steht
 
-**Alle sieben Phasen sind implementiert**, dazu die Weboberfläche und der
-Kanal-Beobachter. Der Code ist fertig, getestet und gepusht.
+### 2.1 Discord-Bot-Fallback — **fertig und auf dem VPS in Betrieb**
+Nach drei Anläufen (Cloudflare R2 → verworfen wegen möglicher Zahlungsmethode;
+Backblaze B2 → verworfen, weil der Nutzer inzwischen doch einen Google-Cloud-
+Dienstkonto-Schlüssel bekommen hat) steht die Lösung bei **Google Drive**
+(Service-Account, `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE` + `GOOGLE_DRIVE_FOLDER_ID`
+in `.env.discord`). Läuft auf dem VPS, Container `clippyme-discordbot` aktiv.
 
-| Nachweis | Ergebnis |
-|---|---|
-| Testsuite `tests/clipperpro/` | **810 Tests, alle grün** (ca. 8 Sek.) |
-| Gesamte Backend-Testsuite | 1930 Tests grün |
-| Linter (CI-Regelsatz `E9,F63,F7,F82`) | sauber |
-| CI auf PR #1 | **alle 4 Jobs grün** (Backend, Frontend, Frontend-Audit, Docker-Integration) |
-| Merge-Status PR #1 | `clean` — kein Konflikt mit `main` |
-| Umfang | 73 Dateien, 14.543 Zeilen, 12 Commits |
+Dabei nebenbei ein echter Bug gefunden und behoben: die Download-Reaktion
+verlinkte bei einem zu großen, aber bereits komponierten Clip (Untertitel/Hook
+eingebrannt) auf die **rohe, nicht komponierte** Datei statt auf die tatsächlich
+komponierte. Fix: `_compose_full` gibt jetzt `(pfad, komponierte_url)` zurück,
+der Link nutzt die komponierte URL (`baa0d32`).
 
-### Was echt (nicht simuliert) verifiziert wurde
+### 2.2 Gaming-Layout-Editor — **Backend + Editor-UI gebaut, gerendert & im Browser noch nicht bestätigt**
 
-- **ffmpeg-Pfade**: echter 48 kHz → 16 kHz Downmix, echte Stille-Erkennung, die
-  den Kantenschnitt steuert, echter Ein-Durchlauf-Render, der eine abspielbare
-  1080×1920 h264/AAC-Datei erzeugt.
-- **Kompletter 7-Phasen-Durchlauf** von Anfang bis Ende — mit simulierten
-  Netzwerkantworten für Phase 2 und 3, aber echtem ffmpeg für alles andere.
-  Ergebnis: zwei tatsächlich gerenderte Clips plus Entwurfs-Report.
+| Baustein | Backend | Editor-UI | Mit dem VPS verbunden |
+|---|---|---|---|
+| Facecam-Anteil einstellbar (0,35 → 0,45, Env-Override) | ✅ | ✅ (Vorschau-Regler) | ✅ |
+| Gameplay-Bereich zeichenbar (statt immer zentriert) | ✅ | ✅ | ✅ |
+| Text-Hook-Position frei (nicht nur oben/Mitte/unten) | ✅ | ✅ (Vorschau-Regler) | ✅ |
+| Untertitel-Position frei | ✅ | ✅ (Vorschau-Regler) | ✅ |
+| **Benannte Vorlage speichern/laden (pro Streamer)** | ✅ (`stream_layouts`-API) | ❌ **fehlt** | ❌ |
 
-### Der Einstiegspunkt
+Die Editor-Oberfläche (`streamLayoutEditor.jsx`) ist fertig und lässt live
+zeichnen + in einer 9:16-Vorschau verschieben — sie speichert die Werte aber
+nur in den laufenden Projekt-Optionen (`opts.gamingFacecamBox` etc.), **nicht**
+über die extra dafür gebaute `/api/config/stream-layouts`-Route. Die Vorlagen-
+Speicherung, die der Nutzer explizit wollte („damit es auch für andere
+Streamer funktioniert"), ist auf Backend-Seite fertig und getestet, aber im
+Dashboard **an nichts angeschlossen**. Siehe Abschnitt 4.1 — das ist die
+größte offene Lücke.
 
-```
-clipper-pro {ingest,transcribe,rank,cut,reframe,render,export,web,watch}
-```
+Alle Backend-Rechenfunktionen (Geometrie, Positions-Umrechnung) sind mit reinen
+Host-Tests abgesichert (2322 Backend-Tests grün, 269 Frontend-Tests grün,
+Ruff + ESLint sauber, Frontend-Build sauber). **Aber:** kein einziger dieser
+Tests rendert eine echte Videodatei durch `create_gaming_frame` — siehe 4.2.
 
 ---
 
 ## 3. Die Dateien — woran gearbeitet wurde
 
-47 Python-Module unter `src/clipper_pro/`. Die wichtigsten:
-
-### Kern / Gerüst
+### 3.1 Discord-Bot-Fallback
 | Datei | Rolle |
 |---|---|
-| `pipeline.py` | **Zentrale Orchestrierung.** `run_phase(phase, work_dir, source=, options=)`. CLI, Web-UI und Beobachter sind alle nur dünne Übersetzer darüber — damit sie nicht auseinanderdriften. |
-| `cli.py` | Kommandozeile → `PhaseOptions` |
-| `workspace.py` | Arbeitsordner + Manifest (jede Phase trägt ihr Ergebnis ein → Wiederaufsetzpunkt) |
-| `types.py` | Die Datenverträge zwischen den Phasen |
-| `config.py` | Alle `CLIPPER_PRO_*`-Umgebungsvariablen |
-| `errors.py` | Fehlerklassen + Exit-Codes |
+| `discordbot/bot.py` | Google-Drive-Upload (`_upload_to_drive`), Fix für `_compose_full`/`link_url` |
+| `discordbot/requirements.txt` | `google-auth` |
+| `.env.discord.example` | Einrichtungsschritte Google Cloud Console |
 
-### Die Phasen
-| Ordner | Inhalt |
+### 3.2 Gaming-Layout-Editor — Backend (Python)
+| Datei | Rolle |
 |---|---|
-| `ingest/` | `source.py` (Download), `audio.py` (FLAC-Extraktion), `*_ops.py` (reine Logik) |
-| `transcribe/` | `providers.py` (Deepgram/ElevenLabs), `base.py` (Fähigkeiten pro Anbieter), `cache.py`, `normalize_ops.py` |
-| `rank/` | `providers.py` (DeepSeek/Gemini), `rubric_ops.py` (5-Achsen-Raster), `cache.py` (SQLite-Prompt-Cache) |
-| `cut/` | `snap_ops.py` — dünner Adapter auf ClippyMes `cut_ops.snap_clips_to_transcript`, **keine Kopie der Mathematik** |
-| `reframe/` | `speaker_ops.py`, `camera_ops.py`, `plan.py` (alle rein) + `detect.py` (**einziges Modul mit cv2/MediaPipe**) |
-| `render/` | `filtergraph_ops.py` (crop-Ausdruck), `captions.py` + `captions_ops.py`, `hooks.py` + `hooks_ops.py` |
-| `export/` | `report_ops.py` — JSON + Markdown aus einem gemeinsamen Dokument |
+| `src/clippyme/pipeline/reframe_ops.py` | **Rein, cv2-frei.** `gaming_facecam_fraction()` (Env-Override, geklemmt 0,15–0,75), `gaming_seam_overlay_y()`, `resolve_box_from_fractions()` (generalisiert aus der alten Facecam-only-Funktion), `resolve_gameplay_box_from_fractions()` |
+| `src/clippyme/pipeline/reframe.py` | `create_gaming_frame()` nimmt jetzt `gameplay_box` + `facecam_fraction` entgegen statt fix zentriert/0,35 zu rechnen; `process_video_to_vertical()` neue Parameter `gaming_gameplay_box`, `gaming_split_fraction` |
+| `src/clippyme/pipeline/main.py` | Neue CLI-Flags `--gaming-gameplay-x/y/w/h`, `--gaming-split` |
+| `src/clippyme/pipeline/orchestrator.py` | Reicht dieselben Parameter durch |
+| `src/clippyme/domain/job_results.py` | `build_main_cmd`: `_validate_gaming_box` (generalisiert), `_validate_gaming_split`, neue argv-Flags |
+| `src/clippyme/domain/reframe_service.py` | Post-hoc-Reframe-Endpunkt (`POST /api/reframe`) reicht Gameplay-Box + Split ebenfalls durch |
+| `src/clippyme/domain/hooks.py` | `HOOK_POSITIONS` inkl. neuem `"seam"`; `resolve_hook_overlay_y()` als reine, jetzt getestete Funktion extrahiert; akzeptiert zusätzlich eine 0..1-Bruchzahl (`parse_hook_position_fraction`) |
+| `src/clippyme/domain/subtitles.py` | `parse_position_fraction()`, `margin_v_for_fraction()` — Untertitel-Position ebenfalls per Bruchzahl möglich; **außerdem**: alle sechs Preset-Schriftgrößen 35–43 → 52–64 (~2 % → ~3 % Bildhöhe, aus einem früheren Teilauftrag „Untertitel größer") |
+| `src/clipper_pro/render/captions_ops.py` | `DEFAULT_FONT_SCALE` 2,4 → 1,6 — musste zusammen mit der Preset-Größe angepasst werden, sonst wären clipper-pros Untertitel ungewollt mitgewachsen |
+| `src/clippyme/api/schemas.py` | `GamingGameplayBox`, `GAMING_SPLIT_MIN/MAX`, `StreamLayoutRequest`; `gaming_gameplay_box` + `gaming_split` auf `ProcessRequest`/`BatchRequest`/Reframe-Request |
+| `src/clippyme/api/app.py` | `/api/process` (JSON **und** Multipart), `/api/batch`, `POST /api/reframe/{job}/{clip}` reichen die neuen Felder durch |
+| `src/clippyme/storage/config_store.py` | **Neu:** `stream_layouts`-Namensraum — `list_stream_layouts`, `save_stream_layout`, `delete_stream_layout`. Jedes Geometrie-Feld einzeln optional; ein Kasten, der über den Bildrand hinausragt, wird **abgelehnt statt beschnitten** |
+| `src/clippyme/api/config_routes.py` | `GET/POST /api/config/stream-layouts`, `DELETE .../{layout_id}` |
 
-### Die Treiber
-| Ordner | Inhalt |
+### 3.3 Gaming-Layout-Editor — Frontend (React)
+| Datei | Rolle |
 |---|---|
-| `web/` | `app.py` (Routen), `runs.py` (reiner Lauf-Zustand), `worker.py` (Hintergrund-Thread), `static/index.html` |
-| `watch/` | `state_ops.py` (**die drei Kostenregeln, rein + getestet**), `state.py` (atomares Speichern, 0o600), `feed.py` (YouTube-Feed), `__init__.py` (die Schleife) |
+| `dashboard/src/redesign/streamLayoutEditor.jsx` | **Neu.** Zwei-Panel-Editor: links Screenshot mit zeichenbaren Facecam-/Gameplay-Kästen, rechts eine aus genau diesen Ausschnitten zusammengesetzte 9:16-Live-Vorschau mit drei ziehbaren Linien (Split/Hook/Untertitel) |
+| `dashboard/src/lib/layoutGeometry.js` | **Neu, rein.** Spiegelt `expand_box_to_aspect` aus Python — die Vorschau rechnet **dieselbe** Geometrie wie der echte Renderer, keine Annäherung |
+| `dashboard/src/redesign/create.jsx` | Ersetzt den alten `FacecamBoxPicker` durch `StreamLayoutEditor` |
+| `dashboard/src/redesign/RedesignApp.jsx`, `presets.js` | Neue Optionsfelder (`gamingGameplayBox`, `gamingSplit`, `gamingHookY`, `gamingSubtitleY`) in Default-Zustand + „Als Standard speichern" aufgenommen |
+| `dashboard/src/redesign/realApi.js`, `dashboard/src/lib/api.js` | Senden der neuen Felder an `/api/process` und `/api/batch` |
+| `dashboard/src/i18n/de.js`, `en.js` | Neue Texte unter `layout.*` |
 
-### Grundregel im ganzen Paket
-Module mit der Endung `*_ops.py` sind **stdlib-only** und laufen ohne schwere
-Abhängigkeiten in der schnellen Testsuite. Die Module daneben machen die
-Ein-/Ausgabe. Deshalb sind 810 Tests in 8 Sekunden durch.
+### 3.4 Tests (neu/erweitert)
+`tests/pipeline/test_reframe_ops.py`, `tests/domain/test_hook_overlay.py`,
+`tests/domain/test_subtitle_style.py`, `tests/domain/test_job_results.py`,
+`tests/storage/test_config_store.py`, `tests/api/test_config_routes.py`,
+`dashboard/src/lib/layoutGeometry.test.js`, `dashboard/src/redesign/create.test.jsx`.
 
-### Berührte Dateien außerhalb von `src/clipper_pro/`
-- `tests/clipperpro/` — 22 Testdateien (Ordner bewusst ohne Unterstrich geschrieben,
-  damit das Testpaket das echte Paket nicht überdecken kann)
-- `.env.example` — alle `CLIPPER_PRO_*`-Schalter dokumentiert (Zeilen 197–289)
-- `CLAUDE.md` — Architektur-Beschreibung für künftige Arbeit am Code
-- `pyproject.toml` — Einstiegspunkt `clipper-pro`
+### 3.5 Dokumentation
+`CLAUDE.md` (Abschnitte Reframe + neuer Abschnitt „Stream layouts"), `README.md`
+(API-Tabelle), `.env.example` (`REFRAME_GAMING_FACECAM_FRACTION`).
 
 ---
 
 ## 4. Woran es gescheitert ist — was **nicht** verifiziert ist
 
-Das hier ist der ehrliche Teil. Der Code ist vollständig, aber diese Dinge sind
-in dieser Umgebung **nie gegen die Realität gelaufen**:
+### 4.1 Benannte Vorlagen sind nicht ans Dashboard angeschlossen ⚠️ (größte Lücke)
+Das war ausdrücklich der Wunsch des Nutzers („damit es auch für andere
+Streamer funktioniert") und die Backend-Seite (`config_store.save_stream_layout`
++ `/api/config/stream-layouts`) ist fertig und getestet — aber **kein
+Frontend-Code ruft diese Route je auf**. Aktuell verschwindet ein gezeichnetes
+Layout, sobald ein neues Projekt gestartet wird, außer man nutzt den
+allgemeinen „Als Standard speichern"-Mechanismus (der die *gesamte* Aufnahme-
+Rezeptur speichert, nicht gezielt ein benanntes Streamer-Layout). Es gibt also
+noch **keinen Weg im Dashboard**, ein Layout unter einem Namen zu sichern und
+später aus einer Liste auszuwählen.
 
-### 4.1 Es wurde noch nie ein echter API-Aufruf gemacht ⚠️ (größtes Restrisiko)
-Deepgram, ElevenLabs, DeepSeek und Gemini sind in **allen** Tests simuliert.
-Phase 2 und Phase 3 haben noch nie mit einem echten Dienst gesprochen. Das
-bedeutet konkret: Authentifizierung, Antwortformat und Fehlerverhalten der echten
-Dienste sind **ungeprüft**. Wenn beim ersten echten Lauf etwas bricht, dann mit
-hoher Wahrscheinlichkeit hier.
+### 4.2 Kein einziges echtes Rendering mit den neuen Parametern ⚠️
+Alle Tests zu `create_gaming_frame`, `gaming_facecam_fraction`,
+`resolve_gameplay_box_from_fractions` etc. sind **reine Python-Host-Tests**
+(nackte Zahlen/Arrays, kein cv2, keine echte Videodatei). Es gibt:
+- **keinen** `pytest -m integration`-Test, der `create_gaming_frame` mit einer
+  echten `gameplay_box`/`facecam_fraction` gegen ein echtes Frame laufen lässt
+  (zum Vergleich: `reframe/detect.py` aus der alten Pipeline hat so einen Test,
+  dieser neue Code nicht),
+- **keinen** tatsächlich durchgerechneten Clip mit `reframe_mode=gaming` +
+  gezeichneter Gameplay-Box + „seam"-Hook + Bruchzahl-Untertitel-Position.
 
-### 4.2 Kein echter YouTube-Download, kein echter Feed-Abruf
-Die Sandbox, in der entwickelt wurde, blockiert ausgehende Verbindungen zu
-YouTube (Proxy antwortet mit `403 CONNECT`). Deshalb:
-- Phase 1 wurde nie gegen eine echte YouTube-URL ausgeführt (der ffmpeg-Teil
-  dagegen schon, mit lokalen Dateien).
-- Der Feed-Abruf des Beobachters (`watch/feed.py`) wurde nie gegen den echten
-  YouTube-Feed ausgeführt. Die Zustandslogik dahinter ist voll getestet, der
-  Netzwerkzugriff selbst nicht.
+Die Docker-Integrationssuite ist in dieser Entwicklungsumgebung nicht
+verfügbar (kein Docker) — das ist wie beim vorherigen Handoff eine
+Umgebungsgrenze, kein bekannter Fehler, aber eben auch kein Beweis, dass das
+gerenderte Bild wirklich so aussieht wie die Vorschau verspricht.
 
-**Das ist eine Umgebungsgrenze, kein bekannter Fehler** — aber eben auch kein Beweis,
-dass es funktioniert.
+### 4.3 Die 9:16-Vorschau wurde nie in einem echten Browser angesehen
+Die Frontend-Tests (`create.test.jsx`, `layoutGeometry.test.js`) laufen in
+jsdom — sie bestätigen, dass die richtigen Funktionen mit den richtigen Werten
+aufgerufen werden, nicht wie das Ziehen der Kästen/Linien sich tatsächlich
+anfühlt oder ob CSS/Layout in einem echten Chrome/Firefox genauso aussieht wie
+berechnet. Der Nutzer war beim Ausprobieren im echten Dashboard, als dieses
+Dokument angefordert wurde — sein Ergebnis dazu steht noch aus.
 
-### 4.3 `reframe/detect.py` — inzwischen getestet, und dabei drei echte Fehler gefunden
-**Erledigt.** Das Modul ist jetzt abgedeckt (`tests/clipperpro/test_reframe_detect.py`,
-29 Host-Tests + `test_reframe_detect_integration.py`, 5 Docker-Tests). Der Test
-hat dabei bewiesen, dass die Sprecher-Verfolgung **gar nicht lief** — drei Fehler,
-die keiner der 810 vorherigen Tests bemerken konnte, weil alle `locate=`
-explizit übergaben und den echten Pfad damit umgingen:
+### 4.4 Die alte nginx/CLIPPYME_PUBLIC_URL-Einrichtung ist ein Fragment
+Vor der Google-Drive-Entscheidung wurde für den Discord-Fallback testweise
+eine nginx+certbot-Route auf dem VPS vorbereitet (`clippyme.159-195-219-11.sslip.io`,
+`/etc/nginx/sites-available/clippyme-videos`). Ob diese Konfiguration auf dem
+VPS tatsächlich noch existiert oder nie fertig eingerichtet wurde, ist
+**unbekannt** — die Entscheidung fiel danach auf R2, dann B2, dann Google
+Drive, und die nginx-Route wurde nie wieder erwähnt. Falls sie halbfertig
+liegt, ist sie harmlos (eigener Serverblock, keine Kollision mit der
+bestehenden Seite), aber unaufgeräumt.
 
-1. `detect.py` importierte `detect_faces` — diese Funktion existiert nicht. Sie
-   heißt `detect_face_candidates`. Jeder Aufruf lief in einen `ImportError`.
-2. `detect_face_candidates` liefert `[{"box": [x,y,w,h], "score": …}]`, der Code
-   zerlegte das Ergebnis aber als 4er-Sequenz (`box[:4]`) → `TypeError` auf einem
-   Dict.
-3. Der `ImportError`-Schutz in `_default_locator` umschloss den **Import** statt
-   den **Aufruf**. Da `detect.py` cv2 erst im Funktionskörper importiert, griff
-   der Schutz nie — statt „mittiger Ausschnitt" stürzte Phase 5 ab.
-
-Alle drei sind behoben und durch Regressionstests abgesichert (jeder Fix wurde
-gegengeprüft: Fehler wieder eingebaut → Test schlägt fehl).
-
-Was weiterhin **nicht** verifiziert ist: die *Qualität* der Verfolgung. Die
-Docker-Tests prüfen den Vertrag (Namen, Datenformat, Seek-Verhalten von echtem
-cv2), nicht ob die Kamera das richtige Gesicht wählt — dafür bräuchte es
-Testmaterial mit echten Gesichtern. Und die Docker-Tests selbst sind in dieser
-Umgebung **nie gelaufen** (kein Docker verfügbar); sie sind geschrieben, aber
-unausgeführt.
-
-### 4.4 Es existiert noch keine `.env`
-Im Projekt liegt nur `.env.example`. Ohne kopierte und ausgefüllte `.env` kann
-kein echter Lauf starten. (Siehe Schritt 2 unten.)
-
-### 4.5 Der PR ist gemerged
-**Erledigt.** PR #1 wurde am 27.07.2026 nach `main` gemerged (Merge-Commit
-`b222350`). Schritt 1 in Abschnitt 5 ist damit hinfällig.
-
-### 4.6 Kleinigkeit: 3 kosmetische Linter-Hinweise
-`ruff` mit seinem vollen Standard-Regelsatz meldet **3-mal** `RUF046`
-(überflüssiges `int()` um ein bereits ganzzahliges `round()`) in `src/clipper_pro`.
-**Der CI-Regelsatz des Projekts ist sauber** — das sind Stilhinweise, keine
-Fehler. Aufräumen ist optional. (Die frühere Angabe „8" war zu hoch.)
-
-### 4.7 Bewusst nicht gebaut
-- **Veröffentlichen aus dem Beobachter heraus** — absichtlich ausgelassen. Ein
-  unbeaufsichtigter Prozess, der selbstständig postet, ist eine andere
-  Risikoklasse als einer, der nur Dateien schreibt.
-- **Discord-Torwächter** (war als möglicher Schritt 3 im Gespräch) — nie begonnen.
-- **Skaffold / Kubernetes / Cloud-Deployment** aus dem ursprünglichen „Masterplan"
-  — nach Prüfung verworfen, weil im Repository nichts davon existiert und der
-  Nutzen den Aufwand hier nicht rechtfertigt.
+### 4.5 Zwei separate Discord-Bot-Instanzen kurzzeitig möglich
+Während der Fehlersuche wurde `docker compose --profile discord up -d discordbot`
+sowohl auf dem Windows-Entwicklungsrechner des Nutzers als auch (danach) auf
+dem VPS ausgeführt, mit vermutlich demselben `DISCORD_BOT_TOKEN`. Beide wurden
+am Ende zwar per `docker compose down` auf Windows gestoppt, aber es wurde
+**nicht bestätigt**, ob zwischenzeitlich beide Instanzen gleichzeitig liefen
+und dadurch Ereignisse doppelt verarbeitet haben könnten.
 
 ---
 
@@ -219,66 +190,56 @@ Fehler. Aufräumen ist optional. (Die frühere Angabe „8" war zu hoch.)
 
 In dieser Reihenfolge:
 
-### Schritt 1 — ~~PR #1 mergen~~ ✅ erledigt
-PR #1 ist gemerged (siehe 4.5). Weiter mit Schritt 2.
+### Schritt 1 — Vorlagen-UI bauen ⭐ (schließt die größte Lücke aus 4.1)
+Im `StreamLayoutEditor` (oder direkt im Create-Tab darüber) fehlt:
+- Eine Liste vorhandener Vorlagen (`GET /api/config/stream-layouts`) zum
+  Auswählen — beim Auswählen füllen sich `facecam`/`gameplay`/`split`/
+  `hook_y`/`subtitle_y` in die aktuellen Projekt-Optionen.
+- Ein „Als Vorlage speichern"-Knopf (Name eingeben → `POST
+  /api/config/stream-layouts` mit den aktuell gezeichneten Werten).
+- Ein Löschen-Knopf pro Vorlage (`DELETE .../{layout_id}`).
 
-**Zusätzlich empfohlen:** die neuen Docker-Tests einmal wirklich ausführen —
-sie sind geschrieben, aber in der Entwicklungsumgebung nie gelaufen:
+Backend und Route existieren bereits vollständig und sind getestet — das ist
+reine Frontend-Verdrahtung, ähnlich zu `caption_presets` im `PublishModal`
+(dort existiert bereits genau dieses Muster: Liste + Speichern + Löschen).
+
+### Schritt 2 — Ein echtes Gaming-Video einmal komplett durchrendern ⭐
+Schließt die Lücke aus 4.2/4.3. Im Dashboard (läuft auf dem VPS):
+1. Ein kurzes Gaming-Video mit Facecam-Overlay einreichen, Reframe = Gaming.
+2. Screenshot hochladen, Facecam **und** Gameplay einzeichnen (bewusst einen
+   Screenshot mit Taskbar/Chat-Overlay wählen, um genau den Fall zu prüfen,
+   den die alte Zentrierung nicht konnte).
+3. Split, Hook-Position („seam"), Untertitel-Position in der Vorschau
+   verschieben.
+4. Fertigen Clip ansehen: Sitzt die Facecam wie in der Vorschau? Ist das
+   Gameplay-Rechteck tatsächlich der gezeichnete Ausschnitt und nicht die alte
+   Zentrierung? Sitzt der Hook auf dem Übergang? Sitzen die Untertitel an der
+   gezogenen Stelle?
+
+Bei einer Abweichung zwischen Vorschau und echtem Rendering zuerst
+`dashboard/src/lib/layoutGeometry.js` gegen `reframe_ops.expand_box_to_aspect`
+und `reframe.create_gaming_frame` vergleichen — das ist die einzige Stelle,
+an der beide Seiten unabhängig dieselbe Rechnung machen müssten.
+
+### Schritt 3 — Docker-Integrationstest für `create_gaming_frame` ergänzen
+Sobald Docker verfügbar ist (auf dem VPS oder lokal mit laufendem Docker
+Desktop):
 ```sh
 docker compose run --rm -u root backend sh -lc \
-  "pip install -q pytest && pytest -m integration -k reframe_detect"
+  "pip install -q pytest && pytest -m integration -k gaming"
 ```
-Das prüft die Sprecher-Verfolgung gegen echtes cv2/MediaPipe — genau die Stelle,
-an der die drei Fehler aus 4.3 saßen.
+Aktuell gibt es dafür noch keinen Test — einen `pytest.mark.integration`-Test
+schreiben, der ein echtes Testframe (numpy-Array oder kleines Testvideo) durch
+`create_gaming_frame` mit gesetzter `gameplay_box` schickt und prüft, dass die
+Ausgabe-Dimensionen und der Bildausschnitt stimmen.
 
-### Schritt 2 — `.env` anlegen und Schlüssel eintragen
-```sh
-cd clippyme
-cp .env.example .env
-```
-Dann in der **neuen `.env`** (nicht in `.env.example`) diese Zeilen ausfüllen —
-und bei den auskommentierten Zeilen das führende `#` **entfernen**:
-
-```sh
-GEMINI_API_KEY=...            # https://aistudio.google.com/apikey
-DEEPGRAM_API_KEY=...          # https://console.deepgram.com
-DEEPSEEK_API_KEY=...          # https://platform.deepseek.com
-CLIPPER_PRO_RANKER=deepseek   # oder: gemini
-```
-`.env` steht in `.gitignore` (Zeile 42) — die Schlüssel landen also nicht im Repository.
-
-### Schritt 3 — Ein einziges kurzes Video von Hand durchfahren ⭐
-**Das ist der eigentlich wichtige Schritt**, weil er genau die Lücken aus
-Abschnitt 4.1 und 4.2 schließt. Ein *kurzes* Video wählen (5–10 Minuten), damit
-der erste echte Test wenig kostet:
-
-```sh
-clipper-pro ingest     --work-dir ./testlauf "<YOUTUBE-URL>"
-clipper-pro transcribe --work-dir ./testlauf
-clipper-pro rank       --work-dir ./testlauf
-clipper-pro cut        --work-dir ./testlauf
-clipper-pro reframe    --work-dir ./testlauf
-clipper-pro render     --work-dir ./testlauf --captions --hooks
-clipper-pro export     --work-dir ./testlauf
-```
-Phasenweise, nicht alles auf einmal — dann sieht man sofort, **welche** Phase
-bricht. Danach die Clips in `./testlauf/` ansehen: Sitzt der Ausschnitt? Sind die
-Untertitel lesbar? Passt der Hook?
-
-### Schritt 4 — Den Beobachter genau einmal probelaufen lassen
-Erst wenn Schritt 3 sauber durchlief:
-```sh
-clipper-pro watch --channel "@einkanal" --runs-dir ~/clipper-pro-runs --once
-```
-`--once` heißt: einmal abfragen, dann beenden. Beim **allerersten** Lauf auf einem
-Kanal wird erwartungsgemäß **nichts verarbeitet** — er merkt sich nur den Bestand
-(Regel 1 aus Abschnitt 1). Das ist kein Fehler, das ist der Kostenschutz.
-Ab dem zweiten Aufruf wird jedes wirklich neue Video verarbeitet.
-
-Erst danach das `--once` weglassen und dauerhaft laufen lassen.
+### Schritt 4 — nginx-Fragment auf dem VPS aufräumen (siehe 4.4)
+Prüfen, ob `/etc/nginx/sites-available/clippyme-videos` existiert; falls ja,
+entweder fertig einrichten (falls doch noch als zweiter Fallback gewünscht)
+oder sauber entfernen (`sudo rm`, `sudo nginx -t`, `sudo systemctl reload nginx`).
 
 ### Danach möglich (offen, nicht eingeplant)
-- Veröffentlichungs-Schritt hinter den Beobachter hängen (mit menschlicher Freigabe)
-- Discord-Torwächter
-- `reframe/detect.py` mit einem Docker-Integrationstest absichern
-- Die 8 `RUF046`-Hinweise aufräumen
+- Eine Vorlage direkt beim Anlegen eines Live-Monitors auswählbar machen
+  (aktuell nur im Create-Tab verdrahtet)
+- Prüfen, ob `_detect_gaming_facecam`s Auto-Erkennung als Startpunkt für eine
+  neue Vorlage vorausgefüllt werden könnte, statt komplett neu zu zeichnen
