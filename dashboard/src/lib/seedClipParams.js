@@ -46,6 +46,9 @@ export function seedLogoParams(preselections) {
     return {
         position: logo?.position || 'top-right',
         size: logo?.size || 'M',
+        // Dragged in the free-placement editor — overrides the size preset
+        // when present, same precedence compose.py's _apply_logo already uses.
+        ...(logo?.scale ? { scale: logo.scale } : {}),
     };
 }
 

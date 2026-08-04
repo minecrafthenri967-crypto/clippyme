@@ -25,7 +25,7 @@ export const PRESET_KEYS = [
   // basic values on every reload.
   'subFontSize', 'subStroke', 'subOutlineW', 'subBg', 'subAlign', 'subOffsetY',
   'hooks', 'hookPos', 'hookSize', 'hookStyle',
-  'logo', 'logoPos', 'logoSize', 'language',
+  'logo', 'logoPos', 'logoSize', 'logoScale', 'language',
 ];
 
 export function captureOpts(opts) {

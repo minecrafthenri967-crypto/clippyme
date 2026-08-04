@@ -201,6 +201,13 @@ export const en = {
   // -- create.jsx: LogoConfig -----------------------------------------------
   'create.logo.uploadHint': 'Upload your logo PNG in Settings → Brand logo.',
 
+  // -- logoPositionEditor.jsx -------------------------------------------------
+  'logoEditor.uploadPreview': 'Upload a preview frame',
+  'logoEditor.noPreview': 'Upload a frame from your video to see the logo placed on it.',
+  'logoEditor.logoAlt': 'Logo',
+  'logoEditor.previewAlt': 'Video preview frame',
+  'logoEditor.hint': 'Drag the logo to move it, drag the corner handle to resize.',
+
   // -- create.jsx: PlayerImageConfig -----------------------------------------
   'create.playerImage.uploadHint': 'Upload player photos in Settings → Player images.',
 

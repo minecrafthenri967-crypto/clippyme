@@ -54,19 +54,20 @@ def test_grade_preset_ids_match_backend():
     )
 
 
-def test_logo_positions_and_sizes_match_backend():
-    pos_block = _js_block("LOGO_POSITIONS")
-    js_positions = set(re.findall(r"\['([a-z-]+)'", pos_block))
-    assert js_positions == set(BACKEND_LOGO_POSITIONS), (
-        f"logo position drift — backend={sorted(BACKEND_LOGO_POSITIONS)} "
-        f"data.js={sorted(js_positions)}"
-    )
+def test_logo_backend_positions_still_resolve_to_expressions():
+    """data.js no longer lists logo position/size presets — the editor now
+    drags a free {x, y} + scale (dashboard/src/redesign/logoPositionEditor.jsx)
+    instead of picking from a preset list. The backend keywords in
+    domain/logo.py._POSITIONS and _LOGO_SIZE_MAP stay supported (old
+    recipes/history saved a keyword), so this only pins that they still exist
+    and resolve, not that the frontend mirrors them 1:1."""
+    from clippyme.domain.logo import logo_overlay_xy
 
-    size_block = _js_block("LOGO_SIZES")
-    js_sizes = set(re.findall(r"\['([A-Z])'", size_block))
-    assert js_sizes == set(_LOGO_SIZE_MAP), (
-        f"logo size drift — backend={sorted(_LOGO_SIZE_MAP)} data.js={sorted(js_sizes)}"
-    )
+    assert BACKEND_LOGO_POSITIONS
+    for pos in BACKEND_LOGO_POSITIONS:
+        x, y = logo_overlay_xy(pos, 10)
+        assert x and y
+    assert _LOGO_SIZE_MAP
 
 
 def _parse_hook_style_default() -> dict:

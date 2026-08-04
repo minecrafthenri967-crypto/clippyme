@@ -12,6 +12,7 @@ vi.mock('./realApi', () => ({
   getZernioProfiles: vi.fn(async () => ({
     profiles: [{ id: 'default', label: 'Default', configured: false }],
   })),
+  logoImageUrl: () => '/api/config/logo/image',
 }));
 
 const BASE_OPTS = {
@@ -76,13 +77,18 @@ test('subtitle drawer shared rows: position/alignment/nudge patch their sub* key
   expect(set).toHaveBeenLastCalledWith({ subOffsetY: -12 });
 });
 
-test('logo drawer: position cell and size segment patch logoPos/logoSize', () => {
+test('logo drawer: dragging the logo box patches logoPos/logoScale as a free {x,y}', () => {
   const set = mount();
   openDrawer('Brand logo');
-  fireEvent.click(screen.getByRole('button', { name: 'Bot C' }));
-  expect(set).toHaveBeenLastCalledWith({ logoPos: 'bottom-center' });
-  fireEvent.click(screen.getByRole('button', { name: 'L' }));
-  expect(set).toHaveBeenLastCalledWith({ logoSize: 'L' });
+  const handle = document.querySelector('[style*="nwse-resize"]');
+  expect(handle).toBeTruthy();
+  fireEvent.pointerDown(handle, { clientX: 100 });
+  fireEvent.pointerMove(window, { clientX: 130 });
+  const [patch] = set.mock.calls.at(-1);
+  expect(patch).toHaveProperty('logoPos');
+  expect(patch).toHaveProperty('logoScale');
+  expect(typeof patch.logoPos.x).toBe('number');
+  expect(typeof patch.logoPos.y).toBe('number');
 });
 
 test('grade row: preset segments (with the extra Off entry) patch gradePreset', () => {

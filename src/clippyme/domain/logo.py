@@ -33,12 +33,42 @@ _POSITIONS = {
 DEFAULT_POSITION = "top-right"
 
 
-def logo_overlay_xy(position: str, margin_px: int) -> tuple[str, str]:
-    """Return the (x, y) ffmpeg overlay expressions for a position preset.
+def parse_logo_position_xy(position) -> tuple[float, float] | None:
+    """Return ``position`` as an (x, y) 0..1 fraction pair, or ``None`` for a
+    keyword preset.
 
-    Falls back to the default corner for an unknown preset. Pure string math →
-    host-unit-testable without ffmpeg or a real video.
+    The logo editor lets the user drag the logo anywhere on a 9:16 preview
+    instead of picking a corner preset; it stores that as ``{"x": .., "y": ..}``
+    (fraction of the space the overlay has to move in — 0 flush against the
+    start edge, 1 flush against the end edge, matching ffmpeg's
+    ``(main_w-overlay_w)*x`` normalized placement). Named presets keep working
+    unchanged for old recipes/history.
     """
+    if not isinstance(position, dict):
+        return None
+    try:
+        x = float(position["x"])
+        y = float(position["y"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+        return None
+    return x, y
+
+
+def logo_overlay_xy(position, margin_px: int) -> tuple[str, str]:
+    """Return the (x, y) ffmpeg overlay expressions for a position.
+
+    ``position`` is either a preset keyword (falls back to the default corner
+    for an unknown one) or a ``{"x": .., "y": ..}`` free-placement fraction
+    from the drag editor, in which case ``margin_px`` is ignored — a dragged
+    position already accounts for its own distance from the edge. Pure string
+    math → host-unit-testable without ffmpeg or a real video.
+    """
+    xy = parse_logo_position_xy(position)
+    if xy is not None:
+        x, y = xy
+        return f"(main_w-overlay_w)*{x:.4f}", f"(main_h-overlay_h)*{y:.4f}"
     x_tpl, y_tpl = _POSITIONS.get(position, _POSITIONS[DEFAULT_POSITION])
     m = max(0, int(margin_px))
     return x_tpl.format(M=m), y_tpl.format(M=m)
@@ -72,7 +102,8 @@ def add_logo_to_video(
 ) -> bool:
     """Overlay a logo PNG onto a video.
 
-    position: one of _POSITIONS keys (default top-right)
+    position: a _POSITIONS keyword (default top-right), or a free-placement
+              {"x": .., "y": ..} fraction from the drag editor
     scale:    logo width as a fraction of the video width (0.05–0.5)
     opacity:  0.0–1.0 alpha multiplier
     margin:   gap from the frame edge as a fraction of the video width

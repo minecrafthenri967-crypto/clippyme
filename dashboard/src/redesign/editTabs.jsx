@@ -2,11 +2,13 @@
 // State stays lifted in EditClipModal (tabs are conditionally rendered, so a
 // tab owning state would lose it on every switch; apply() needs it all);
 // these render it and report edits up. Markup moved verbatim from the modal.
+import { useState } from 'react';
 import { Icon, Btn, Segmented, Switch } from './primitives';
 import { HookStyleControls, HookPreview } from './hookStyle';
 import { SubtitleControls } from './subtitleControls';
 import { LogoControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
+import { logoImageUrl } from './realApi';
 
 export const REFRAME_OPTS = [
   { id: 'auto', label: 'Auto' },
@@ -134,6 +136,18 @@ export function HookTab({ on, onToggle, bulk, text, onText, style, onStyle }) {
 }
 
 export function LogoTab({ on, onToggle, logo, onChange }) {
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  };
+
   return (
     <>
       <div className="edit-opt">
@@ -143,7 +157,12 @@ export function LogoTab({ on, onToggle, logo, onChange }) {
       </div>
       {on && (
         <div className="cfg-drawer fade-in">
-          <LogoControls position={logo.position} size={logo.size} onChange={onChange} />
+          <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', marginBottom: 12 }}>
+            <Icon n="image" />Upload a frame from your clip
+            <input type="file" accept="image/*" hidden onChange={onFile} />
+          </label>
+          <LogoControls position={logo.position} size={logo.size} scale={logo.scale}
+            imgUrl={previewUrl} logoUrl={logoImageUrl()} onChange={onChange} />
         </div>
       )}
     </>

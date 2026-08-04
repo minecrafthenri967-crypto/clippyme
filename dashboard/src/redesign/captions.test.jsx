@@ -20,6 +20,7 @@ vi.mock('./realApi', () => ({
   })),
   editClipAI: vi.fn(),
   listFonts: vi.fn(async () => ({ fonts: [] })),
+  logoImageUrl: () => '/api/config/logo/image',
 }));
 
 const CLIP = { viral_score: 88, title: 'A clip', viral_hook_text: 'THIS changed everything' };
@@ -100,16 +101,19 @@ test('classic Background box on → bg_opacity 0.6 with the hardcoded black pane
 
 // --- logo tab ---------------------------------------------------------------------
 
-test('logo tab: enable + reposition → logoParams and toggle ride the payload', () => {
+test('logo tab: enable + drag-resize → logoParams carries a free {x,y} + scale', () => {
   const { onApply } = mount();
   fireEvent.click(tab('Logo'));
   fireEvent.click(screen.getByRole('switch'));            // logo on (defaults top-right / M)
-  fireEvent.click(screen.getByRole('button', { name: 'Bot L' }));
-  fireEvent.click(screen.getByRole('button', { name: 'S' }));
+  const handle = document.querySelector('[style*="nwse-resize"]');
+  fireEvent.pointerDown(handle, { clientX: 100 });
+  fireEvent.pointerMove(window, { clientX: 130 });
   fireEvent.click(applyBtn());
   const p = onApply.mock.calls[0][0];
   expect(p.toggles.logo).toBe(true);
-  expect(p.logoParams).toEqual({ position: 'bottom-left', size: 'S' });
+  expect(typeof p.logoParams.position.x).toBe('number');
+  expect(typeof p.logoParams.position.y).toBe('number');
+  expect(typeof p.logoParams.scale).toBe('number');
 });
 
 // --- grade tab ---------------------------------------------------------------------

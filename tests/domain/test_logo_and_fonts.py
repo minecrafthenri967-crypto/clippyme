@@ -1,7 +1,12 @@
 """Logo overlay geometry + custom-font discovery (host-safe, no ffmpeg)."""
 import os
 
-from clippyme.domain.logo import logo_overlay_xy, DEFAULT_POSITION, _POSITIONS
+from clippyme.domain.logo import (
+    logo_overlay_xy,
+    parse_logo_position_xy,
+    DEFAULT_POSITION,
+    _POSITIONS,
+)
 
 
 def test_logo_corners_use_margin():
@@ -31,6 +36,25 @@ def test_all_positions_have_expressions():
     for pos in _POSITIONS:
         x, y = logo_overlay_xy(pos, 12)
         assert x and y
+
+
+def test_parse_logo_position_xy_accepts_valid_fraction():
+    assert parse_logo_position_xy({"x": 0.25, "y": 0.75}) == (0.25, 0.75)
+
+
+def test_parse_logo_position_xy_rejects_out_of_range():
+    assert parse_logo_position_xy({"x": 1.5, "y": 0.5}) is None
+
+
+def test_parse_logo_position_xy_rejects_non_dict():
+    assert parse_logo_position_xy("top-right") is None
+    assert parse_logo_position_xy(None) is None
+
+
+def test_logo_overlay_xy_free_position_ignores_margin():
+    x, y = logo_overlay_xy({"x": 0.3, "y": 0.6}, margin_px=999)
+    assert x == "(main_w-overlay_w)*0.3000"
+    assert y == "(main_h-overlay_h)*0.6000"
 
 
 def test_list_available_fonts_includes_user_upload(tmp_path, monkeypatch):

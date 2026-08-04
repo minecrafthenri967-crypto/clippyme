@@ -212,6 +212,16 @@ chrome, defaults resolved by thin adapters) — never re-clone these controls
 per surface. `captions.jsx` is the modal shell; tab bodies live in
 `editTabs.jsx` with state lifted in the shell (tabs are conditionally
 rendered).
+Logo placement is free-drag, not a preset list: `logoPositionEditor.jsx`
+renders the logo over a user-uploaded still (screenshot in Create, a clip
+frame in the edit modal) and lets it be dragged/resized, storing
+`{position: {x, y}, scale}` — `x`/`y` are the same normalized
+`(main_w-overlay_w)*x` fraction `domain/logo.py`'s `logo_overlay_xy` uses, so
+the frontend never needs to duplicate ffmpeg's own placement math. The old
+`_POSITIONS` keyword presets (`top-right` etc.) and `_LOGO_SIZE_MAP` (`S/M/L`)
+still resolve server-side so old recipes/history keep rendering unchanged —
+only the editor stopped writing them. `GET /api/config/logo/image` serves the
+raw uploaded PNG so the editor can render the real logo, not a placeholder box.
 
 ## Commands
 

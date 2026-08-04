@@ -63,6 +63,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   const [logo, setLogo] = useState(() => ({
     position: lp0.position || 'top-right',
     size: lp0.size || 'M',
+    scale: lp0.scale,
   }));
   // Colour grade (video-use-style). Preset 'none' = grade layer off.
   const gp0 = initial?.gradeParams || seedGradeParams(preselections);
@@ -156,7 +157,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
         : { font: subs.font, font_color: subs.font_color, border_width: subs.border_width,
             bg_opacity: subs.bg ? 0.6 : 0, bg_color: '#000000' }) };
     const hookParams = { ...seedHookParams(clip, preselections), ...(initial?.hookParams || {}), ...hookStyle, text: hookText };
-    const logoParams = { position: logo.position, size: logo.size };
+    const logoParams = { position: logo.position, size: logo.size, ...(logo.scale ? { scale: logo.scale } : {}) };
     const gradeParams = { preset: gradePreset };
     const bannerParams = { enabled: bannerOn, platform: banner.platform, handle: banner.handle, y_pct: banner.y_pct };
     const toggles = { smartcut: effSmartcut, subtitles: subsOn, hook: hookOn, logo: logoOn, grade: gradeOn, banner: bannerOn };

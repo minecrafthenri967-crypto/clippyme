@@ -288,6 +288,12 @@ export async function deleteLogo() {
   return res.json().catch(() => ({}));
 }
 
+// Plain URL (not a fetch helper) — used directly as an <img src> by the
+// drag-position editor so the browser handles the same-origin request itself.
+export function logoImageUrl() {
+  return getApiUrl('/api/config/logo/image');
+}
+
 // --- Player-image library (athlete photos for the compose overlay) ---------
 export async function listPlayerImages() {
   const res = await apiFetch(getApiUrl('/api/config/player-images'));
@@ -544,7 +550,9 @@ export function optsToPreselections(opts) {
     hook: opts.hooks ? { position: opts.hookPos, size: opts.hookSize, ...(opts.hookStyle || {}) } : false,
     // Logo overlay is a compose-time layer (not a process-time arg) — persisted
     // here only so each generated clip inherits the toggle + placement default.
-    logo: opts.logo ? { position: opts.logoPos || 'top-right', size: opts.logoSize || 'M' } : false,
+    logo: opts.logo
+      ? { position: opts.logoPos || 'top-right', size: opts.logoSize || 'M', ...(opts.logoScale ? { scale: opts.logoScale } : {}) }
+      : false,
     // Colour grade default for every generated clip (compose-time layer). Off
     // ('none') → omitted so seedToggles leaves the grade toggle off.
     grade: opts.gradePreset && opts.gradePreset !== 'none' ? { preset: opts.gradePreset } : false,

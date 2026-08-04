@@ -19,6 +19,7 @@ import tempfile
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Path, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from clippyme.api.schemas import (
     CaptionPresetRequest,
@@ -333,6 +334,16 @@ async def logo_status(request: Request):
     """Check whether a brand logo has been uploaded."""
     require_trusted_config_request(request)
     return {"configured": await asyncio.to_thread(os.path.exists, _LOGO_PATH)}
+
+
+@router.get("/api/config/logo/image")
+async def logo_image(request: Request):
+    """Serve the persisted logo PNG so the drag-position editor can render it
+    over the preview instead of guessing at its look from a filename."""
+    require_trusted_config_request(request)
+    if not await asyncio.to_thread(os.path.exists, _LOGO_PATH):
+        raise HTTPException(status_code=404, detail="No logo uploaded")
+    return FileResponse(_LOGO_PATH, media_type="image/png")
 
 
 @router.post("/api/config/logo")

@@ -8,7 +8,7 @@ import { SubtitleControls } from './subtitleControls';
 import { LogoControls, PlayerImageControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
 import { StreamLayoutEditor } from './streamLayoutEditor';
-import { getZernioProfiles } from './realApi';
+import { getZernioProfiles, logoImageUrl } from './realApi';
 import { validateCreateOptions } from '../lib/createValidation';
 import { useT } from '../i18n/context.jsx';
 
@@ -257,12 +257,30 @@ function HookConfig({ opts, set }) {
 
 function LogoConfig({ opts, set }) {
   const t = useT();
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  };
+
   return (
     <div className="cfg-drawer fade-in">
-      <LogoControls position={opts.logoPos || 'top-right'} size={opts.logoSize || 'M'}
-        onChange={(p) => set(p.position !== undefined
-          ? { logoPos: p.position } : { logoSize: p.size })} />
-      <div className="od" style={{ marginTop: 2 }}>{t('create.logo.uploadHint')}</div>
+      <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', marginBottom: 12 }}>
+        <Icon n="image" />{t('logoEditor.uploadPreview')}
+        <input type="file" accept="image/*" hidden onChange={onFile} />
+      </label>
+      <LogoControls
+        position={opts.logoPos} size={opts.logoSize} scale={opts.logoScale}
+        imgUrl={previewUrl} logoUrl={logoImageUrl()}
+        onChange={(p) => set({ logoPos: p.position, logoScale: p.scale })}
+      />
+      <div className="od" style={{ marginTop: 8 }}>{t('create.logo.uploadHint')}</div>
     </div>
   );
 }

@@ -63,16 +63,6 @@ export const SUB_FONTS = [
 // yellow #FDE700 / purple #581BBA = contestants.
 export const SUB_COLORS = ['#FFFFFF', '#FDE700', '#581BBA', '#FFE000', '#00FF66', '#00E5FF', '#FF4D6D', '#000000'];
 
-// Brand-logo overlay placement (compose-time layer). Values match the
-// _POSITIONS keys in domain/logo.py.
-export const LOGO_POSITIONS = [
-  ['top-left', 'Top L'], ['top-center', 'Top C'], ['top-right', 'Top R'],
-  ['bottom-left', 'Bot L'], ['bottom-center', 'Bot C'], ['bottom-right', 'Bot R'],
-  ['center', 'Center'],
-];
-// Logo size presets → width fraction handled backend-side (_LOGO_SIZE_MAP).
-export const LOGO_SIZES = [['S', 'S'], ['M', 'M'], ['L', 'L']];
-
 // Player-image overlay placement (the athlete-photo "flash" compose layer).
 // Values match domain/player_image.py's position presets (same table as logo).
 export const PLAYER_IMAGE_POSITIONS = [

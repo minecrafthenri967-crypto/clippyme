@@ -199,6 +199,13 @@ export const de = {
   // -- create.jsx: LogoConfig -----------------------------------------------
   'create.logo.uploadHint': 'Lade dein Logo-PNG unter Einstellungen → Marken-Logo hoch.',
 
+  // -- logoPositionEditor.jsx -------------------------------------------------
+  'logoEditor.uploadPreview': 'Vorschaubild hochladen',
+  'logoEditor.noPreview': 'Lade einen Frame aus deinem Video hoch, um das Logo darauf zu platzieren.',
+  'logoEditor.logoAlt': 'Logo',
+  'logoEditor.previewAlt': 'Video-Vorschaubild',
+  'logoEditor.hint': 'Logo ziehen zum Verschieben, am Eckpunkt ziehen zum Skalieren.',
+
   // -- create.jsx: PlayerImageConfig -----------------------------------------
   'create.playerImage.uploadHint': 'Lade Spielerfotos unter Einstellungen → Spielerbilder hoch.',
 
