@@ -869,28 +869,21 @@ def expand_box_to_aspect(x, y, w, h, frame_width, frame_height, target_ar):
     return (int(round(new_x)), int(round(new_y)), int(round(new_w)), int(round(new_h)))
 
 
-def resolve_facecam_box_from_fractions(x, y, w, h, frame_width, frame_height):
-    """Build a facecam ``(x, y, w, h)`` pixel box from a normalized 0..1
-    rectangle, bypassing auto-detection entirely. The fractions come from a
-    user drawing a rectangle over their OWN screenshot of the stream (see the
-    dashboard's facecam box picker) — resolution-independent by construction,
-    so it doesn't matter that the screenshot's pixel dimensions differ from
-    the actual source video's, only that they share the same aspect ratio.
+def resolve_box_from_fractions(x, y, w, h, frame_width, frame_height):
+    """Convert a normalized 0..1 rectangle into a pixel ``(x, y, w, h)`` box.
 
-    Facecam placement varies by streamer/game and the face detector can miss
-    or mis-locate the overlay, so this lets someone who knows their own
-    layout pin it directly instead of relying on a guess.
-    ``expand_box_to_aspect`` (applied downstream in ``create_gaming_frame``)
-    reshapes this seed box to the output top zone's aspect ratio around its
-    centre, so only the centre and rough scale resolved here matter, not this
-    box's own aspect ratio.
+    The fractions come from a user drawing a rectangle over their OWN
+    screenshot of the stream (see the dashboard's layout editor) —
+    resolution-independent by construction, so it doesn't matter that the
+    screenshot's pixel dimensions differ from the actual source video's, only
+    that they share the same aspect ratio.
 
     Fractions are clamped to ``[0, 1]`` before converting to pixels — the API
     layer is expected to have already validated them, but a pure geometry
-    function should never trust its input blindly. The result is handed
-    straight to ``create_gaming_frame``, which re-clamps any facecam box
-    (detected or manual alike) to the actual frame bounds before use, so a
-    rounding-edge box here is not the last line of defense.
+    function should never trust its input blindly. Results are handed straight
+    to ``create_gaming_frame``, which re-clamps every box to the actual frame
+    bounds before use, so a rounding-edge box here is not the last line of
+    defense.
     """
     x = max(0.0, min(1.0, x))
     y = max(0.0, min(1.0, y))
@@ -901,3 +894,35 @@ def resolve_facecam_box_from_fractions(x, y, w, h, frame_width, frame_height):
     pw = max(1, int(round(w * frame_width)))
     ph = max(1, int(round(h * frame_height)))
     return (px, py, pw, ph)
+
+
+def resolve_facecam_box_from_fractions(x, y, w, h, frame_width, frame_height):
+    """Facecam seed box from a drawn rectangle, bypassing auto-detection.
+
+    Facecam placement varies by streamer/game and the face detector can miss
+    or mis-locate the overlay, so this lets someone who knows their own
+    layout pin it directly instead of relying on a guess.
+    ``expand_box_to_aspect`` (applied downstream in ``create_gaming_frame``)
+    reshapes this seed box to the output top zone's aspect ratio around its
+    centre, so only the centre and rough scale resolved here matter, not this
+    box's own aspect ratio.
+    """
+    return resolve_box_from_fractions(x, y, w, h, frame_width, frame_height)
+
+
+def resolve_gameplay_box_from_fractions(x, y, w, h, frame_width, frame_height):
+    """Gameplay seed box from a drawn rectangle, replacing the centred crop.
+
+    The default gameplay crop is horizontally centred over the source's full
+    height, which assumes the interesting part of the game sits dead centre
+    and that the whole frame height is game. Neither holds generally: a
+    streamer's layout puts a taskbar, a webcam strip or a chat overlay inside
+    the frame, and the action is often off-centre. Drawing the region once per
+    streamer says exactly which pixels are "the game".
+
+    Like the facecam box this is a SEED, not the final crop —
+    ``expand_box_to_aspect`` grows it to the bottom zone's aspect ratio, so
+    the drawn region is always fully visible and never cropped tighter than
+    what was asked for.
+    """
+    return resolve_box_from_fractions(x, y, w, h, frame_width, frame_height)

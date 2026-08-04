@@ -509,6 +509,8 @@ def _render_one_clip(
             zoom_end=None if args.no_zoom else 1.05,
             aspect_ratio=aspect_ratio,
             gaming_facecam_box=args.gaming_facecam_box,
+            gaming_gameplay_box=args.gaming_gameplay_box,
+            gaming_split_fraction=args.gaming_split,
         )
         if not success or not _valid_file(temp_output, 10_000):
             last_report = {

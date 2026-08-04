@@ -322,6 +322,8 @@ async def process_endpoint(
     model = None
     zernio_profile = "default"
     gaming_facecam_box = None
+    gaming_gameplay_box = None
+    gaming_split = None
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         try:
@@ -341,6 +343,8 @@ async def process_endpoint(
         model = validated.model
         zernio_profile = validated.zernio_profile
         gaming_facecam_box = validated.gaming_facecam_box.model_dump() if validated.gaming_facecam_box else None
+        gaming_gameplay_box = validated.gaming_gameplay_box.model_dump() if validated.gaming_gameplay_box else None
+        gaming_split = validated.gaming_split
 
     # For multipart/form-data uploads, extract reframe_mode + language from form fields
     if "multipart/form-data" in content_type:
@@ -364,6 +368,18 @@ async def process_endpoint(
                 gaming_facecam_box = json.loads(raw_facecam_box)
             except (json.JSONDecodeError, TypeError) as exc:
                 raise HTTPException(status_code=400, detail=f"invalid gaming_facecam_box: {exc}")
+        raw_gameplay_box = form.get("gaming_gameplay_box")
+        if raw_gameplay_box:
+            try:
+                gaming_gameplay_box = json.loads(raw_gameplay_box)
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise HTTPException(status_code=400, detail=f"invalid gaming_gameplay_box: {exc}")
+        raw_split = form.get("gaming_split")
+        if raw_split not in (None, ""):
+            try:
+                gaming_split = float(raw_split)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"invalid gaming_split: {exc}")
         # Validate the multipart values through the same schema for
         # consistency — we drop the url requirement since we're using
         # an uploaded file path.
@@ -379,11 +395,15 @@ async def process_endpoint(
                 "model": model or None,
                 "zernio_profile": zernio_profile,
                 "gaming_facecam_box": gaming_facecam_box,
+                "gaming_gameplay_box": gaming_gameplay_box,
+                "gaming_split": gaming_split,
             })
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
         zernio_profile = validated.zernio_profile
         gaming_facecam_box = validated.gaming_facecam_box.model_dump() if validated.gaming_facecam_box else None
+        gaming_gameplay_box = validated.gaming_gameplay_box.model_dump() if validated.gaming_gameplay_box else None
+        gaming_split = validated.gaming_split
 
     if not url and not file:
         raise HTTPException(status_code=400, detail="Must provide URL or File")
@@ -445,6 +465,8 @@ async def process_endpoint(
             skip_analysis=skip_analysis,
             model=model,
             gaming_facecam_box=gaming_facecam_box,
+            gaming_gameplay_box=gaming_gameplay_box,
+            gaming_split=gaming_split,
         )
     except ValueError as exc:
         await asyncio.to_thread(shutil.rmtree, job_output_dir, True)
@@ -500,6 +522,8 @@ async def batch_process(req: BatchRequest, request: Request):
                 skip_analysis=bool(getattr(req, "skip_analysis", False)),
                 model=getattr(req, "model", None),
                 gaming_facecam_box=req.gaming_facecam_box.model_dump() if req.gaming_facecam_box else None,
+                gaming_gameplay_box=req.gaming_gameplay_box.model_dump() if req.gaming_gameplay_box else None,
+                gaming_split=req.gaming_split,
             )
         except ValueError as exc:
             # This item's output dir was already created above but it never
@@ -758,6 +782,8 @@ async def reframe_clip(job_id: str, clip_index: int, req: ReframeRequest, reques
         job_id=job_id, clip_index=clip_index, mode=mode,
         output_root=OUTPUT_DIR, jobs=jobs,
         gaming_facecam_box=req.gaming_facecam_box.model_dump() if req.gaming_facecam_box else None,
+        gaming_gameplay_box=req.gaming_gameplay_box.model_dump() if req.gaming_gameplay_box else None,
+        gaming_split=req.gaming_split,
     )
 
 

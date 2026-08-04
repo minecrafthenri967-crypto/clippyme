@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 async def run_reframe(*, job_id: str, clip_index: int, mode: str,
                       output_root: str, jobs: dict,
-                      gaming_facecam_box: dict | None = None) -> dict:
+                      gaming_facecam_box: dict | None = None,
+                      gaming_gameplay_box: dict | None = None,
+                      gaming_split: float | None = None) -> dict:
     """Re-render one clip with a different reframe mode via ``main.py
     --reframe-only`` and update metadata + in-memory job state.
 
@@ -32,8 +34,12 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
     ``gaming_facecam_box`` only applies when ``mode == 'gaming'`` — a
     ``{"x","y","w","h"}`` dict of 0..1 fractions, drawn by the user over their
     own screenshot of the stream; see
-    ``job_results._validate_gaming_facecam_box`` for the shape the caller
-    validates before this is invoked.
+    ``job_results._validate_gaming_box`` for the shape the caller
+    validates before this is invoked. ``gaming_gameplay_box`` (same shape)
+    names the region that IS the game, and ``gaming_split`` overrides the
+    facecam/gameplay proportions — both are part of one saved layout, so a
+    post-hoc mode switch must carry them or the re-render silently reverts
+    to the centred default crop.
     Returns the endpoint response payload (cache-busted ``new_video_url``).
     """
     output_dir = os.path.join(output_root, job_id)
@@ -81,6 +87,13 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
         cmd += ["--gaming-facecam-y", str(gaming_facecam_box["y"])]
         cmd += ["--gaming-facecam-w", str(gaming_facecam_box["w"])]
         cmd += ["--gaming-facecam-h", str(gaming_facecam_box["h"])]
+    if mode == "gaming" and gaming_gameplay_box:
+        cmd += ["--gaming-gameplay-x", str(gaming_gameplay_box["x"])]
+        cmd += ["--gaming-gameplay-y", str(gaming_gameplay_box["y"])]
+        cmd += ["--gaming-gameplay-w", str(gaming_gameplay_box["w"])]
+        cmd += ["--gaming-gameplay-h", str(gaming_gameplay_box["h"])]
+    if mode == "gaming" and gaming_split is not None:
+        cmd += ["--gaming-split", str(gaming_split)]
 
     # Re-render at the job's ORIGINAL aspect (persisted in metadata at process
     # time). Omitting this defaults main.py to 9:16 and squashes a 1:1/16:9 clip

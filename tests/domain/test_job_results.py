@@ -263,3 +263,42 @@ def test_load_final_result_includes_runtime_operations(tmp_path):
     result = load_final_result("job1", str(tmp_path))
     assert result["operations"]["stage"] == "quality"
     assert result["operations"]["progress"] == 92
+
+
+# --- drawn gameplay region + split in argv ----------------------------------
+
+from clippyme.domain.job_results import build_main_cmd as _bmc  # noqa: E402
+import pytest as _pytest  # noqa: E402
+
+_GAMEPLAY_BOX = {"x": 0.3, "y": 0.4, "w": 0.35, "h": 0.55}
+
+
+def test_gameplay_box_reaches_argv_for_gaming():
+    cmd = _bmc(url="https://x.test/v", output_dir="/tmp/o",
+               reframe_mode="gaming", gaming_gameplay_box=_GAMEPLAY_BOX)
+    for flag, key in (("--gaming-gameplay-x", "x"), ("--gaming-gameplay-y", "y"),
+                      ("--gaming-gameplay-w", "w"), ("--gaming-gameplay-h", "h")):
+        assert cmd[cmd.index(flag) + 1] == str(_GAMEPLAY_BOX[key])
+
+
+def test_gameplay_box_ignored_outside_gaming_mode():
+    # A layout drawn for gaming must not silently reshape an `auto` job.
+    cmd = _bmc(url="https://x.test/v", output_dir="/tmp/o",
+               reframe_mode="auto", gaming_gameplay_box=_GAMEPLAY_BOX)
+    assert "--gaming-gameplay-x" not in cmd
+
+
+def test_split_reaches_argv_and_is_range_checked():
+    cmd = _bmc(url="https://x.test/v", output_dir="/tmp/o",
+               reframe_mode="gaming", gaming_split=0.5)
+    assert cmd[cmd.index("--gaming-split") + 1] == "0.5"
+    for bad in (0.05, 0.9):
+        with _pytest.raises(ValueError, match="gaming_split"):
+            _bmc(url="https://x.test/v", output_dir="/tmp/o",
+                 reframe_mode="gaming", gaming_split=bad)
+
+
+def test_gameplay_box_is_validated_like_the_facecam_box():
+    with _pytest.raises(ValueError, match="gaming_gameplay_box"):
+        _bmc(url="https://x.test/v", output_dir="/tmp/o", reframe_mode="gaming",
+             gaming_gameplay_box={"x": 0.8, "y": 0.0, "w": 0.5, "h": 0.5})

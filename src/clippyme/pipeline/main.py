@@ -618,6 +618,21 @@ if __name__ == '__main__':
     parser.add_argument('--gaming-facecam-y', type=float, default=None)
     parser.add_argument('--gaming-facecam-w', type=float, default=None)
     parser.add_argument('--gaming-facecam-h', type=float, default=None)
+    parser.add_argument('--gaming-gameplay-x', type=float, default=None,
+                        help="Only used with --reframe-mode gaming, together with -y/-w/-h (all four "
+                             "required together). A 0..1 fraction of the source frame naming which "
+                             "region IS the game, drawn over a screenshot the same way as the facecam "
+                             "box. Omitted (any of the four) → the legacy crop, horizontally centred "
+                             "over the full frame height, which a layout with a taskbar/chat panel "
+                             "baked into the frame will include whether you want it or not.")
+    parser.add_argument('--gaming-gameplay-y', type=float, default=None)
+    parser.add_argument('--gaming-gameplay-w', type=float, default=None)
+    parser.add_argument('--gaming-gameplay-h', type=float, default=None)
+    parser.add_argument('--gaming-split', type=float, default=None,
+                        help="Only used with --reframe-mode gaming. Share of the output height given "
+                             "to the facecam zone (0.15-0.75). Overrides "
+                             "REFRAME_GAMING_FACECAM_FRACTION for THIS job so a saved per-streamer "
+                             "layout carries its own proportions.")
     parser.add_argument('--reframe-only', action='store_true',
                         help='Skip download/analysis/cutting: take --input (an existing 16:9 '
                              'source slice) and re-run reframing + zoom/normalize/cover only. '
@@ -645,6 +660,13 @@ if __name__ == '__main__':
     args.gaming_facecam_box = (
         {"x": _facecam_fracs[0], "y": _facecam_fracs[1], "w": _facecam_fracs[2], "h": _facecam_fracs[3]}
         if all(v is not None for v in _facecam_fracs) else None
+    )
+    # Same all-or-nothing rule for the gameplay region.
+    _gameplay_fracs = (args.gaming_gameplay_x, args.gaming_gameplay_y,
+                       args.gaming_gameplay_w, args.gaming_gameplay_h)
+    args.gaming_gameplay_box = (
+        {"x": _gameplay_fracs[0], "y": _gameplay_fracs[1], "w": _gameplay_fracs[2], "h": _gameplay_fracs[3]}
+        if all(v is not None for v in _gameplay_fracs) else None
     )
 
     # Output aspect ratio drives the crop dimensions + SmoothedCameraman crop
@@ -709,7 +731,9 @@ if __name__ == '__main__':
                 args.input, tmp_output, reframe_mode=args.reframe_mode,
                 zoom_end=None if args.no_zoom else 1.05,
                 aspect_ratio=aspect_ratio,
-                gaming_facecam_box=args.gaming_facecam_box)
+                gaming_facecam_box=args.gaming_facecam_box,
+                gaming_gameplay_box=args.gaming_gameplay_box,
+                gaming_split_fraction=args.gaming_split)
             if not success:
                 print("❌ Reframe failed.")
                 if os.path.exists(tmp_output):
@@ -762,7 +786,9 @@ if __name__ == '__main__':
         output_file = args.output if args.output else os.path.join(output_dir, f"{video_title}_vertical.mp4")
         process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
                                   aspect_ratio=aspect_ratio,
-                                  gaming_facecam_box=args.gaming_facecam_box)
+                                  gaming_facecam_box=args.gaming_facecam_box,
+                gaming_gameplay_box=args.gaming_gameplay_box,
+                gaming_split_fraction=args.gaming_split)
     else:
         # 3. Transcribe (with cache for URL-based jobs)
         cached = _load_cached_transcript(args.url) if args.url else None
@@ -822,7 +848,9 @@ if __name__ == '__main__':
                 output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
                 process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
                                           aspect_ratio=aspect_ratio,
-                                          gaming_facecam_box=args.gaming_facecam_box)
+                                          gaming_facecam_box=args.gaming_facecam_box,
+                gaming_gameplay_box=args.gaming_gameplay_box,
+                gaming_split_fraction=args.gaming_split)
         else:
             print(f"🔥 Found {len(clips_data['shorts'])} viral clips!")
             
@@ -960,7 +988,9 @@ if __name__ == '__main__':
                     reframe_mode=args.reframe_mode,
                     zoom_end=None if args.no_zoom else 1.05,
                     aspect_ratio=aspect_ratio,
-                    gaming_facecam_box=args.gaming_facecam_box)
+                    gaming_facecam_box=args.gaming_facecam_box,
+                gaming_gameplay_box=args.gaming_gameplay_box,
+                gaming_split_fraction=args.gaming_split)
 
                 if success:
                     normalize_audio(clip_final_path)

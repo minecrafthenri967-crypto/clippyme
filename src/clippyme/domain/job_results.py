@@ -30,19 +30,37 @@ _GAMING_FACECAM_BOX_KEYS = frozenset({"x", "y", "w", "h"})
 _GAMING_FACECAM_EPS = 1e-6
 
 
-def _validate_gaming_facecam_box(box) -> None:
+def _validate_gaming_box(box, name="gaming_facecam_box") -> None:
+    """Shared 0..1 rectangle check for every drawn layout region."""
     if box is None:
         return
     if not isinstance(box, dict) or set(box) != _GAMING_FACECAM_BOX_KEYS:
-        raise ValueError(f"invalid gaming_facecam_box: {box!r}")
+        raise ValueError(f"invalid {name}: {box!r}")
     for key in _GAMING_FACECAM_BOX_KEYS:
         value = box[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not (0.0 <= value <= 1.0):
-            raise ValueError(f"invalid gaming_facecam_box: {box!r}")
+            raise ValueError(f"invalid {name}: {box!r}")
     if box["w"] <= 0 or box["h"] <= 0:
-        raise ValueError(f"invalid gaming_facecam_box: {box!r}")
+        raise ValueError(f"invalid {name}: {box!r}")
     if box["x"] + box["w"] > 1.0 + _GAMING_FACECAM_EPS or box["y"] + box["h"] > 1.0 + _GAMING_FACECAM_EPS:
-        raise ValueError(f"invalid gaming_facecam_box: {box!r}")
+        raise ValueError(f"invalid {name}: {box!r}")
+
+
+def _validate_gaming_facecam_box(box) -> None:
+    """Back-compat wrapper — existing callers/tests import this name."""
+    _validate_gaming_box(box, "gaming_facecam_box")
+
+
+def _validate_gaming_split(value) -> None:
+    """The split must leave both zones non-degenerate; mirrors the pure
+    resolver's clamp range so an out-of-range value is rejected loudly here
+    rather than silently clamped three layers down."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"invalid gaming_split: {value!r}")
+    if not (0.15 <= float(value) <= 0.75):
+        raise ValueError(f"invalid gaming_split: {value!r}")
 
 
 def canonical_reframe_mode(mode):
@@ -77,6 +95,8 @@ def build_main_cmd(
     model: str | None = None,
     monitor: bool = False,
     gaming_facecam_box: dict | None = None,
+    gaming_gameplay_box: dict | None = None,
+    gaming_split: float | None = None,
 ) -> list[str]:
     """Build argv for the checkpointed backend pipeline.
 
@@ -86,7 +106,9 @@ def build_main_cmd(
     """
     if reframe_mode is not None and reframe_mode not in ALLOWED_REFRAME_MODES:
         raise ValueError(f"invalid reframe_mode: {reframe_mode!r}")
-    _validate_gaming_facecam_box(gaming_facecam_box)
+    _validate_gaming_box(gaming_facecam_box, "gaming_facecam_box")
+    _validate_gaming_box(gaming_gameplay_box, "gaming_gameplay_box")
+    _validate_gaming_split(gaming_split)
     if model is not None:
         model = model.strip()
         if model and not GEMINI_MODEL_RE.match(model):
@@ -122,6 +144,13 @@ def build_main_cmd(
         cmd.extend(["--gaming-facecam-y", str(gaming_facecam_box["y"])])
         cmd.extend(["--gaming-facecam-w", str(gaming_facecam_box["w"])])
         cmd.extend(["--gaming-facecam-h", str(gaming_facecam_box["h"])])
+    if reframe_mode == "gaming" and gaming_gameplay_box:
+        cmd.extend(["--gaming-gameplay-x", str(gaming_gameplay_box["x"])])
+        cmd.extend(["--gaming-gameplay-y", str(gaming_gameplay_box["y"])])
+        cmd.extend(["--gaming-gameplay-w", str(gaming_gameplay_box["w"])])
+        cmd.extend(["--gaming-gameplay-h", str(gaming_gameplay_box["h"])])
+    if reframe_mode == "gaming" and gaming_split is not None:
+        cmd.extend(["--gaming-split", str(gaming_split)])
     if aspect and aspect != "9:16":
         cmd.extend(["--aspect", aspect])
     if language and language.strip() and language.strip() != "multi":

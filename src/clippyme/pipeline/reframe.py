@@ -42,6 +42,7 @@ from clippyme.pipeline.reframe_ops import (
     gaming_facecam_fraction,
     min_output_short_edge,
     resolve_facecam_box_from_fractions,
+    resolve_gameplay_box_from_fractions,
     salient_crop_center,
     weighted_interest_center,
 )
@@ -649,22 +650,36 @@ def _detect_gaming_facecam(input_video, total_frames):
     return detect_static_facecam_region(boxes, frame_w, frame_h)
 
 
-def create_gaming_frame(frame, output_width, output_height, facecam_box):
+def _clamp_box_to_frame(box, orig_w, orig_h):
+    """Clamp a pixel ``(x, y, w, h)`` box inside the frame, width/height >= 1."""
+    bx, by, bw, bh = box
+    bx = max(0, min(orig_w - 1, int(bx)))
+    by = max(0, min(orig_h - 1, int(by)))
+    bw = max(1, min(orig_w - bx, int(bw)))
+    bh = max(1, min(orig_h - by, int(bh)))
+    return bx, by, bw, bh
+
+
+def create_gaming_frame(frame, output_width, output_height, facecam_box,
+                        gameplay_box=None, facecam_fraction=None):
     """Split-screen gaming layout: the detected/manual facecam region fills
-    the top zone, a horizontally CENTRED crop of the source frame fills the
-    bottom zone — always centred (never shifted to dodge the facecam), since
-    that shows the most of the actual gameplay, which is usually what's
-    interesting; a corner-positioned facecam overlay rarely reaches into the
-    centre column anyway.
+    the top zone, a crop of the source fills the bottom "gameplay" zone.
+
+    ``gameplay_box`` (pixel coords, from the layout editor) says which part of
+    the source IS the game. Left ``None`` the crop falls back to horizontally
+    CENTRED over the full frame height — a reasonable default that assumes the
+    action sits mid-frame and that every row is game, which stops holding as
+    soon as a layout has a taskbar, chat panel or webcam strip baked in.
+
+    Both boxes are SEEDS: ``expand_box_to_aspect`` only ever grows them to
+    their zone's aspect ratio, so whatever was drawn stays fully visible.
     """
     orig_h, orig_w = frame.shape[:2]
-    fx, fy, fw, fh = facecam_box
-    fx = max(0, min(orig_w - 1, int(fx)))
-    fy = max(0, min(orig_h - 1, int(fy)))
-    fw = max(1, min(orig_w - fx, int(fw)))
-    fh = max(1, min(orig_h - fy, int(fh)))
+    fx, fy, fw, fh = _clamp_box_to_frame(facecam_box, orig_w, orig_h)
 
-    top_h = int(round(output_height * gaming_facecam_fraction()))
+    if facecam_fraction is None:
+        facecam_fraction = gaming_facecam_fraction()
+    top_h = int(round(output_height * facecam_fraction))
     if top_h % 2:
         top_h += 1
     top_h = max(2, min(output_height - 2, top_h))
@@ -676,9 +691,17 @@ def create_gaming_frame(frame, output_width, output_height, facecam_box):
     facecam_crop = frame[fcy:fcy + fch, fcx:fcx + fcw]
     top_zone = _resize_to_output(facecam_crop, output_width, top_h)
 
-    game_w = min(orig_w, int(round(orig_h * (output_width / float(bottom_h)))))
-    game_x = (orig_w - game_w) // 2
-    game_crop = frame[:, game_x:game_x + game_w]
+    bottom_ar = output_width / float(bottom_h)
+    if gameplay_box:
+        gx, gy, gw, gh = _clamp_box_to_frame(gameplay_box, orig_w, orig_h)
+        gcx, gcy, gcw, gch = expand_box_to_aspect(
+            gx, gy, gw, gh, orig_w, orig_h, bottom_ar
+        )
+    else:
+        gcw = min(orig_w, int(round(orig_h * bottom_ar)))
+        gcx = (orig_w - gcw) // 2
+        gcy, gch = 0, orig_h
+    game_crop = frame[gcy:gcy + gch, gcx:gcx + gcw]
     bottom_zone = _resize_to_output(game_crop, output_width, bottom_h)
 
     canvas = np.zeros((output_height, output_width, 3), dtype=np.uint8)
@@ -909,7 +932,8 @@ def _render_global_smooth(input_video, ffmpeg_process, cameraman, speaker_tracke
 
 def process_video_to_vertical(input_video, final_output_video, reframe_mode='auto',
                               zoom_end=None, aspect_ratio: float = 9 / 16,
-                              gaming_facecam_box=None):
+                              gaming_facecam_box=None, gaming_gameplay_box=None,
+                              gaming_split_fraction=None):
     """
     Core logic to convert horizontal video to vertical using scene detection and Active Speaker Tracking (MediaPipe).
 
@@ -932,6 +956,16 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     facecam placement varies per streamer/game, and the detector can miss or
     mis-locate the overlay, so a user who knows their own layout can draw it
     instead of relying on a guess.
+
+    gaming_gameplay_box: same shape, same origin (drawn over a screenshot),
+    naming which part of the source IS the game. ``None`` keeps the legacy
+    centred full-height crop. There is no detector counterpart — "where is the
+    game" has no visual signature the way a face does, so it is drawn or
+    defaulted, never guessed.
+
+    gaming_split_fraction: per-job override of the facecam/gameplay split
+    (env REFRAME_GAMING_FACECAM_FRACTION otherwise), so one saved layout can
+    carry its own proportions rather than every job sharing one global.
     """
     # 'object' is the legacy name for the FrameShift face-first 'subject' mode —
     # normalize once here so the rest of this function only ever sees 'subject'.
@@ -1064,6 +1098,16 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     
     # --- New Strategy: Per-Scene Analysis ---
     facecam_box = None
+    # Independent of facecam detection: a drawn gameplay region applies whether
+    # the facecam was pinned or auto-detected, and is simply absent otherwise.
+    gameplay_box = None
+    if reframe_mode == 'gaming' and gaming_gameplay_box:
+        gameplay_box = resolve_gameplay_box_from_fractions(
+            gaming_gameplay_box['x'], gaming_gameplay_box['y'],
+            gaming_gameplay_box['w'], gaming_gameplay_box['h'],
+            original_width, original_height,
+        )
+        print(f"   🎮 Using the manually-drawn gameplay region {gameplay_box}.")
     if reframe_mode == 'disabled':
         print("\n   🤖 Step 3: Skipping scene analysis (reframe disabled).")
         scene_strategies = ['DISABLED'] * len(scenes)
@@ -1232,6 +1276,8 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                         # it is not re-tracked per frame.
                         output_frame = create_gaming_frame(
                             frame, OUTPUT_WIDTH, OUTPUT_HEIGHT, facecam_box,
+                            gameplay_box=gameplay_box,
+                            facecam_fraction=gaming_split_fraction,
                         )
 
                     elif current_strategy == 'GENERAL':

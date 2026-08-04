@@ -908,3 +908,42 @@ def test_gaming_seam_overlay_y_keeps_an_oversized_box_on_screen():
 def test_gaming_seam_overlay_y_never_overflows_the_bottom():
     y = ro.gaming_seam_overlay_y(1920, 300, fraction=0.75)
     assert y + 300 <= 1920
+
+
+# --- layout editor: drawn gameplay region -----------------------------------
+
+def test_gameplay_box_from_fractions_maps_to_pixels():
+    assert ro.resolve_gameplay_box_from_fractions(
+        0.25, 0.1, 0.5, 0.8, 1920, 1080) == (480, 108, 960, 864)
+
+
+def test_gameplay_box_is_not_forced_to_centre():
+    # The whole point of drawing it: an off-centre region stays off-centre,
+    # unlike the legacy crop which was always horizontally centred.
+    x, _y, w, _h = ro.resolve_gameplay_box_from_fractions(
+        0.05, 0.0, 0.3, 1.0, 1920, 1080)
+    assert x == 96
+    assert x + w < 1920 // 2  # entirely in the left half
+
+
+def test_gameplay_box_shares_the_generic_fraction_resolver():
+    args = (0.1, 0.2, 0.3, 0.4, 1280, 720)
+    assert (ro.resolve_gameplay_box_from_fractions(*args)
+            == ro.resolve_box_from_fractions(*args)
+            == ro.resolve_facecam_box_from_fractions(*args))
+
+
+def test_gameplay_box_clamps_out_of_frame_input():
+    x, y, w, h = ro.resolve_gameplay_box_from_fractions(0.9, 0.9, 0.5, 0.5, 1920, 1080)
+    assert x + w <= 1920 and y + h <= 1080
+
+
+def test_drawn_gameplay_region_survives_aspect_expansion():
+    # expand_box_to_aspect only ever GROWS a box, so every pixel the user
+    # drew is still inside the crop handed to the renderer.
+    gx, gy, gw, gh = ro.resolve_gameplay_box_from_fractions(
+        0.33, 0.43, 0.36, 0.57, 1920, 1080)
+    ex, ey, ew, eh = ro.expand_box_to_aspect(gx, gy, gw, gh, 1920, 1080, 1080 / 1056)
+    assert ex <= gx and ey <= gy
+    assert ex + ew >= gx + gw
+    assert ey + eh >= gy + gh

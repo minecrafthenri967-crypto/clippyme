@@ -36,6 +36,22 @@ class GamingFacecamBox(BaseModel):
         return self
 
 
+class GamingGameplayBox(GamingFacecamBox):
+    """The region of the source frame that IS the game, drawn the same way as
+    the facecam box. ``None`` keeps the legacy crop — horizontally centred over
+    the full frame height — which silently includes a taskbar, chat panel or
+    webcam strip whenever the streamer's layout has one baked in. Unlike the
+    facecam there is no detector fallback: "where is the game" has no visual
+    signature to detect, so it is drawn or defaulted, never guessed."""
+
+
+#: Bounds for the facecam/gameplay split, mirroring
+#: ``reframe_ops.gaming_facecam_fraction``'s own clamp so an out-of-range value
+#: is a 400 here instead of being silently clamped inside the renderer.
+GAMING_SPLIT_MIN = 0.15
+GAMING_SPLIT_MAX = 0.75
+
+
 def _reject_internal_host(host: str) -> None:
     """Reject literal or DNS-resolved non-public hosts without unbounded DNS I/O.
 
@@ -120,6 +136,9 @@ class ProcessRequest(BaseModel):
     # mis-locate it, so a user who knows their own layout can draw it rather
     # than relying on a guess.
     gaming_facecam_box: Optional[GamingFacecamBox] = None
+    gaming_gameplay_box: Optional[GamingGameplayBox] = None
+    gaming_split: Optional[float] = Field(
+        default=None, ge=GAMING_SPLIT_MIN, le=GAMING_SPLIT_MAX)
     # Which named Zernio account this job's clips are earmarked for (see
     # storage.config_store's profile namespace) — persisted alongside the job
     # (job_artifacts.save_job_campaign) so an external approval bot running
@@ -152,6 +171,9 @@ class BatchRequest(BaseModel):
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
     gaming_facecam_box: Optional[GamingFacecamBox] = None
+    gaming_gameplay_box: Optional[GamingGameplayBox] = None
+    gaming_split: Optional[float] = Field(
+        default=None, ge=GAMING_SPLIT_MIN, le=GAMING_SPLIT_MAX)
     zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
 
     @field_validator("urls")
@@ -200,6 +222,9 @@ class ConfigUpdateRequest(BaseModel):
 class ReframeRequest(BaseModel):
     reframe_mode: Optional[str] = Field(None, pattern=r"^(auto|disabled|subject|object|gaming)$")
     gaming_facecam_box: Optional[GamingFacecamBox] = None
+    gaming_gameplay_box: Optional[GamingGameplayBox] = None
+    gaming_split: Optional[float] = Field(
+        default=None, ge=GAMING_SPLIT_MIN, le=GAMING_SPLIT_MAX)
 
 
 _OVERLAY_MAX_KEYS = 40
