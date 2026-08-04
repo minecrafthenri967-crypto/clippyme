@@ -354,16 +354,51 @@ pixel size doesn't need to match the source video's, only its aspect ratio.
 `create_gaming_frame` stacks the
 detected/manual region (expanded to the top zone's aspect via
 `expand_box_to_aspect`, never cropped smaller) over the bottom "gameplay"
-zone, a crop that is always HORIZONTALLY CENTRED on the source frame — never
-shifted to dodge the facecam — since that shows the most of the actual
-gameplay, and a corner-positioned facecam rarely reaches into the centre
-column anyway. The split sits at `reframe_ops.gaming_facecam_fraction()`
+zone. That bottom crop defaults to HORIZONTALLY CENTRED over the source's
+full height, but `gaming_gameplay_box` (same drawn-fraction shape as the
+facecam box, `--gaming-gameplay-x/y/w/h`) overrides it — the default assumes
+the action sits mid-frame and that every row is game, which stops holding
+once a layout bakes in a taskbar, chat panel or webcam strip. There is
+deliberately NO detector counterpart: "where is the game" has no visual
+signature the way a face does, so it is drawn or defaulted, never guessed.
+The split sits at `reframe_ops.gaming_facecam_fraction()`
 (env `REFRAME_GAMING_FACECAM_FRACTION`, default 0.45, clamped 0.15-0.75) —
 in `reframe_ops` rather than cv2-bound `reframe.py` because `domain/hooks.py`
 reads the same number for the `seam` hook position (`gaming_seam_overlay_y`
 centres the hook box ON the cut, so hook and split can't drift apart). The
 fraction also sets the top zone's ASPECT, so raising it keeps more of the
-source around the streamer instead of stretching the same crop.
+source around the streamer instead of stretching the same crop; a per-job
+`--gaming-split` overrides the env so a saved layout carries its own
+proportions.
+
+**Stream layouts** (`config_store`'s `stream_layouts` namespace,
+`GET/POST /api/config/stream-layouts`, `DELETE .../{id}`): one saved template
+per streamer/game, mirroring the `caption_presets` shape. Holds the two SOURCE
+regions (`facecam`, `gameplay`) and the three OUTPUT heights (`split`,
+`hook_y`, `subtitle_y`), all as 0..1 fractions so a template drawn over a
+1080p screenshot applies unchanged to a 4K source of the same aspect ratio.
+Every geometry field is independently optional — pinning only the gameplay
+region must not force drawing a facecam box too; absent fields fall back to
+the pipeline's own defaults. A box running off the frame is REJECTED, not
+clamped: silently shrinking one renders something the user never drew.
+The dashboard editor is `redesign/streamLayoutEditor.jsx` — two panels,
+because the two halves differ in kind: the left one draws source regions on
+the uploaded screenshot, the right one is a live 9:16 preview assembled from
+exactly those crops where the split/hook/subtitle guides are dragged. Those
+three are positions on the DELIVERED frame and have no meaning on the source
+screenshot, which is why they are not drawn on the left. The preview's
+geometry lives in `lib/layoutGeometry.js` (pure, tested) and MIRRORS
+`expand_box_to_aspect` — a preview that quietly disagrees with the renderer is
+worse than no preview. The screenshot never leaves the browser
+(`URL.createObjectURL`); only fractions are sent.
+Hook and subtitle positions accept either a keyword or a 0..1 fraction
+(`hooks.parse_hook_position_fraction`, `subtitles.parse_position_fraction`);
+keywords keep their historical margins so existing recipes render unchanged.
+⚠️ ASS `MarginV` is measured from the BOTTOM edge, so
+`subtitles.margin_v_for_fraction` inverts a top-measured fraction and
+subtracts half the font size to convert "bottom of the text" into "centre of
+the text" — the sign is pinned by a test because getting it backwards puts
+captions at the wrong end of the frame.
 ⚠️ `REFRAME_GLOBAL_METHOD=kalman|l2` only runs with `REFRAME_STATIC_AUTO=0`;
 the default static-auto policy never reaches the trajectory smoother.
 ⚠️ Output canvas sizing has a CEILING and a FLOOR, set independently:

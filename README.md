@@ -283,6 +283,8 @@ All routes are JSON in / JSON out. Job IDs are strict UUID4. Config endpoints re
 | `DELETE` | `/api/config/cookies` | Remove the cookies file. |
 | `POST`/`GET`/`DELETE` | `/api/config/logo` | Upload / status / remove the brand logo PNG. |
 | `GET`/`POST`/`DELETE` | `/api/config/fonts` | List / upload / remove custom subtitle+hook fonts. |
+| `GET`/`POST` | `/api/config/stream-layouts` | List / upsert (by id) a per-streamer layout: which source regions are facecam and gameplay, plus the split and the hook/subtitle heights on the delivered frame (0..1 fractions). |
+| `DELETE` | `/api/config/stream-layouts/{layout_id}` | Delete a saved stream layout. |
 | `GET` | `/api/config/zernio` | Masked Zernio config. |
 | `POST` | `/api/config/zernio` | Save/update Zernio credentials. |
 | `GET` | `/api/zernio/accounts` | Discover accounts via Zernio. |

@@ -7,7 +7,7 @@ import { HookStyleControls, HookPreview } from './hookStyle';
 import { SubtitleControls } from './subtitleControls';
 import { LogoControls, PlayerImageControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
-import { FacecamBoxPicker } from './facecamBoxPicker';
+import { StreamLayoutEditor } from './streamLayoutEditor';
 import { getZernioProfiles } from './realApi';
 import { validateCreateOptions } from '../lib/createValidation';
 import { useT } from '../i18n/context.jsx';
@@ -360,7 +360,22 @@ function OptionsPanel({ opts, set, onSaveAsDefault }) {
           <div className="od" style={{ marginTop: -8, marginBottom: 10 }}>{t('create.reframe.gamingHint')}</div>
           <div className="cfg-drawer" style={{ marginBottom: 14 }}>
             <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>{t('create.reframe.gamingFacecamBox')}</span>
-            <FacecamBoxPicker box={opts.gamingFacecamBox || null} onChange={(box) => set({ gamingFacecamBox: box })} />
+            <StreamLayoutEditor
+              value={{
+                facecam: opts.gamingFacecamBox || null,
+                gameplay: opts.gamingGameplayBox || null,
+                split: opts.gamingSplit,
+                hook_y: opts.gamingHookY,
+                subtitle_y: opts.gamingSubtitleY,
+              }}
+              onChange={(partial) => set({
+                ...('facecam' in partial ? { gamingFacecamBox: partial.facecam } : {}),
+                ...('gameplay' in partial ? { gamingGameplayBox: partial.gameplay } : {}),
+                ...('split' in partial ? { gamingSplit: partial.split } : {}),
+                ...('hook_y' in partial ? { gamingHookY: partial.hook_y } : {}),
+                ...('subtitle_y' in partial ? { gamingSubtitleY: partial.subtitle_y } : {}),
+              })}
+            />
           </div>
         </>
       )}

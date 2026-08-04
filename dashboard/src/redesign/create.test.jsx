@@ -126,23 +126,48 @@ test('reframe picker: hint is hidden for non-gaming modes', () => {
   expect(screen.queryByText(/Detects a static facecam overlay/)).not.toBeInTheDocument();
 });
 
-test('gaming facecam box picker: hidden outside gaming mode', () => {
+test('stream layout editor: hidden outside gaming mode', () => {
   mount({ reframeMode: 'auto' });
   expect(screen.queryByText('Facecam position')).not.toBeInTheDocument();
-  expect(screen.queryByText('Upload a screenshot')).not.toBeInTheDocument();
+  expect(screen.queryByText('Upload stream screenshot')).not.toBeInTheDocument();
 });
 
-test('gaming facecam box picker: upload control shown in gaming mode, no reset button when unset', () => {
+test('stream layout editor: shown in gaming mode with both regions armable', () => {
   mount({ reframeMode: 'gaming' });
-  expect(screen.getByText('Facecam position')).toBeInTheDocument();
-  expect(screen.getByText('Upload a screenshot')).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Reset to Auto-detect' })).not.toBeInTheDocument();
+  expect(screen.getByText('Upload stream screenshot')).toBeInTheDocument();
+  // Both source regions are drawable, and both preview zones are labelled.
+  expect(screen.getAllByText('Facecam').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Gameplay').length).toBeGreaterThan(0);
+  // Nothing drawn yet → no clear buttons.
+  expect(screen.queryByRole('button', { name: 'Reset facecam' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Reset gameplay' })).not.toBeInTheDocument();
 });
 
-test('gaming facecam box picker: reset button clears a previously drawn box', () => {
-  const set = mount({ reframeMode: 'gaming', gamingFacecamBox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } });
-  fireEvent.click(screen.getByRole('button', { name: 'Reset to Auto-detect' }));
-  expect(set).toHaveBeenLastCalledWith({ gamingFacecamBox: null });
+test('stream layout editor: clear button removes only the region it names', () => {
+  const set = mount({
+    reframeMode: 'gaming',
+    gamingFacecamBox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    gamingGameplayBox: { x: 0.3, y: 0.3, w: 0.4, h: 0.4 },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Reset gameplay' }));
+  expect(set).toHaveBeenLastCalledWith({ gamingGameplayBox: null });
+});
+
+test('stream layout editor: preview guides expose the three output heights', () => {
+  mount({ reframeMode: 'gaming' });
+  // The split/hook/subtitle positions live on the DELIVERED frame, so they are
+  // draggable guides on the 9:16 preview rather than boxes on the screenshot.
+  for (const label of ['Split', 'Text hook', 'Subtitles']) {
+    expect(screen.getByRole('slider', { name: label })).toBeInTheDocument();
+  }
+});
+
+test('stream layout editor: dragging the split guide reports a clamped fraction', () => {
+  const set = mount({ reframeMode: 'gaming' });
+  const split = screen.getByRole('slider', { name: 'Split' });
+  // ArrowUp nudges by 1% — from the 0.45 default that is 0.44.
+  fireEvent.keyDown(split, { key: 'ArrowUp' });
+  expect(set).toHaveBeenLastCalledWith({ gamingSplit: expect.closeTo(0.44, 5) });
 });
 
 test('Save as default button in the recipe panel header calls onSaveAsDefault', () => {

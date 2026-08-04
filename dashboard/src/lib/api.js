@@ -46,6 +46,12 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
   // scan, same as omitting the field entirely.
   const facecamBox = data.preselections?.gaming_facecam_box;
   const hasManualFacecam = reframeMode === 'gaming' && !!facecamBox;
+  const gameplayBox = data.preselections?.gaming_gameplay_box;
+  const hasManualGameplay = reframeMode === 'gaming' && !!gameplayBox;
+  const split = data.preselections?.gaming_split;
+  // Number.isFinite, not a truthiness check: the split is a fraction and
+  // an unset value is undefined, not 0.
+  const hasSplit = reframeMode === 'gaming' && Number.isFinite(split);
 
   if (data.type === 'url') {
     headers['Content-Type'] = 'application/json';
@@ -59,6 +65,8 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
     if (model) jsonBody.model = model;
     if (zernioProfile) jsonBody.zernio_profile = zernioProfile;
     if (hasManualFacecam) jsonBody.gaming_facecam_box = facecamBox;
+    if (hasManualGameplay) jsonBody.gaming_gameplay_box = gameplayBox;
+    if (hasSplit) jsonBody.gaming_split = split;
     body = JSON.stringify(jsonBody);
   } else {
     if (data.payload?.size > 16 * 1024 * 1024 * 1024) throw new Error('File too large. Maximum size is 16 GB.');
@@ -75,6 +83,8 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
     // No natural form-field shape for a box — ride it as a JSON string
     // (api/app.py's multipart branch parses it back with json.loads).
     if (hasManualFacecam) formData.append('gaming_facecam_box', JSON.stringify(facecamBox));
+    if (hasManualGameplay) formData.append('gaming_gameplay_box', JSON.stringify(gameplayBox));
+    if (hasSplit) formData.append('gaming_split', String(split));
     body = formData;
   }
 
@@ -96,6 +106,14 @@ export async function submitBatchJob(data, apiKey, { signal } = {}) {
   const batchFacecamBox = data.preselections?.gaming_facecam_box;
   if (data.preselections?.reframe_mode === 'gaming' && batchFacecamBox) {
     batchBody.gaming_facecam_box = batchFacecamBox;
+  }
+  const batchGameplayBox = data.preselections?.gaming_gameplay_box;
+  if (data.preselections?.reframe_mode === 'gaming' && batchGameplayBox) {
+    batchBody.gaming_gameplay_box = batchGameplayBox;
+  }
+  const batchSplit = data.preselections?.gaming_split;
+  if (data.preselections?.reframe_mode === 'gaming' && Number.isFinite(batchSplit)) {
+    batchBody.gaming_split = batchSplit;
   }
   const res = await apiFetch(getApiUrl('/api/batch'), {
     method: 'POST',

@@ -507,6 +507,10 @@ export function optsToPreselections(opts) {
     // or null to keep auto-detection. lib/api.js only sends this to the
     // backend when a box is actually set.
     gaming_facecam_box: opts.gamingFacecamBox || null,
+    // Which source region IS the game (null keeps the centred crop) and the
+    // facecam/gameplay split — both part of one saved per-streamer layout.
+    gaming_gameplay_box: opts.gamingGameplayBox || null,
+    gaming_split: opts.gamingSplit,
     subtitles: opts.subtitles
       ? {
           mode: opts.subMode, preset: opts.subPreset, position: opts.subPosition || 'bottom',

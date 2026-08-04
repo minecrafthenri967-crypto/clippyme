@@ -15,7 +15,7 @@ const DEFAULT_KEY = 'clippyme_default_preset_v1';
 // 3-mode control.
 export const PRESET_KEYS = [
   'clipsAuto', 'clips', 'aspect', 'detect', 'reframe', 'reframeMode', 'model',
-  'gamingFacecamBox',
+  'gamingFacecamBox', 'gamingGameplayBox', 'gamingSplit', 'gamingHookY', 'gamingSubtitleY',
   'smartcut', 'zoom',
   'subtitles', 'subMode', 'subPreset', 'subPosition', 'subFont', 'subColor',
   // Fine-grained subtitle customization (font size, stroke colour/width,
