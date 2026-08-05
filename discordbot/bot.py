@@ -736,11 +736,25 @@ async def handle_approval(message, user, job_id, clip_index):
     url = f"{CLIPPYME_API}/api/publish/{job_id}/{clip_index}"
     headers = {"X-Publish-Gate-Token": PUBLISH_GATE_TOKEN} if PUBLISH_GATE_TOKEN else {}
     try:
+        # Publish can compose (ffmpeg) AND upload to multiple platforms
+        # sequentially server-side before responding — aiohttp's 300s default
+        # is routinely too short for that, and asyncio.TimeoutError's own
+        # str() is empty, which used to print as "Network error while
+        # publishing: " with nothing after the colon (indistinguishable from
+        # a crash). 1800s matches this bot's other big-media-upload timeout
+        # (_upload_to_drive's PUT); name the timeout explicitly so a real
+        # backend hang is still visible instead of looking silent.
         async with aiohttp.ClientSession() as session, session.post(
-            url, json=body, headers=headers
+            url, json=body, headers=headers, timeout=aiohttp.ClientTimeout(total=1800)
         ) as resp:
             text = await resp.text()
             status = resp.status
+    except asyncio.TimeoutError:
+        await message.reply(
+            f"{REJECT_EMOJI} Publishing clip {clip_index} (job {job_id}) timed out after 30 minutes — "
+            "check the backend logs; the upload to Zernio may still be running."
+        )
+        return
     except Exception as exc:
         await message.reply(f"{REJECT_EMOJI} Network error while publishing: {exc}")
         return
