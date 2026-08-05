@@ -154,6 +154,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gaming-facecam-y", type=float, default=None)
     parser.add_argument("--gaming-facecam-w", type=float, default=None)
     parser.add_argument("--gaming-facecam-h", type=float, default=None)
+    parser.add_argument("--gaming-gameplay-x", type=float, default=None)
+    parser.add_argument("--gaming-gameplay-y", type=float, default=None)
+    parser.add_argument("--gaming-gameplay-w", type=float, default=None)
+    parser.add_argument("--gaming-gameplay-h", type=float, default=None)
+    parser.add_argument("--gaming-split", type=float, default=None)
     parser.add_argument("--language", type=str, default=None)
     parser.add_argument("--aspect", choices=["9:16", "1:1", "16:9"], default="9:16")
     parser.add_argument("--monitor", action="store_true")
@@ -614,6 +619,13 @@ def run(argv: list[str] | None = None) -> int:
     args.gaming_facecam_box = (
         {"x": _facecam_fracs[0], "y": _facecam_fracs[1], "w": _facecam_fracs[2], "h": _facecam_fracs[3]}
         if all(v is not None for v in _facecam_fracs) else None
+    )
+    # Same all-or-nothing rule for the gameplay region.
+    _gameplay_fracs = (args.gaming_gameplay_x, args.gaming_gameplay_y,
+                       args.gaming_gameplay_w, args.gaming_gameplay_h)
+    args.gaming_gameplay_box = (
+        {"x": _gameplay_fracs[0], "y": _gameplay_fracs[1], "w": _gameplay_fracs[2], "h": _gameplay_fracs[3]}
+        if all(v is not None for v in _gameplay_fracs) else None
     )
     output_dir = os.path.abspath(resolve_output_dir(args.output, default="."))
     os.makedirs(output_dir, exist_ok=True)
