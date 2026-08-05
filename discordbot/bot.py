@@ -17,8 +17,15 @@ HOW THE VIDEO REACHES DISCORD (four tiers, in order):
      ``POST /api/compose``, then ffmpeg-shrink that result (DISCORD_PREVIEW_*)
      purely so it fits Discord's upload limit; the publish step re-composes at
      full quality from the untouched source, so the shrink never touches what
-     actually gets uploaded to TikTok/YouTube. Falls back to the raw clip
-     (marked as such in the message) if compose or the shrink fails.
+     actually gets uploaded to TikTok/YouTube. If nothing is configured to
+     burn in at all (BURN_SUBTITLES/BURN_HOOK/BURN_SMARTCUT all off), the raw
+     clip already IS the final look and is posted directly. Otherwise, a
+     compose or shrink failure does NOT fall back to the raw clip — Discord
+     approval must preview exactly what would publish, so the clip is
+     retried on the next poll (POLL_SECONDS apart) up to
+     DISCORD_COMPOSE_MAX_ATTEMPTS attempts. After the cap, one failure notice
+     is posted (no video, nothing to approve) and the clip is marked handled
+     so it stops retrying.
   2. A Google Drive link, for clips over Discord's limit, when
      GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE + GOOGLE_DRIVE_FOLDER_ID are set (see
      the constants below for the one-time Google Cloud setup). Preferred over
@@ -145,6 +152,12 @@ PUBLISH_PLATFORMS = [
     if p.strip()
 ]
 POLL_SECONDS = max(15, _int("POLL_SECONDS", 60))
+# How many poll cycles (POLL_SECONDS apart) a clip's compose is retried
+# before giving up: Discord approval previews exactly what would publish, so
+# a compose failure is retried rather than falling back to an incomplete raw
+# clip. After this many attempts a single failure notice is posted instead of
+# retrying forever.
+DISCORD_COMPOSE_MAX_ATTEMPTS = max(1, _int("DISCORD_COMPOSE_MAX_ATTEMPTS", 10))
 TIMEZONE = os.getenv("PUBLISH_TIMEZONE", "Europe/Rome")
 
 BURN_SUBTITLES = _flag("BURN_SUBTITLES", True)
@@ -178,6 +191,12 @@ _stats = {"approved": 0, "rejected": 0}
 _zernio_accounts: dict = {}
 # Title/hook text per posted clip, so approving does not re-query the history.
 _clip_meta: dict = {}
+# Consecutive compose-failure count per (job_id, idx), so a clip is retried
+# on the next poll instead of falling back to posting the raw (not fully
+# composed) clip. Cleared on success or once DISCORD_COMPOSE_MAX_ATTEMPTS is
+# reached. In-memory only — a restart just resets the count, which is fine
+# since compose failures are usually transient (backend load, ffmpeg hiccup).
+_compose_failures: dict = {}
 
 
 def _load_posted() -> set:
@@ -573,12 +592,82 @@ async def poll_new_clips():
             await _post_clip(channel, job_id, idx, clip, len(clips))
 
 
+async def _send_clip_message(channel, job_id: str, idx: int, header: str,
+                              local_path, video_url: str, note: str) -> None:
+    """Post one clip message: attach the file if it fits Discord's upload
+    limit, else fall back to Google Drive / a public link. Shared by the
+    composed-preview path and the nothing-configured-to-burn-in (raw clip)
+    path in ``_post_clip`` — same size/attachment/reaction logic either way."""
+    attachment = None
+    body = header
+
+    if local_path:
+        size_mb = os.path.getsize(local_path) / (1024 * 1024)
+        if size_mb <= MAX_UPLOAD_MB:
+            attachment = discord.File(local_path, filename=os.path.basename(local_path))
+            body += note
+        else:
+            # Google Drive is preferred over CLIPPYME_PUBLIC_URL for
+            # oversized clips — no need to expose the backend publicly.
+            drive_link = await _upload_to_drive(local_path, os.path.basename(local_path))
+            if drive_link:
+                body += (f"{drive_link}\n"
+                         f"_({size_mb:.1f} MB — too large for Discord, uploaded to Google Drive instead)_\n\n{note}")
+            elif CLIPPYME_PUBLIC_URL:
+                body += (f"{CLIPPYME_PUBLIC_URL}{video_url}\n"
+                         f"_({size_mb:.1f} MB — too large to upload)_\n\n{note}")
+            else:
+                body += (f"_Clip is {size_mb:.1f} MB, over Discord's {MAX_UPLOAD_MB} MB limit. "
+                         f"Set GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE/GOOGLE_DRIVE_FOLDER_ID or "
+                         f"CLIPPYME_PUBLIC_URL to link it instead._\n\n{note}")
+    elif CLIPPYME_PUBLIC_URL:
+        body += f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n{note}"
+    else:
+        body += ("_No video attached: file not found and no public URL set. "
+                 f"Check CLIPPYME_OUTPUT_DIR / CLIPPYME_PUBLIC_URL._\n\n{note}")
+
+    try:
+        sent = (await channel.send(body, file=attachment) if attachment
+                else await channel.send(body))
+        await sent.add_reaction(APPROVE_EMOJI)
+        await sent.add_reaction(REJECT_EMOJI)
+        await sent.add_reaction(DOWNLOAD_EMOJI)
+    except discord.HTTPException as exc:
+        # Usually the file was over the server's real limit after all. Retry
+        # once without it so the clip can still be approved.
+        print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
+        if attachment is None:
+            return
+        fallback = header + (
+            f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n" if CLIPPYME_PUBLIC_URL
+            else "_Video upload to Discord failed (file too large?)._\n\n"
+        ) + note
+        try:
+            sent = await channel.send(fallback)
+            await sent.add_reaction(APPROVE_EMOJI)
+            await sent.add_reaction(REJECT_EMOJI)
+            await sent.add_reaction(DOWNLOAD_EMOJI)
+        except Exception as exc2:
+            print(f"Fallback post also failed: {exc2}", flush=True)
+    except Exception as exc:
+        print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
+
+
 async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> None:
-    """Post one clip for approval, as a real video whenever possible."""
+    """Post one clip for approval, but only once it is fully composed
+    (subtitles/hook burned in), when the bot is configured to burn anything
+    in at all. A compose failure is retried on the next poll cycle instead of
+    falling back to the raw clip — Discord approval must preview exactly what
+    would publish, and an incomplete clip approved here would look nothing
+    like what lands on TikTok/YouTube. After DISCORD_COMPOSE_MAX_ATTEMPTS
+    failed attempts, one failure notice is posted (no video, nothing to
+    approve — there's nothing valid to approve) and the clip is marked
+    handled so it stops retrying forever."""
     title = clip.get("title") or "(untitled)"
     hook_text = clip.get("viral_hook_text") or clip.get("hook_text") or ""
     duration = round(max(0.0, clip.get("end", 0) - clip.get("start", 0)), 1)
     video_url = clip.get("video_url", "")
+    key = (job_id, idx)
 
     header = (
         f"**{title}**\n"
@@ -586,86 +675,66 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
         f"Length: {duration}s\n"
     )
 
+    toggles, _, _ = _build_compose_toggles(hook_text)
+    if not any(toggles.values()):
+        # Nothing is configured to burn in — the raw clip already IS the
+        # final look, so there's nothing to compose, wait for, or retry.
+        note = (
+            "_Preview is the raw clip — nothing is configured to burn in "
+            "(BURN_SUBTITLES/BURN_HOOK/BURN_SMARTCUT are all off)._\n\n"
+            f"{APPROVE_EMOJI} approve  ·  {REJECT_EMOJI} reject  ·  {DOWNLOAD_EMOJI} full-quality download"
+        )
+        await _send_clip_message(channel, job_id, idx, header, _local_clip_path(video_url), video_url, note)
+        _clip_meta[key] = {"title": title, "hook_text": hook_text, "video_url": video_url}
+        _posted.add(key)
+        _save_posted(_posted)
+        return
+
     # Preview shows subtitles/hook burned in — same recipe as publish, so
     # approving here and what lands on TikTok/YouTube match. Shrunk to
     # DISCORD_PREVIEW_MAX_HEIGHT/CRF purely for Discord's upload limit; the
     # actual publish re-composes at full quality from the untouched source.
     preview_path = await _compose_preview(job_id, idx, hook_text)
-    is_preview = preview_path is not None
-    local_path = preview_path or _local_clip_path(video_url)
-    note = (
-        ("_Preview: subtitles/hook burned in (shrunk for Discord — publish is full quality)._\n\n"
-         if is_preview else
-         "_Preview is the raw clip — subtitles/hook are burned in on publish._\n\n")
-        + f"{APPROVE_EMOJI} approve  ·  {REJECT_EMOJI} reject  ·  {DOWNLOAD_EMOJI} full-quality download"
-    )
-    attachment = None
-    body = header
-
-    try:
-        if local_path:
-            size_mb = os.path.getsize(local_path) / (1024 * 1024)
-            if size_mb <= MAX_UPLOAD_MB:
-                attachment = discord.File(local_path, filename=os.path.basename(local_path))
-                body += note
-            else:
-                # Google Drive is preferred over CLIPPYME_PUBLIC_URL for
-                # oversized clips — no need to expose the backend publicly.
-                drive_link = await _upload_to_drive(local_path, os.path.basename(local_path))
-                if drive_link:
-                    body += (f"{drive_link}\n"
-                             f"_({size_mb:.1f} MB — too large for Discord, uploaded to Google Drive instead)_\n\n{note}")
-                elif CLIPPYME_PUBLIC_URL:
-                    body += (f"{CLIPPYME_PUBLIC_URL}{video_url}\n"
-                             f"_({size_mb:.1f} MB — too large to upload)_\n\n{note}")
-                else:
-                    body += (f"_Clip is {size_mb:.1f} MB, over Discord's {MAX_UPLOAD_MB} MB limit. "
-                             f"Set GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE/GOOGLE_DRIVE_FOLDER_ID or "
-                             f"CLIPPYME_PUBLIC_URL to link it instead._\n\n{note}")
-        elif CLIPPYME_PUBLIC_URL:
-            body += f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n{note}"
-        else:
-            body += ("_No video attached: file not found and no public URL set. "
-                     f"Check CLIPPYME_OUTPUT_DIR / CLIPPYME_PUBLIC_URL._\n\n{note}")
-
-        try:
-            sent = (await channel.send(body, file=attachment) if attachment
-                    else await channel.send(body))
-            await sent.add_reaction(APPROVE_EMOJI)
-            await sent.add_reaction(REJECT_EMOJI)
-            await sent.add_reaction(DOWNLOAD_EMOJI)
-        except discord.HTTPException as exc:
-            # Usually the file was over the server's real limit after all. Retry
-            # once without it so the clip can still be approved.
-            print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
-            if attachment is None:
-                return
-            fallback = header + (
-                f"{CLIPPYME_PUBLIC_URL}{video_url}\n\n" if CLIPPYME_PUBLIC_URL
-                else "_Video upload to Discord failed (file too large?)._\n\n"
-            ) + note
-            try:
-                sent = await channel.send(fallback)
-                await sent.add_reaction(APPROVE_EMOJI)
-                await sent.add_reaction(REJECT_EMOJI)
-                await sent.add_reaction(DOWNLOAD_EMOJI)
-            except Exception as exc2:
-                print(f"Fallback post also failed: {exc2}", flush=True)
-                return
-        except Exception as exc:
-            print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
+    if preview_path is None:
+        attempts = _compose_failures.get(key, 0) + 1
+        if attempts < DISCORD_COMPOSE_MAX_ATTEMPTS:
+            _compose_failures[key] = attempts
+            print(f"Compose not ready for {job_id}/{idx} yet (attempt {attempts}/"
+                  f"{DISCORD_COMPOSE_MAX_ATTEMPTS}) — retrying next poll ({POLL_SECONDS}s).", flush=True)
             return
+        # Cap reached — stop retrying, but do not silently drop the clip
+        # either: post one clear notice so it's obvious something needs a
+        # human to look at the backend logs.
+        _compose_failures.pop(key, None)
+        try:
+            await channel.send(
+                header + f"_Could not compose this clip (subtitles/hook burn-in) after "
+                f"{DISCORD_COMPOSE_MAX_ATTEMPTS} attempts — check the backend logs. Nothing "
+                "to approve here; re-run the clip from the ClippyMe dashboard once fixed._"
+            )
+        except Exception as exc:
+            print(f"Could not post compose-failure notice for {job_id}/{idx}: {exc}", flush=True)
+        _posted.add(key)
+        _save_posted(_posted)
+        return
+
+    _compose_failures.pop(key, None)
+    note = (
+        "_Preview: subtitles/hook burned in (shrunk for Discord — publish is full quality)._\n\n"
+        f"{APPROVE_EMOJI} approve  ·  {REJECT_EMOJI} reject  ·  {DOWNLOAD_EMOJI} full-quality download"
+    )
+    try:
+        await _send_clip_message(channel, job_id, idx, header, preview_path, video_url, note)
     finally:
         # The preview is a throwaway re-encode made just for this message —
         # never leave it behind in the container's /tmp.
-        if is_preview:
-            try:
-                os.remove(preview_path)
-            except OSError:
-                pass
+        try:
+            os.remove(preview_path)
+        except OSError:
+            pass
 
-    _clip_meta[(job_id, idx)] = {"title": title, "hook_text": hook_text, "video_url": video_url}
-    _posted.add((job_id, idx))
+    _clip_meta[key] = {"title": title, "hook_text": hook_text, "video_url": video_url}
+    _posted.add(key)
     _save_posted(_posted)
 
 
