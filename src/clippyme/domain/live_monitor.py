@@ -1202,9 +1202,19 @@ class LiveMonitor:
     # -- job submission --------------------------------------------------
 
     def _new_job_dir(self) -> tuple[str, str, dict]:
+        from clippyme.domain.job_artifacts import save_job_campaign
+
         job_id = str(uuid.uuid4())
         job_dir = os.path.join(self._output_dir, job_id)
         os.makedirs(job_dir, exist_ok=True)
+        # Tag this job with the monitor's own Zernio profile the same way
+        # POST /api/process|/api/batch does for manual submissions — without
+        # this, every Live-Monitor-generated job reads back as "default" from
+        # scan_history regardless of which profile the monitor was started
+        # with, so a per-campaign Discord bot's poll_new_clips filter can't
+        # tell one streamer's clips from another's and every bot ends up
+        # posting every monitor's clips into its own channel.
+        save_job_campaign(job_dir, self.cfg.get("zernio_profile") or _DEFAULT_ZERNIO_PROFILE)
         env = os.environ.copy()
         env["GEMINI_API_KEY"] = self._gemini_key
         # Bound each segment's clip count for the publish-limited monitor —

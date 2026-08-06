@@ -996,6 +996,43 @@ def test_auto_resume_missing_zernio_profile_falls_back_to_default(tmp_path, monk
     assert mon._picked_slots is reg._slots_for("default")
 
 
+def test_new_job_dir_tags_job_with_the_monitor_zernio_profile(tmp_path):
+    """_new_job_dir must tag every job it creates with save_job_campaign, the
+    same way POST /api/process|/api/batch do for manual submissions.
+
+    Without this, a Live-Monitor-generated job's campaign sidecar never gets
+    written, so scan_history reads it back as "default" regardless of which
+    profile the monitor itself was started with — a per-campaign Discord bot's
+    poll_new_clips filter then can't distinguish one streamer's clips from
+    another's, and every running bot ends up posting every monitor's clips
+    into its own channel."""
+    from clippyme.domain import job_artifacts
+    from clippyme.domain.live_monitor import LiveMonitor
+
+    mon = LiveMonitor(id="kick:chan", jobs={}, job_queue=None, output_dir=str(tmp_path))
+    mon.cfg = {"zernio_profile": "ebay_live"}
+    mon._gemini_key = "g"
+
+    _job_id, job_dir, _env = mon._new_job_dir()
+
+    assert job_artifacts.load_job_campaign(job_dir) == "ebay_live"
+
+
+def test_new_job_dir_falls_back_to_default_profile_when_unset(tmp_path):
+    """A monitor cfg missing zernio_profile entirely (defensive — validate_monitor_config
+    always sets it) must still tag "default" rather than crash or leave the job untagged."""
+    from clippyme.domain import job_artifacts
+    from clippyme.domain.live_monitor import LiveMonitor
+
+    mon = LiveMonitor(id="kick:chan", jobs={}, job_queue=None, output_dir=str(tmp_path))
+    mon.cfg = {}
+    mon._gemini_key = "g"
+
+    _job_id, job_dir, _env = mon._new_job_dir()
+
+    assert job_artifacts.load_job_campaign(job_dir) == "default"
+
+
 # --- _hhmmss ---------------------------------------------------------------
 
 def test_hhmmss():
