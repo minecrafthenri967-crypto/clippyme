@@ -68,7 +68,10 @@ export function seedHookParams(clip, preselections) {
     const h = preselections?.hook || {};
     const base = {
         text: clip?.viral_hook_text || clip?.hook_text || '',
-        position: h.position || 'top',
+        // `??`, not `||`: the layout editor stores this as a 0..1 fraction of
+        // the frame, and 0 is a legitimate (top-edge) value that `||` would
+        // silently replace with the 'top' keyword.
+        position: h.position ?? 'top',
         size: h.size || 'S',
         offset_y: 0,
     };
@@ -90,7 +93,7 @@ export function seedSubtitleParams(preselections) {
         font: subs?.font || 'Montserrat-Black',
         offset_y: subs?.offset_y ?? 0,
         font_color: subs?.font_color || '#FFFFFF',
-        position: subs?.position || 'bottom',
+        position: subs?.position ?? 'bottom',
         // Horizontal alignment: 'center' (default) or 'left' (a bandiera). No
         // 'right' — the social UI lives down the right edge.
         align: subs?.align || 'center',
@@ -112,4 +115,32 @@ export function seedSubtitleParams(preselections) {
     if (subs?.font_size !== undefined) out.font_size = subs.font_size;
     if (subs?.words_per_group !== undefined) out.words_per_group = subs.words_per_group;
     return out;
+}
+
+/**
+ * The job-level compose recipe persisted with a submitted job
+ * (POST /api/process|/api/batch `compose` → job_artifacts.save_job_campaign),
+ * so every later consumer burns the layers the user actually configured.
+ *
+ * Without this, each consumer invented its own recipe from whatever defaults
+ * it had — the Discord approval bot most visibly, which built one from its own
+ * env vars, so a hook configured WITH a background reached Discord (and then
+ * the platform) with none, at the bot's own position.
+ *
+ * `hook_params.text` is deliberately left blank: the hook text is per-clip
+ * (Gemini's suggestion for that clip), so the consumer fills it in. Everything
+ * else here is a job-wide style choice.
+ */
+export function buildJobComposeRecipe(preselections) {
+    if (!preselections) return null;
+    const { text: _dropText, ...hookStyle } = seedHookParams(null, preselections);
+    return {
+        toggles: seedToggles(preselections),
+        hook_params: hookStyle,
+        subtitle_params: seedSubtitleParams(preselections),
+        logo_params: seedLogoParams(preselections),
+        grade_params: seedGradeParams(preselections),
+        banner_params: seedBannerParams(preselections),
+        player_image_params: seedPlayerImageParams(preselections),
+    };
 }

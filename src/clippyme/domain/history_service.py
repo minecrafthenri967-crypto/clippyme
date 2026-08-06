@@ -7,7 +7,7 @@ import re
 from typing import List
 
 from clippyme.domain.clip_resolve import clip_filename_for
-from clippyme.domain.job_artifacts import load_job_campaign
+from clippyme.domain.job_artifacts import load_job_campaign, load_job_compose_recipe
 
 logger = logging.getLogger("clippyme")
 
@@ -101,6 +101,11 @@ def scan_history(output_dir: str) -> List[dict]:
                         # this existed. Lets an external approval bot running
                         # for ONE campaign filter to only its own clips.
                         "zernioProfile": load_job_campaign(job_dir),
+                        # The Create-tab layer recipe this job was submitted
+                        # with (None when untagged). Lets an external
+                        # approval bot compose exactly what the user
+                        # configured instead of a recipe of its own.
+                        "composeRecipe": load_job_compose_recipe(job_dir),
                     }
                 )
             except Exception:

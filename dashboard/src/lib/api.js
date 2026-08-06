@@ -1,6 +1,7 @@
 
 import { getApiUrl } from '../config';
 import { apiFetch } from './apiToken';
+import { buildJobComposeRecipe } from './seedClipParams';
 
 export async function throwFromResponse(res) {
   const text = await res.text();
@@ -52,6 +53,10 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
   // Number.isFinite, not a truthiness check: the split is a fraction and
   // an unset value is undefined, not 0.
   const hasSplit = reframeMode === 'gaming' && Number.isFinite(split);
+  // Remembered with the job so the dashboard's auto-compose, a publish, and an
+  // external approval bot all burn the SAME layers the user configured here,
+  // instead of each falling back to its own defaults.
+  const composeRecipe = buildJobComposeRecipe(data.preselections);
 
   if (data.type === 'url') {
     headers['Content-Type'] = 'application/json';
@@ -67,6 +72,7 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
     if (hasManualFacecam) jsonBody.gaming_facecam_box = facecamBox;
     if (hasManualGameplay) jsonBody.gaming_gameplay_box = gameplayBox;
     if (hasSplit) jsonBody.gaming_split = split;
+    if (composeRecipe) jsonBody.compose = composeRecipe;
     body = JSON.stringify(jsonBody);
   } else {
     if (data.payload?.size > 16 * 1024 * 1024 * 1024) throw new Error('File too large. Maximum size is 16 GB.');
@@ -85,6 +91,7 @@ export async function submitProcessJob(data, apiKey, { signal } = {}) {
     if (hasManualFacecam) formData.append('gaming_facecam_box', JSON.stringify(facecamBox));
     if (hasManualGameplay) formData.append('gaming_gameplay_box', JSON.stringify(gameplayBox));
     if (hasSplit) formData.append('gaming_split', String(split));
+    if (composeRecipe) formData.append('compose', JSON.stringify(composeRecipe));
     body = formData;
   }
 
@@ -115,6 +122,8 @@ export async function submitBatchJob(data, apiKey, { signal } = {}) {
   if (data.preselections?.reframe_mode === 'gaming' && Number.isFinite(batchSplit)) {
     batchBody.gaming_split = batchSplit;
   }
+  const batchCompose = buildJobComposeRecipe(data.preselections);
+  if (batchCompose) batchBody.compose = batchCompose;
   const res = await apiFetch(getApiUrl('/api/batch'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Gemini-Key': apiKey },

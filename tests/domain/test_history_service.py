@@ -149,3 +149,27 @@ def test_scan_history_surfaces_tagged_zernio_profile(tmp_path):
     save_job_campaign(job_dir, "dja")
     out = hs.scan_history(str(tmp_path))
     assert out[0]["zernioProfile"] == "dja"
+
+
+def test_scan_history_compose_recipe_is_none_when_untagged(tmp_path):
+    # No stored preference → consumers keep their own defaults, exactly as
+    # they behaved before recipes were persisted.
+    _make_job(str(tmp_path), VALID_UUID, clips=[{"start": 0, "end": 10}])
+    out = hs.scan_history(str(tmp_path))
+    assert out[0]["composeRecipe"] is None
+
+
+def test_scan_history_surfaces_the_stored_compose_recipe(tmp_path):
+    # This is what lets an external approval bot burn the layers the user
+    # configured in Create instead of a recipe built from its own env vars.
+    from clippyme.domain.job_artifacts import save_job_campaign
+
+    recipe = {
+        "toggles": {"hook": True, "subtitles": True},
+        "hook_params": {"position": 0.42, "bg_enabled": True},
+    }
+    job_dir = _make_job(str(tmp_path), VALID_UUID, clips=[{"start": 0, "end": 10}])
+    save_job_campaign(job_dir, "dja", compose=recipe)
+    out = hs.scan_history(str(tmp_path))
+    assert out[0]["composeRecipe"] == recipe
+    assert out[0]["zernioProfile"] == "dja"

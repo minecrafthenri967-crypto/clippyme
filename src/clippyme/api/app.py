@@ -321,6 +321,7 @@ async def process_endpoint(
     skip_analysis = False
     model = None
     zernio_profile = "default"
+    compose_recipe = None
     gaming_facecam_box = None
     gaming_gameplay_box = None
     gaming_split = None
@@ -342,6 +343,7 @@ async def process_endpoint(
         skip_analysis = bool(validated.skip_analysis)
         model = validated.model
         zernio_profile = validated.zernio_profile
+        compose_recipe = validated.compose
         gaming_facecam_box = validated.gaming_facecam_box.model_dump() if validated.gaming_facecam_box else None
         gaming_gameplay_box = validated.gaming_gameplay_box.model_dump() if validated.gaming_gameplay_box else None
         gaming_split = validated.gaming_split
@@ -380,6 +382,14 @@ async def process_endpoint(
                 gaming_split = float(raw_split)
             except (TypeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail=f"invalid gaming_split: {exc}")
+        # Same JSON-string treatment as the boxes above — the compose recipe
+        # is a nested object with no natural form-field shape.
+        raw_compose = form.get("compose")
+        if raw_compose:
+            try:
+                compose_recipe = json.loads(raw_compose)
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise HTTPException(status_code=400, detail=f"invalid compose: {exc}")
         # Validate the multipart values through the same schema for
         # consistency — we drop the url requirement since we're using
         # an uploaded file path.
@@ -397,10 +407,12 @@ async def process_endpoint(
                 "gaming_facecam_box": gaming_facecam_box,
                 "gaming_gameplay_box": gaming_gameplay_box,
                 "gaming_split": gaming_split,
+                "compose": compose_recipe,
             })
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
         zernio_profile = validated.zernio_profile
+        compose_recipe = validated.compose
         gaming_facecam_box = validated.gaming_facecam_box.model_dump() if validated.gaming_facecam_box else None
         gaming_gameplay_box = validated.gaming_gameplay_box.model_dump() if validated.gaming_gameplay_box else None
         gaming_split = validated.gaming_split
@@ -411,7 +423,7 @@ async def process_endpoint(
     job_id = str(uuid.uuid4())
     job_output_dir = os.path.join(OUTPUT_DIR, job_id)
     os.makedirs(job_output_dir, exist_ok=True)
-    save_job_campaign(job_output_dir, zernio_profile)
+    save_job_campaign(job_output_dir, zernio_profile, compose=compose_recipe)
 
     env = os.environ.copy()
     env["GEMINI_API_KEY"] = api_key
@@ -507,7 +519,7 @@ async def batch_process(req: BatchRequest, request: Request):
         job_id = str(uuid.uuid4())
         job_output_dir = os.path.join(OUTPUT_DIR, job_id)
         os.makedirs(job_output_dir, exist_ok=True)
-        save_job_campaign(job_output_dir, req.zernio_profile)
+        save_job_campaign(job_output_dir, req.zernio_profile, compose=req.compose)
 
         try:
             cmd = build_main_cmd(

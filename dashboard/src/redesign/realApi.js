@@ -490,6 +490,17 @@ export async function probeLiveMonitor({ platform, channel, mode }) {
 // Map the redesign's flat `opts` into the preselections shape the existing
 // hooks + seedClipParams expect (subtitles/hook as truthy objects).
 export function optsToPreselections(opts) {
+  // The stream-layout editor's hook/subtitle guides are dragged on the 9:16
+  // PREVIEW, so they are heights on the delivered frame — exactly what
+  // hooks.parse_hook_position_fraction / subtitles.parse_position_fraction
+  // accept in place of a keyword. They only apply in gaming mode (that's the
+  // only surface the editor appears on) and only when actually dragged;
+  // otherwise the keyword pickers below stay in charge. Without this the two
+  // guides were stored in opts and never sent anywhere — dragging them did
+  // nothing at all.
+  const gamingLayout = opts.reframeMode === 'gaming';
+  const hookY = gamingLayout && Number.isFinite(opts.gamingHookY) ? opts.gamingHookY : null;
+  const subtitleY = gamingLayout && Number.isFinite(opts.gamingSubtitleY) ? opts.gamingSubtitleY : null;
   return {
     // Tri-state reframe mode. Fall back to the legacy boolean (`reframe`) for
     // any persisted preselections saved before the 3-mode selector landed.
@@ -519,7 +530,8 @@ export function optsToPreselections(opts) {
     gaming_split: opts.gamingSplit,
     subtitles: opts.subtitles
       ? {
-          mode: opts.subMode, preset: opts.subPreset, position: opts.subPosition || 'bottom',
+          mode: opts.subMode, preset: opts.subPreset,
+          position: subtitleY ?? (opts.subPosition || 'bottom'),
           // Horizontal alignment applies to both modes ('center' | 'left').
           align: opts.subAlign || 'center',
           // Vertical nudge applies to both modes.
@@ -547,7 +559,9 @@ export function optsToPreselections(opts) {
             : {}),
         }
       : false,
-    hook: opts.hooks ? { position: opts.hookPos, size: opts.hookSize, ...(opts.hookStyle || {}) } : false,
+    hook: opts.hooks
+      ? { position: hookY ?? opts.hookPos, size: opts.hookSize, ...(opts.hookStyle || {}) }
+      : false,
     // Logo overlay is a compose-time layer (not a process-time arg) — persisted
     // here only so each generated clip inherits the toggle + placement default.
     logo: opts.logo

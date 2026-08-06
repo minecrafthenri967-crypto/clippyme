@@ -2,7 +2,7 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   seedToggles, seedGradeParams, seedLogoParams, seedHookParams, seedSubtitleParams, seedBannerParams,
-  seedPlayerImageParams,
+  seedPlayerImageParams, buildJobComposeRecipe,
 } from './seedClipParams.js';
 
 // seedClipParams is the single seam that keeps the Create pre-selection panel,
@@ -112,4 +112,44 @@ test('seedSubtitleParams uses canonical snake_case font_size (not fontSize)', ()
   const out = seedSubtitleParams({ subtitles: { font_size: 40 } });
   assert.equal(out.font_size, 40);
   assert.equal('fontSize' in out, false);
+});
+
+// --- buildJobComposeRecipe: the recipe persisted WITH the job ---------------
+// Sent as POST /api/process `compose`, stored by save_job_campaign, handed
+// back by GET /api/history as `composeRecipe`. It exists so every consumer
+// (auto-compose, publish, the Discord approval bot) burns the layers the user
+// configured, instead of each one falling back to its own defaults.
+
+test('compose recipe carries every layer block the backend composes', () => {
+  const r = buildJobComposeRecipe({ hook: { position: 'top' }, subtitles: { preset: 'hormozi_bold' } });
+  for (const k of ['toggles', 'hook_params', 'subtitle_params', 'logo_params',
+    'grade_params', 'banner_params', 'player_image_params']) {
+    assert.ok(k in r, `missing ${k}`);
+  }
+});
+
+test('compose recipe omits the hook TEXT (that is per clip, not per job)', () => {
+  const r = buildJobComposeRecipe({ hook: { position: 'top', bg_enabled: true } });
+  assert.equal('text' in r.hook_params, false);
+  // ...but keeps the style, which is exactly what was getting lost before.
+  assert.equal(r.hook_params.bg_enabled, true);
+});
+
+test('compose recipe preserves a fractional hook/subtitle position', () => {
+  const r = buildJobComposeRecipe({
+    hook: { position: 0.42 }, subtitles: { position: 0.8 },
+  });
+  assert.equal(r.hook_params.position, 0.42);
+  assert.equal(r.subtitle_params.position, 0.8);
+});
+
+test('compose recipe is null without preselections', () => {
+  assert.equal(buildJobComposeRecipe(null), null);
+  assert.equal(buildJobComposeRecipe(undefined), null);
+});
+
+test('a hook position of 0 is not swallowed by a falsy check', () => {
+  // `||` would silently turn the top edge into the 'top' keyword (0.20).
+  assert.equal(seedHookParams(null, { hook: { position: 0 } }).position, 0);
+  assert.equal(seedSubtitleParams({ subtitles: { position: 0 } }).position, 0);
 });

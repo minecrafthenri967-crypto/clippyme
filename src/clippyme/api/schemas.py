@@ -145,6 +145,11 @@ class ProcessRequest(BaseModel):
     # for ONE campaign (its own ZERNIO_PROFILE) can filter GET /api/history to
     # only its own jobs instead of every bot posting every clip.
     zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
+    # The Create-tab layer recipe this job was submitted with, remembered so
+    # every later consumer (the dashboard's auto-compose, a publish, an
+    # external approval bot) burns the layers the user actually configured
+    # instead of inventing its own. See validate_compose_recipe.
+    compose: Optional[dict] = None
 
     @field_validator("url")
     @classmethod
@@ -157,6 +162,11 @@ class ProcessRequest(BaseModel):
     @classmethod
     def _bound_language(cls, value: Optional[str]) -> Optional[str]:
         return _validate_language(value)
+
+    @field_validator("compose")
+    @classmethod
+    def _bound_compose_recipe(cls, value):
+        return validate_compose_recipe(value)
 
 
 class BatchRequest(BaseModel):
@@ -175,6 +185,7 @@ class BatchRequest(BaseModel):
     gaming_split: Optional[float] = Field(
         default=None, ge=GAMING_SPLIT_MIN, le=GAMING_SPLIT_MAX)
     zernio_profile: str = Field("default", pattern=r"^[a-z0-9_-]{1,32}$")
+    compose: Optional[dict] = None
 
     @field_validator("urls")
     @classmethod
@@ -188,6 +199,11 @@ class BatchRequest(BaseModel):
     @classmethod
     def _bound_language(cls, value: Optional[str]) -> Optional[str]:
         return _validate_language(value)
+
+    @field_validator("compose")
+    @classmethod
+    def _bound_compose_recipe(cls, value):
+        return validate_compose_recipe(value)
 
 
 _ALLOWED_CONFIG_KEYS = frozenset({
@@ -297,6 +313,45 @@ def _validate_toggles(value):
     for key, enabled in value.items():
         if not isinstance(enabled, bool):
             raise ValueError(f"toggle {key!r} must be boolean")
+    return value
+
+
+# Keys a submitted job may carry as its remembered compose recipe. Mirrors the
+# kwargs compose_layers already takes, so a consumer can hand the stored recipe
+# straight to POST /api/compose or /api/publish without re-deriving anything.
+_COMPOSE_RECIPE_KEYS = frozenset({
+    "toggles", "hook_params", "subtitle_params", "logo_params",
+    "grade_params", "banner_params", "player_image_params",
+})
+
+
+def validate_compose_recipe(value):
+    """Validate the optional per-job compose recipe (the Create-tab settings).
+
+    Persisted with the job (``job_artifacts.save_job_campaign``) and surfaced
+    by ``GET /api/history`` so every consumer burns the layers the user
+    actually configured. Without it each consumer invented its own recipe —
+    the Discord approval bot in particular composed from its own env vars, so
+    a hook configured with a background at Create time reached Discord (and
+    then the platform) with none, at whatever position the bot's own env said.
+    """
+    if value is None:
+        return value
+    if not isinstance(value, dict):
+        raise ValueError("compose must be an object")
+    extra = set(value) - _COMPOSE_RECIPE_KEYS
+    if extra:
+        raise ValueError(f"unknown compose keys: {sorted(extra)}")
+    if "toggles" in value:
+        _validate_toggles(value["toggles"])
+    for key, item in value.items():
+        if key == "toggles":
+            continue
+        if item is None:
+            continue
+        if not isinstance(item, dict):
+            raise ValueError(f"compose[{key!r}] must be an object")
+        _validate_overlay_params(item)
     return value
 
 

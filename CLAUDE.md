@@ -320,6 +320,26 @@ cut away (the overlay is skipped, never guessed). The toggle
 (`"player_image"`) defaults OFF everywhere, including Live Monitor's
 `build_monitor_compose` recipe, since it needs the image library populated
 first.
+**Per-job compose recipe**: because the pipeline renders RAW and every layer
+is compose-time, a consumer that composes has to know WHICH layers. The
+submitting recipe (Create-tab toggles + per-layer params) therefore rides
+`POST /api/process|/api/batch`'s `compose` field, is stored in the SAME
+`campaign.json` sidecar as the Zernio profile (one atomic write —
+`save_job_campaign(dir, profile, compose=...)`), and comes back from
+`GET /api/history` as `composeRecipe`. `hook_params.text` is deliberately
+absent: hook text is per clip, the recipe holds job-wide style. Every
+consumer prefers the stored recipe over its own defaults — the Discord
+approval bot most importantly, which used to compose from its own env vars,
+so a hook configured WITH a background at a drawn position reached Discord
+(and then TikTok) with none, at the bot's `HOOK_POSITION`. A `None` recipe
+(old job, or a caller that sent none) means "no stored preference" and every
+consumer keeps its prior behaviour.
+⚠️ The stream-layout editor's hook/subtitle guides are dragged on the 9:16
+PREVIEW, so they are heights on the DELIVERED frame and travel as 0..1
+fractions in `hook.position` / `subtitles.position` (see
+`hooks.parse_hook_position_fraction`). Read them with `??`, never `||` — 0 is
+a legitimate top-edge value a falsy check silently replaces with a keyword.
+
 The pipeline renders clips RAW — every layer is compose-time. The dashboard
 auto-composes on job completion (`lib/autoCompose.js` plans, `RedesignApp`
 feeds the plan to the same bounded runner as bulk-apply), so the preview

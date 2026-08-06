@@ -62,8 +62,9 @@ def save_job_metadata(metadata_path: str, data: dict) -> None:
 _CAMPAIGN_FILENAME = "campaign.json"
 
 
-def save_job_campaign(job_output_dir: str, zernio_profile: str) -> None:
-    """Tag a job with the Zernio profile (campaign) it was submitted under.
+def save_job_campaign(job_output_dir: str, zernio_profile: str, compose=None) -> None:
+    """Tag a job with the Zernio profile (campaign) it was submitted under, and
+    optionally the layer recipe it was submitted with.
 
     A small sidecar next to the job's metadata, not a field inside it: the
     pipeline subprocess (main.py) writes/rewrites ``*_metadata.json`` on every
@@ -72,13 +73,25 @@ def save_job_campaign(job_output_dir: str, zernio_profile: str) -> None:
     before the subprocess even starts. ``scan_history`` reads this back so
     ``GET /api/history`` can tell an external approval bot (one per campaign)
     which of ITS clips to post, instead of every bot posting every clip.
+
+    ``compose`` is that job's Create-tab recipe (toggles + per-layer params,
+    validated by ``api.schemas.validate_compose_recipe``). Both values are
+    written in ONE atomic write because both are known at submit time — a
+    second write would be a needless read-modify-write of the same file.
+    Surfaced by ``scan_history`` so every consumer composes what the user
+    configured rather than a recipe it invented: the Discord approval bot used
+    to build its own from env vars, so a hook configured WITH a background
+    reached Discord (and then TikTok) with none, at the bot's own position.
     """
     path = os.path.join(job_output_dir, _CAMPAIGN_FILENAME)
     tmp_path = path + ".tmp"
+    payload = {"zernio_profile": zernio_profile}
+    if compose:
+        payload["compose"] = compose
     try:
         fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"zernio_profile": zernio_profile}, f)
+            json.dump(payload, f)
         os.replace(tmp_path, path)
     except OSError:
         # Best-effort: a job must not fail to submit over this tag. Missing
@@ -101,6 +114,23 @@ def load_job_campaign(job_output_dir: str) -> str:
         return profile if isinstance(profile, str) and profile else "default"
     except (OSError, json.JSONDecodeError, TypeError):
         return "default"
+
+
+def load_job_compose_recipe(job_output_dir: str):
+    """The layer recipe a job was submitted with, or ``None`` when untagged.
+
+    ``None`` (an old job, or one submitted without a recipe) means "no stored
+    preference" — consumers keep whatever default they had, so this is purely
+    additive for anything already running.
+    """
+    path = os.path.join(job_output_dir, _CAMPAIGN_FILENAME)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        recipe = data.get("compose")
+        return recipe if isinstance(recipe, dict) and recipe else None
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
 
 
 def record_clip_publish(job_id: str, clip_index: int, output_dir: str, record: dict) -> None:

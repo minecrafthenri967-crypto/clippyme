@@ -130,3 +130,50 @@ test('exportClip composes against clip.original_index, not the array position', 
     globalThis.fetch = originalFetch;
   }
 });
+
+// --- stream-layout editor guides reach the backend --------------------------
+// The editor's hook/subtitle guides are dragged on the 9:16 PREVIEW, so they
+// are heights on the delivered frame — hooks.parse_hook_position_fraction /
+// subtitles.parse_position_fraction take exactly that in place of a keyword.
+// They used to be stored in opts and mapped nowhere, so dragging them did
+// nothing at all.
+
+test('gaming layout: dragged hook guide becomes the hook position', () => {
+  const p = optsToPreselections({
+    reframeMode: 'gaming', hooks: true, hookPos: 'top', gamingHookY: 0.42,
+  });
+  assert.equal(p.hook.position, 0.42);
+});
+
+test('gaming layout: dragged subtitle guide becomes the subtitle position', () => {
+  const p = optsToPreselections({
+    reframeMode: 'gaming', subtitles: true, subPosition: 'bottom', gamingSubtitleY: 0.8,
+  });
+  assert.equal(p.subtitles.position, 0.8);
+});
+
+test('gaming layout: undragged guides leave the keyword pickers in charge', () => {
+  const p = optsToPreselections({
+    reframeMode: 'gaming', hooks: true, hookPos: 'seam', subtitles: true, subPosition: 'bottom',
+  });
+  assert.equal(p.hook.position, 'seam');
+  assert.equal(p.subtitles.position, 'bottom');
+});
+
+test('guides only apply in gaming mode (the only surface the editor has)', () => {
+  const p = optsToPreselections({
+    reframeMode: 'auto', hooks: true, hookPos: 'top', gamingHookY: 0.42,
+    subtitles: true, subPosition: 'bottom', gamingSubtitleY: 0.8,
+  });
+  assert.equal(p.hook.position, 'top');
+  assert.equal(p.subtitles.position, 'bottom');
+});
+
+test('hook style (background) survives the translation', () => {
+  const p = optsToPreselections({
+    hooks: true, hookPos: 'top',
+    hookStyle: { bg_enabled: true, bg_color: '#FF0000', bg_opacity: 0.9 },
+  });
+  assert.equal(p.hook.bg_enabled, true);
+  assert.equal(p.hook.bg_color, '#FF0000');
+});

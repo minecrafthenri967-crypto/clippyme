@@ -297,3 +297,38 @@ def test_save_job_campaign_does_not_raise_on_unwritable_dir(tmp_path, monkeypatc
         raise OSError("disk full")
     monkeypatch.setattr(ja.os, "open", _boom)
     ja.save_job_campaign(str(tmp_path), "dja")  # must not raise
+
+
+# --- job compose recipe (Create-tab settings, persisted with the job) --------
+
+def test_load_job_compose_recipe_is_none_when_absent(tmp_path):
+    # No sidecar at all, and a sidecar with only the campaign tag, both mean
+    # "no stored preference" — consumers keep their own defaults.
+    assert ja.load_job_compose_recipe(str(tmp_path)) is None
+    ja.save_job_campaign(str(tmp_path), "default")
+    assert ja.load_job_compose_recipe(str(tmp_path)) is None
+
+
+def test_save_and_load_job_compose_recipe_roundtrip(tmp_path):
+    recipe = {
+        "toggles": {"hook": True, "subtitles": True},
+        "hook_params": {"position": 0.42, "bg_enabled": True, "bg_color": "#FF0000"},
+        "subtitle_params": {"position": 0.8, "preset": "hormozi_bold"},
+    }
+    ja.save_job_campaign(str(tmp_path), "ebay_live", compose=recipe)
+    assert ja.load_job_compose_recipe(str(tmp_path)) == recipe
+    # The campaign tag must survive in the SAME sidecar — both are written in
+    # one atomic write, so neither may clobber the other.
+    assert ja.load_job_campaign(str(tmp_path)) == "ebay_live"
+
+
+def test_load_job_compose_recipe_tolerates_corrupt_sidecar(tmp_path):
+    with open(os.path.join(str(tmp_path), "campaign.json"), "w") as f:
+        f.write("{not json")
+    assert ja.load_job_compose_recipe(str(tmp_path)) is None
+
+
+def test_load_job_compose_recipe_rejects_a_non_dict_value(tmp_path):
+    with open(os.path.join(str(tmp_path), "campaign.json"), "w") as f:
+        json.dump({"zernio_profile": "default", "compose": "not-an-object"}, f)
+    assert ja.load_job_compose_recipe(str(tmp_path)) is None

@@ -357,10 +357,34 @@ async def _fetch_zernio_accounts() -> dict:
     return data.get("accounts") or {}
 
 
-def _build_compose_toggles(hook_text: str):
+def _build_compose_toggles(hook_text: str, recipe=None):
     """The layer toggles + params shared by the publish body and the
     Discord-preview compose call — same recipe either way, so what gets
-    approved in Discord is what gets published, just at a smaller file size."""
+    approved in Discord is what gets published, just at a smaller file size.
+
+    ``recipe`` is the job's OWN stored recipe (``composeRecipe`` from
+    /api/history, written at submit time from the Create tab). When present it
+    wins outright: this bot's env vars below are only a fallback for jobs
+    submitted before recipes were stored, or by a caller that sent none.
+    Before this, the bot always composed from its own env — so a hook the user
+    configured WITH a background, at a position drawn in the layout editor,
+    reached Discord (and then TikTok) with no background at HOOK_POSITION.
+    """
+    if recipe:
+        toggles = dict(recipe.get("toggles") or {})
+        # The hook layer is skipped by the backend on empty text anyway, but
+        # keep the toggle honest so the "is anything burnable" checks below
+        # (and the publish body's `any(toggles.values())`) agree.
+        toggles["hook"] = bool(toggles.get("hook")) and bool(hook_text)
+        hook_params = dict(recipe.get("hook_params") or {})
+        if toggles["hook"]:
+            # The recipe stores job-wide hook STYLE; the text is per clip.
+            hook_params["text"] = hook_text
+        else:
+            hook_params = {}
+        subtitle_params = dict(recipe.get("subtitle_params") or {}) if toggles.get("subtitles") else {}
+        return toggles, hook_params, subtitle_params
+
     toggles = {
         "smartcut": BURN_SMARTCUT,
         "subtitles": BURN_SUBTITLES,
@@ -391,11 +415,15 @@ def _build_compose_toggles(hook_text: str):
     return toggles, hook_params, subtitle_params
 
 
-def _build_publish_body(title: str, hook_text: str):
+def _build_publish_body(title: str, hook_text: str, recipe=None):
     """Body for POST /api/publish/{job}/{clip}, or None if no account matches.
 
     The API requires ``platforms`` to be a non-empty list of
     ``{platform, accountId}`` — a bare platform name is rejected with a 422.
+
+    ``recipe`` is the job's own stored compose recipe (see
+    ``_build_compose_toggles``); the logo/grade/banner layers below come from
+    it too, so a publish burns exactly what the Discord preview showed.
     """
     targets = [
         {"platform": name, "accountId": _zernio_accounts[name]}
@@ -405,7 +433,8 @@ def _build_publish_body(title: str, hook_text: str):
     if not targets:
         return None
 
-    toggles, hook_params, subtitle_params = _build_compose_toggles(hook_text)
+    toggles, hook_params, subtitle_params = _build_compose_toggles(hook_text, recipe)
+    r = recipe or {}
 
     body = {
         "title": (title or "Clip")[:100],
@@ -431,15 +460,16 @@ def _build_publish_body(title: str, hook_text: str):
             "toggles": toggles,
             "hook_params": hook_params,
             "subtitle_params": subtitle_params,
-            "logo_params": {},
-            "grade_params": {},
-            "banner_params": {},
+            "logo_params": r.get("logo_params") or {},
+            "grade_params": r.get("grade_params") or {},
+            "banner_params": r.get("banner_params") or {},
+            "player_image_params": r.get("player_image_params") or {},
             "drop_ranges": [],
         })
     return body
 
 
-async def _compose_full(job_id: str, idx: int, hook_text: str):
+async def _compose_full(job_id: str, idx: int, hook_text: str, recipe=None):
     """Compose (subtitles/hook — same recipe as publish) via the backend and
     return (local_path, composed_url) for the FULL-quality composed file, or
     None when there is nothing to burn in (raw clip already looks final) or
@@ -448,14 +478,19 @@ async def _compose_full(job_id: str, idx: int, hook_text: str):
     download-reaction handler, which also needs composed_url — linking a
     clip that IS composed by its own pre-compose ``video_url`` would serve a
     file missing the burned-in subtitles/hook."""
-    toggles, hook_params, subtitle_params = _build_compose_toggles(hook_text)
+    toggles, hook_params, subtitle_params = _build_compose_toggles(hook_text, recipe)
     if not any(toggles.values()):
         return None  # nothing to burn in — raw clip already looks final
 
     url = f"{CLIPPYME_API}/api/compose/{job_id}/{idx}"
+    r = recipe or {}
     payload = {
         "toggles": toggles, "hook_params": hook_params, "subtitle_params": subtitle_params,
-        "logo_params": {}, "grade_params": {}, "banner_params": {}, "drop_ranges": [],
+        "logo_params": r.get("logo_params") or {},
+        "grade_params": r.get("grade_params") or {},
+        "banner_params": r.get("banner_params") or {},
+        "player_image_params": r.get("player_image_params") or {},
+        "drop_ranges": [],
     }
     try:
         async with aiohttp.ClientSession() as session, session.post(
@@ -481,13 +516,13 @@ async def _compose_full(job_id: str, idx: int, hook_text: str):
     return (local_path, composed) if local_path else None
 
 
-async def _compose_preview(job_id: str, idx: int, hook_text: str):
+async def _compose_preview(job_id: str, idx: int, hook_text: str, recipe=None):
     """Full-quality compose (see ``_compose_full``), then shrink the result
     for Discord: a 2K/4K source composes to a file well over Discord's upload
     limit, and a dead oversized-clip link isn't a preview. Returns a path to a
     small temp file the caller must delete, or None if compose/shrink failed
     (caller falls back to posting the raw clip)."""
-    composed = await _compose_full(job_id, idx, hook_text)
+    composed = await _compose_full(job_id, idx, hook_text, recipe)
     if not composed:
         return None
     composed_path, _composed_url = composed
@@ -589,7 +624,8 @@ async def poll_new_clips():
                 _posted.add(key)
                 _save_posted(_posted)
                 continue
-            await _post_clip(channel, job_id, idx, clip, len(clips))
+            await _post_clip(channel, job_id, idx, clip, len(clips),
+                             recipe=job.get("composeRecipe"))
 
 
 async def _send_clip_message(channel, job_id: str, idx: int, header: str,
@@ -653,7 +689,7 @@ async def _send_clip_message(channel, job_id: str, idx: int, header: str,
         print(f"Could not post clip {idx} (job {job_id}): {exc}", flush=True)
 
 
-async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> None:
+async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int, recipe=None) -> None:
     """Post one clip for approval, but only once it is fully composed
     (subtitles/hook burned in), when the bot is configured to burn anything
     in at all. A compose failure is retried on the next poll cycle instead of
@@ -675,7 +711,7 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
         f"Length: {duration}s\n"
     )
 
-    toggles, _, _ = _build_compose_toggles(hook_text)
+    toggles, _, _ = _build_compose_toggles(hook_text, recipe)
     if not any(toggles.values()):
         # Nothing is configured to burn in — the raw clip already IS the
         # final look, so there's nothing to compose, wait for, or retry.
@@ -685,7 +721,8 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
             f"{APPROVE_EMOJI} approve  ·  {REJECT_EMOJI} reject  ·  {DOWNLOAD_EMOJI} full-quality download"
         )
         await _send_clip_message(channel, job_id, idx, header, _local_clip_path(video_url), video_url, note)
-        _clip_meta[key] = {"title": title, "hook_text": hook_text, "video_url": video_url}
+        _clip_meta[key] = {"title": title, "hook_text": hook_text, "video_url": video_url,
+                       "recipe": recipe}
         _posted.add(key)
         _save_posted(_posted)
         return
@@ -694,7 +731,7 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
     # approving here and what lands on TikTok/YouTube match. Shrunk to
     # DISCORD_PREVIEW_MAX_HEIGHT/CRF purely for Discord's upload limit; the
     # actual publish re-composes at full quality from the untouched source.
-    preview_path = await _compose_preview(job_id, idx, hook_text)
+    preview_path = await _compose_preview(job_id, idx, hook_text, recipe)
     if preview_path is None:
         attempts = _compose_failures.get(key, 0) + 1
         if attempts < DISCORD_COMPOSE_MAX_ATTEMPTS:
@@ -733,7 +770,8 @@ async def _post_clip(channel, job_id: str, idx: int, clip: dict, total: int) -> 
         except OSError:
             pass
 
-    _clip_meta[key] = {"title": title, "hook_text": hook_text, "video_url": video_url}
+    _clip_meta[key] = {"title": title, "hook_text": hook_text, "video_url": video_url,
+                       "recipe": recipe}
     _posted.add(key)
     _save_posted(_posted)
 
@@ -790,7 +828,7 @@ async def handle_approval(message, user, job_id, clip_index):
     title = meta.get("title") or (message.content or "").split("\n")[0].strip("* ")
     hook_text = meta.get("hook_text", "")
 
-    body = _build_publish_body(title, hook_text)
+    body = _build_publish_body(title, hook_text, meta.get("recipe"))
     if body is None:
         await message.reply(
             f"{REJECT_EMOJI} No connected Zernio account for "
@@ -865,7 +903,7 @@ async def handle_download_request(message, user, job_id, clip_index):
     # handle_approval, which sends its own "Publishing..." ack immediately).
     await message.reply(f"⏳ Preparing full-quality download of **{title}**…")
 
-    composed = await _compose_full(job_id, clip_index, hook_text)
+    composed = await _compose_full(job_id, clip_index, hook_text, meta.get("recipe"))
     full_path, composed_url = composed if composed else (None, None)
     local_path = full_path or _local_clip_path(video_url)
     # The link must point at whatever local_path actually is — video_url is
