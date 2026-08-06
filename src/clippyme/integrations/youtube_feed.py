@@ -125,6 +125,15 @@ def resolve_channel_id(channel_input: str) -> str:
         raise ValueError("YouTube channel must use an official channel/handle URL")
     from yt_dlp import YoutubeDL
 
+    from clippyme.pipeline.download import DEFAULT_USER_AGENT, _resolve_cookies_path, _resolve_proxy
+
+    # Same anti-bot-check setup as the actual video download
+    # (download.download_youtube_video) — without it, this one-time channel
+    # resolve is the one YouTube request in the whole monitor-start path with
+    # no cookies/proxy/matching User-Agent, so a bot-flagged VPS IP could
+    # block a monitor from ever starting even though cookies ARE configured
+    # and the actual video downloads that follow would have worked fine.
+    cookies_path = _resolve_cookies_path(None)
     options = {
         "quiet": True,
         "no_warnings": True,
@@ -135,6 +144,9 @@ def resolve_channel_id(channel_input: str) -> str:
         "retries": 2,
         "extractor_retries": 2,
         "cachedir": False,
+        "cookiefile": cookies_path if cookies_path else None,
+        "proxy": _resolve_proxy(),
+        "http_headers": {"User-Agent": DEFAULT_USER_AGENT},
     }
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=False, process=False) or {}

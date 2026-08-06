@@ -113,3 +113,39 @@ def test_resolve_channel_id_rejects_http_and_non_channel_urls():
         yf.resolve_channel_id("http://www.youtube.com/@creator")
     with pytest.raises(ValueError):
         yf.resolve_channel_id("https://www.youtube.com/watch?v=abc123XYZ_1")
+
+
+def test_resolve_channel_id_applies_the_same_anti_bot_check_hardening_as_download(monkeypatch):
+    """Without cookies/proxy/a matching User-Agent, this one-time channel
+    resolve is the only YouTube request on the monitor-start path with none
+    of download.download_youtube_video's anti-bot-check hardening — a
+    bot-flagged VPS IP could block a monitor from ever starting even though
+    cookies ARE configured and the real video downloads that follow work."""
+    captured = {}
+
+    class FakeYDL:
+        def __init__(self, options):
+            captured["options"] = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def extract_info(self, url, **kwargs):
+            return {"channel_id": "UCabcdefghijklmnopqrstuv"}
+
+    import sys
+    from types import SimpleNamespace
+    monkeypatch.setitem(sys.modules, "yt_dlp", SimpleNamespace(YoutubeDL=FakeYDL))
+
+    from clippyme.pipeline import download as dl
+    monkeypatch.setattr(dl, "_resolve_cookies_path", lambda explicit: "/resolved/cookies.txt")
+    monkeypatch.setattr(dl, "_resolve_proxy", lambda: "socks5://127.0.0.1:1080")
+
+    yf.resolve_channel_id("youtube.com/@creator")
+
+    assert captured["options"]["cookiefile"] == "/resolved/cookies.txt"
+    assert captured["options"]["proxy"] == "socks5://127.0.0.1:1080"
+    assert captured["options"]["http_headers"]["User-Agent"] == dl.DEFAULT_USER_AGENT

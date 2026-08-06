@@ -1078,6 +1078,78 @@ def test_build_backfill_cmd_download_sections_format():
     assert "--force-overwrites" in cmd and "-q" in cmd
 
 
+def test_build_backfill_cmd_applies_the_same_hardening_as_the_main_download_path():
+    """Without cookies/proxy/format-selection, a subscriber-only Twitch VOD or
+    a bot-check wall fails this backfill download outright with no recourse —
+    unlike the main pipeline download, which has all of this."""
+    from clippyme.pipeline.download import DEFAULT_USER_AGENT
+
+    cmd = build_backfill_cmd("https://www.twitch.tv/videos/42", 0, 60, "/out.mp4")
+    assert "-f" in cmd  # format ladder present
+    assert "-S" in cmd  # format sort present
+    assert cmd[cmd.index("--user-agent") + 1] == DEFAULT_USER_AGENT
+    assert "--cookies" not in cmd  # no cookies_path passed
+    assert "--proxy" not in cmd  # no proxy passed
+
+
+def test_build_backfill_cmd_threads_cookies_and_proxy_when_given():
+    cmd = build_backfill_cmd("https://www.twitch.tv/videos/42", 0, 60, "/out.mp4",
+                              cookies_path="/data/cookies.txt", proxy="socks5://127.0.0.1:1080")
+    assert cmd[cmd.index("--cookies") + 1] == "/data/cookies.txt"
+    assert cmd[cmd.index("--proxy") + 1] == "socks5://127.0.0.1:1080"
+
+
+def test_download_vod_range_resolves_cookies_and_proxy_for_the_backfill_command(tmp_path, monkeypatch):
+    """_download_vod_range must resolve cookies/proxy the same way the main
+    download path does (repo-root data/cookies.txt or YOUTUBE_COOKIES,
+    YTDLP_PROXY) and thread them into build_backfill_cmd — this is the actual
+    wiring bug fix, not just build_backfill_cmd accepting the parameters."""
+    import asyncio
+
+    from clippyme.domain import live_monitor as lm
+    from clippyme.domain.live_monitor import LiveMonitor
+    from clippyme.pipeline import download as dl
+
+    monkeypatch.setattr(dl, "_resolve_cookies_path", lambda explicit: "/resolved/cookies.txt")
+    monkeypatch.setattr(dl, "_resolve_proxy", lambda: "socks5://127.0.0.1:1080")
+
+    captured = {}
+
+    def fake_build_backfill_cmd(vod_url, t1, t2, out_path, cookies_path=None, proxy=None):
+        captured["cookies_path"] = cookies_path
+        captured["proxy"] = proxy
+        return ["true"]  # a real, harmless command so the subprocess "succeeds" with no output
+
+    monkeypatch.setattr(lm, "build_backfill_cmd", fake_build_backfill_cmd)
+
+    mon = LiveMonitor(id="twitch:chan", jobs={}, job_queue=None, output_dir=str(tmp_path),
+                      upload_dir=str(tmp_path / "uploads"))
+    mon.cfg = {"channel": "chan"}
+
+    asyncio.run(mon._download_vod_range("https://www.twitch.tv/videos/42", 0, 60))
+
+    assert captured["cookies_path"] == "/resolved/cookies.txt"
+    assert captured["proxy"] == "socks5://127.0.0.1:1080"
+
+
+# --- KickStrategy.capture_args: direct-ffmpeg reconnect flags --------------
+
+def test_kick_strategy_direct_ffmpeg_capture_has_reconnect_flags():
+    """A brief network hiccup on the raw HLS URL must not kill the whole
+    (up to 30-minute) segment outright — ffmpeg needs the -reconnect family,
+    and they must precede -i since they're INPUT options."""
+    from clippyme.domain.live_monitor import KickStrategy
+
+    strat = KickStrategy("somechannel")
+    args = strat.capture_args("/seg.mp4", 1800, "https://example.test/live.m3u8")
+
+    assert "-reconnect" in args
+    assert args.index("-reconnect") < args.index("-i")
+    assert args[args.index("-reconnect") + 1] == "1"
+    assert "-reconnect_streamed" in args
+    assert "-reconnect_delay_max" in args
+
+
 # --- find_live_vod (twitch in-progress archive VOD) ------------------------
 
 def test_find_live_vod_matches_stream_id():

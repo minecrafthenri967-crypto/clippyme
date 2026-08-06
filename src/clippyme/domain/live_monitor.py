@@ -408,11 +408,37 @@ def effective_backfill_start(prelive_skip_seconds: int, covered_elapsed: int,
     return start
 
 
-def build_backfill_cmd(vod_url: str, start_s: int, end_s: int, out_path: str) -> list:
-    """yt-dlp argv to download an exact [start, end] range of a VOD."""
-    return [sys.executable, "-m", "yt_dlp", vod_url,
-            "--download-sections", f"*{_hhmmss(start_s)}-{_hhmmss(end_s)}",
-            "-o", out_path, "--force-overwrites", "-q"]
+def build_backfill_cmd(vod_url: str, start_s: int, end_s: int, out_path: str,
+                        cookies_path: str | None = None, proxy: str | None = None) -> list:
+    """yt-dlp argv to download an exact [start, end] range of a VOD.
+
+    Backfill URLs are always Twitch/Kick (a youtube-platform monitor is
+    vod-mode-only and never misses a segment — see the module docstring), so
+    unlike ``download.download_youtube_video`` there is no YouTube
+    player-client chain to apply here. What DOES matter just as much as on
+    the main download path: cookies (a subscriber-only Twitch VOD needs them
+    exactly like a manual job would), ``YTDLP_PROXY`` (the same
+    datacenter-IP bot-check mitigation), and a browser-like User-Agent. This
+    used to be a much thinner invocation with none of that — a transient or
+    bot-check 403 here failed outright with no recourse, and a missed window
+    that fails here is gone for good once the next stream starts and
+    ``_schedule_backfill`` discards a prior session's unresolved windows.
+    """
+    from clippyme.pipeline.download import (
+        DEFAULT_USER_AGENT, build_format_ladder, build_format_sort, resolve_max_download_height,
+    )
+    cmd = [sys.executable, "-m", "yt_dlp", vod_url,
+           "--download-sections", f"*{_hhmmss(start_s)}-{_hhmmss(end_s)}",
+           "-o", out_path, "--force-overwrites", "-q",
+           "--socket-timeout", "30", "--retries", "10", "--fragment-retries", "10",
+           "--user-agent", DEFAULT_USER_AGENT,
+           "-f", build_format_ladder(resolve_max_download_height()),
+           "-S", ",".join(build_format_sort())]
+    if cookies_path:
+        cmd.extend(["--cookies", cookies_path])
+    if proxy:
+        cmd.extend(["--proxy", proxy])
+    return cmd
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +459,15 @@ class KickStrategy:
 
     def capture_args(self, seg_path: str, seconds: int, url):
         if url:
+            # Reconnect flags are INPUT options (must precede -i): without
+            # them, a brief network hiccup on the raw HLS URL kills ffmpeg
+            # outright mid-segment, losing up to the full segment_seconds of
+            # capture instead of ffmpeg quietly reconnecting and continuing.
+            # The streamlink fallback below handles reconnects internally, so
+            # this only matters on this direct-ffmpeg branch.
             return ["ffmpeg", "-hide_banner", "-loglevel", "warning",
+                    "-reconnect", "1", "-reconnect_streamed", "1",
+                    "-reconnect_delay_max", "5",
                     "-i", url, "-c", "copy", "-t", str(seconds), "-y", seg_path]
         if shutil.which("streamlink"):
             return ["streamlink", "--hls-duration", _hhmmss(seconds),
@@ -1128,11 +1162,17 @@ class LiveMonitor:
 
     async def _download_vod_range(self, vod_url: str, t1: int, t2: int) -> str | None:
         """Download the [t1, t2] range of a VOD via yt-dlp. None on missing/empty."""
+        from clippyme.pipeline.download import _resolve_cookies_path, _resolve_proxy
+
         os.makedirs(self._upload_dir, exist_ok=True)
         seg_path = os.path.join(
             self._upload_dir,
             f"backfill_{self.platform}_{self.cfg['channel']}_{t1}_{t2}_{int(time.time())}.mp4")
-        args = build_backfill_cmd(vod_url, t1, t2, seg_path)
+        # Same resolution chain the main download path uses when no explicit
+        # cookies flag was passed: repo-root data/cookies.txt, else the
+        # YOUTUBE_COOKIES env var materialized to a temp file, else None.
+        args = build_backfill_cmd(vod_url, t1, t2, seg_path,
+                                   cookies_path=_resolve_cookies_path(None), proxy=_resolve_proxy())
         try:
             proc = await asyncio.create_subprocess_exec(
                 *args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)

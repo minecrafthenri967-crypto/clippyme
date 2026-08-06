@@ -433,6 +433,20 @@ must use that value, never a literal 1.6. The cap binds on low-res sources and
 is a no-op on 4K. When even the widest crop exceeds the budget, sharpness is
 bounded by the SOURCE and no encode setting recovers it; `reframe.py` logs the
 real-pixel→canvas factor per clip so this is visible rather than guessed at.
+⚠️ `download.py`'s player-client retry chain (`tv+tv_embedded`/`web_safari`
+fallback past a bot-check wall) is YouTube-extractor-specific
+(`extractor_args={"youtube": ...}`) — yt-dlp ignores it for the `twitch:vod`/
+`kick` extractors, so `download_youtube_video` collapses the chain to one
+"default" attempt via `_is_youtube_url(url)` for those hosts instead of
+uselessly repeating the identical request. `live_monitor.py`'s backfill path
+(`build_backfill_cmd`/`_download_vod_range`, missed-segment recovery for
+Twitch/Kick live monitors) is a SEPARATE, thinner yt-dlp invocation than
+`download_youtube_video` — it now threads the same cookies/`YTDLP_PROXY`/
+format-ladder/User-Agent (`download.DEFAULT_USER_AGENT`, shared so the two
+paths can't drift) through, since a subscriber-only VOD or a bot-check 403
+there used to fail outright with no recourse, permanently losing that missed
+window once the next stream starts and `_schedule_backfill` discards a prior
+session's unresolved windows.
 
 **Smart Cut**: transcript-driven silence/filler removal rendered via a
 hand-built auto-editor v3 JSON timeline (ffmpeg concat fallback if the binary

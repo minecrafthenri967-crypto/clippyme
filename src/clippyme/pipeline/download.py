@@ -23,7 +23,10 @@ from clippyme.netutil import resolve_host_addresses
 # broad server-side fetch primitive even though the first hostname was checked
 # for private IPs.  Exact official hosts + HTTPS keep user jobs on the expected
 # trust boundary while still covering YouTube, Twitch clips/VODs and Kick VODs.
-_SUPPORTED_SOURCE_HOSTS = frozenset({
+# Split out as its own set (not just a comment) because _player_client_chain's
+# retry-with-a-different-player-client trick is YouTube-extractor-specific —
+# see _is_youtube_url below.
+_YOUTUBE_HOSTS = frozenset({
     "youtube.com",
     "www.youtube.com",
     "m.youtube.com",
@@ -31,6 +34,8 @@ _SUPPORTED_SOURCE_HOSTS = frozenset({
     "youtube-nocookie.com",
     "www.youtube-nocookie.com",
     "youtu.be",
+})
+_SUPPORTED_SOURCE_HOSTS = _YOUTUBE_HOSTS | frozenset({
     "twitch.tv",
     "www.twitch.tv",
     "m.twitch.tv",
@@ -38,6 +43,13 @@ _SUPPORTED_SOURCE_HOSTS = frozenset({
     "kick.com",
     "www.kick.com",
 })
+
+
+def _is_youtube_url(url: str) -> bool:
+    try:
+        return (urlparse(url).hostname or "").lower() in _YOUTUBE_HOSTS
+    except ValueError:
+        return False
 
 
 def validate_supported_source_url(url: str) -> str:
@@ -291,6 +303,16 @@ def classify_download_error(msg: str) -> str:
     return "fatal"
 
 
+# Shared with live_monitor.build_backfill_cmd, which shells out to yt-dlp
+# directly rather than going through YoutubeDL() — one string, not two drifting
+# copies.
+DEFAULT_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/120.0.0.0 Safari/537.36'
+)
+
+
 SOURCE_INFO_FILENAME = "source_info.json"
 
 
@@ -356,15 +378,21 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
         'cachedir': False,
         'remote_components': ['ejs:github'],
         'http_headers': {
-            'User-Agent': (
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/120.0.0.0 Safari/537.36'
-            ),
+            'User-Agent': DEFAULT_USER_AGENT,
         },
     }
 
-    chain = _player_client_chain()
+    # The player-client fallback chain is a YouTube extractor mechanism
+    # (extractor_args={"youtube": {"player_client": [...]}}) — yt-dlp ignores
+    # it entirely for the twitch:vod/kick extractors, so retrying with
+    # "different" clients against a Twitch/Kick 403 just repeats the exact
+    # same request N times (with a 5s sleep between each) before giving up,
+    # and prints a misleading "trying a different player client" reason.
+    # Scoping the chain to a single "default" attempt for non-YouTube hosts
+    # keeps yt-dlp's own internal retries (socket_timeout/retries/fragment_retries
+    # in common_ydl_opts below) as the only retry mechanism there, same as it
+    # always effectively was.
+    chain = _player_client_chain() if _is_youtube_url(url) else ["default"]
     last_error = RuntimeError("download attempt chain was empty")
     for i, attempt in enumerate(chain, 1):
         extractor_args = _extractor_args_for(attempt)
