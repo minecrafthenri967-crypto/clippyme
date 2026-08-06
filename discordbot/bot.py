@@ -823,12 +823,50 @@ async def on_raw_reaction_add(payload):
         await handle_download_request(message, user, job_id, clip_index)
 
 
+async def _fetch_job_recipe(job_id: str):
+    """Re-read one job's stored compose recipe from /api/history.
+
+    ``_clip_meta`` is in-memory only, so a bot restart between posting a clip
+    and someone reacting to it loses the recipe — and publishing would then
+    fall back to this bot's env defaults, uploading something that does NOT
+    match the preview that was approved (no logo/grade/banner, hook at the
+    wrong position). The recipe is on the backend either way, so fetch it
+    rather than guessing. Returns None on any failure, which is exactly the
+    "no stored preference" case the callers already handle.
+    """
+    try:
+        async with aiohttp.ClientSession() as session, session.get(
+            f"{CLIPPYME_API}/api/history", timeout=aiohttp.ClientTimeout(total=30)
+        ) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+    except Exception as exc:
+        print(f"Could not re-fetch recipe for {job_id}: {exc}", flush=True)
+        return None
+    for job in data.get("jobs", []):
+        if job.get("jobId") == job_id:
+            return job.get("composeRecipe")
+    return None
+
+
+async def _recipe_for(job_id: str, clip_index: int):
+    """The clip's recipe from the in-memory cache, re-fetched if that is cold."""
+    meta = _clip_meta.get((job_id, clip_index))
+    if meta and meta.get("recipe") is not None:
+        return meta["recipe"]
+    recipe = await _fetch_job_recipe(job_id)
+    if meta is not None and recipe is not None:
+        meta["recipe"] = recipe  # warm the cache for the download reaction too
+    return recipe
+
+
 async def handle_approval(message, user, job_id, clip_index):
     meta = _clip_meta.get((job_id, clip_index), {})
     title = meta.get("title") or (message.content or "").split("\n")[0].strip("* ")
     hook_text = meta.get("hook_text", "")
 
-    body = _build_publish_body(title, hook_text, meta.get("recipe"))
+    body = _build_publish_body(title, hook_text, await _recipe_for(job_id, clip_index))
     if body is None:
         await message.reply(
             f"{REJECT_EMOJI} No connected Zernio account for "
@@ -903,7 +941,7 @@ async def handle_download_request(message, user, job_id, clip_index):
     # handle_approval, which sends its own "Publishing..." ack immediately).
     await message.reply(f"⏳ Preparing full-quality download of **{title}**…")
 
-    composed = await _compose_full(job_id, clip_index, hook_text, meta.get("recipe"))
+    composed = await _compose_full(job_id, clip_index, hook_text, await _recipe_for(job_id, clip_index))
     full_path, composed_url = composed if composed else (None, None)
     local_path = full_path or _local_clip_path(video_url)
     # The link must point at whatever local_path actually is — video_url is

@@ -40,11 +40,33 @@ def test_validate_compose_recipe_allows_none_and_partial():
     {"toggles": {"not_a_layer": True}},    # toggle outside _ALLOWED_TOGGLES
     {"toggles": {"hook": "yes"}},          # non-boolean toggle
     {"hook_params": "not-an-object"},      # param block must be an object
-    {"hook_params": {"nested": {"a": 1}}}, # overlay params are scalars only
+    {"logo_params": {"position": {"x": {"deep": 1}}}},  # nesting stops at one level
+    {"hook_params": {"text": "x" * 5000}},              # scalar bounds still apply
 ])
 def test_validate_compose_recipe_rejects_malformed_input(bad):
     with pytest.raises(ValueError):
         validate_compose_recipe(bad)
+
+
+def test_validate_compose_recipe_accepts_the_free_drag_logo_position():
+    # logoPositionEditor.jsx stores the dragged placement as {"x": .., "y": ..}
+    # (see logo.parse_logo_position_xy). A scalars-only rule 400s every submit
+    # that has the logo enabled at a dragged position — i.e. the logo feature
+    # would be unusable rather than merely unpersisted.
+    recipe = {
+        "toggles": {"logo": True},
+        "logo_params": {"position": {"x": 0.9, "y": 0.05}, "scale": 0.2},
+    }
+    assert validate_compose_recipe(recipe) == recipe
+
+
+def test_process_request_accepts_a_dragged_logo_position():
+    req = ProcessRequest.model_validate({
+        "url": "https://www.youtube.com/watch?v=abc12345678",
+        "compose": {"toggles": {"logo": True},
+                    "logo_params": {"position": {"x": 0.9, "y": 0.05}}},
+    })
+    assert req.compose["logo_params"]["position"] == {"x": 0.9, "y": 0.05}
 
 
 def test_process_request_carries_and_validates_the_recipe():

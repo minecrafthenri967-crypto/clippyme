@@ -222,6 +222,25 @@ def _player_client_chain():
     return list(_DEFAULT_PLAYER_CLIENTS)
 
 
+def download_attempt_chain(url: str):
+    """Per-attempt player-client specs for one download.
+
+    YouTube gets the real fallback chain: tv/tv_embedded/web_safari use a
+    different auth flow than the default web client and often sail past a
+    bot-check wall it just hit.
+
+    Twitch/Kick get the same NUMBER of attempts but all on "default", because
+    ``extractor_args={"youtube": ...}`` is a no-op for the twitch:vod/kick
+    extractors — switching "clients" there re-issues the byte-identical
+    request. The attempts themselves still matter: the retry loop's 5s backoff
+    is the ONLY retry covering an ``extract_info`` failure (a transient 403 on
+    VOD metadata), since yt-dlp's own ``retries``/``fragment_retries`` apply to
+    the download phase, not extraction.
+    """
+    chain = _player_client_chain()
+    return chain if _is_youtube_url(url) else ["default"] * len(chain)
+
+
 def _extractor_args_for(attempt: str):
     """Map an attempt spec to yt-dlp extractor_args, or None for defaults."""
     if not attempt or attempt.lower() == "default":
@@ -382,17 +401,8 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
         },
     }
 
-    # The player-client fallback chain is a YouTube extractor mechanism
-    # (extractor_args={"youtube": {"player_client": [...]}}) — yt-dlp ignores
-    # it entirely for the twitch:vod/kick extractors, so retrying with
-    # "different" clients against a Twitch/Kick 403 just repeats the exact
-    # same request N times (with a 5s sleep between each) before giving up,
-    # and prints a misleading "trying a different player client" reason.
-    # Scoping the chain to a single "default" attempt for non-YouTube hosts
-    # keeps yt-dlp's own internal retries (socket_timeout/retries/fragment_retries
-    # in common_ydl_opts below) as the only retry mechanism there, same as it
-    # always effectively was.
-    chain = _player_client_chain() if _is_youtube_url(url) else ["default"]
+    chain = download_attempt_chain(url)
+    switches_client = _is_youtube_url(url)
     last_error = RuntimeError("download attempt chain was empty")
     for i, attempt in enumerate(chain, 1):
         extractor_args = _extractor_args_for(attempt)
@@ -458,9 +468,10 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
             if (kind == "retry" or bot_check) and i < len(chain):
                 reason = (
                     "bot-check wall — trying a different player client"
-                    if bot_check else f"retryable: {exc}"
+                    if (bot_check and switches_client) else f"retryable: {exc}"
                 )
-                print(f"⚠️ Attempt {i} failed ({reason}); trying next player_client in 5s...")
+                next_step = "next player_client" if switches_client else "retry"
+                print(f"⚠️ Attempt {i} failed ({reason}); {next_step} in 5s...")
                 time.sleep(5)
                 continue
             break

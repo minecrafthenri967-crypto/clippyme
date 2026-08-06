@@ -347,38 +347,52 @@ class _FakeRetryableFailYDL:
         raise RuntimeError("HTTP Error 403: Forbidden")
 
 
-def test_download_youtube_video_does_not_retry_player_clients_for_twitch(monkeypatch, tmp_path):
-    # extractor_args={"youtube": {...}} is a no-op for the twitch:vod
-    # extractor — retrying "different player clients" against a Twitch 403
-    # just repeats the identical request. The chain must collapse to one
-    # attempt instead of wasting time (and printing a misleading "trying a
-    # different player client" reason) on two more identical requests.
+@pytest.mark.parametrize("url", [
+    "https://www.twitch.tv/videos/123",
+    "https://kick.com/video/1234",
+])
+def test_download_attempt_chain_keeps_the_attempts_but_drops_the_client_switch(url):
+    # extractor_args={"youtube": {...}} is a no-op for the twitch:vod/kick
+    # extractors, so switching "player clients" there re-issues the identical
+    # request — but the ATTEMPTS themselves must survive: the retry loop's 5s
+    # backoff is the only retry covering an extract_info failure (a transient
+    # 403 on VOD metadata). yt-dlp's own retries/fragment_retries apply to the
+    # download phase, not extraction.
+    chain = dl.download_attempt_chain(url)
+    assert len(chain) == len(dl._player_client_chain())
+    assert set(chain) == {"default"}
+
+
+def test_download_attempt_chain_keeps_the_real_fallback_for_youtube():
+    chain = dl.download_attempt_chain("https://www.youtube.com/watch?v=abc12345678")
+    assert chain == ["default", "tv+tv_embedded", "web_safari"]
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.twitch.tv/videos/123",
+    "https://kick.com/video/1234",
+    "https://www.youtube.com/watch?v=abc12345678",
+])
+def test_download_youtube_video_retries_a_transient_403_on_every_platform(monkeypatch, tmp_path, url):
+    # A retryable extraction failure must exhaust the chain everywhere — a
+    # Twitch/Kick VOD that 403s once used to get a single shot at it.
+    _FakeRetryableFailYDL.attempts = []
+    monkeypatch.setattr(dl.yt_dlp, "YoutubeDL", _FakeRetryableFailYDL)
+    monkeypatch.setattr(dl.time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError):
+        dl.download_youtube_video(url, output_dir=str(tmp_path))
+    assert len(_FakeRetryableFailYDL.attempts) == 3
+
+
+def test_only_youtube_attempts_actually_carry_extractor_args(monkeypatch, tmp_path):
+    # The non-YouTube attempts must all be plain "default" — no extractor_args,
+    # since yt-dlp would ignore them anyway.
     _FakeRetryableFailYDL.attempts = []
     monkeypatch.setattr(dl.yt_dlp, "YoutubeDL", _FakeRetryableFailYDL)
     monkeypatch.setattr(dl.time, "sleep", lambda s: None)
     with pytest.raises(RuntimeError):
         dl.download_youtube_video("https://www.twitch.tv/videos/123", output_dir=str(tmp_path))
-    assert len(_FakeRetryableFailYDL.attempts) == 1
-
-
-def test_download_youtube_video_does_not_retry_player_clients_for_kick(monkeypatch, tmp_path):
-    _FakeRetryableFailYDL.attempts = []
-    monkeypatch.setattr(dl.yt_dlp, "YoutubeDL", _FakeRetryableFailYDL)
-    monkeypatch.setattr(dl.time, "sleep", lambda s: None)
-    with pytest.raises(RuntimeError):
-        dl.download_youtube_video("https://kick.com/video/1234", output_dir=str(tmp_path))
-    assert len(_FakeRetryableFailYDL.attempts) == 1
-
-
-def test_download_youtube_video_still_retries_player_clients_for_youtube(monkeypatch, tmp_path):
-    _FakeRetryableFailYDL.attempts = []
-    monkeypatch.setattr(dl.yt_dlp, "YoutubeDL", _FakeRetryableFailYDL)
-    monkeypatch.setattr(dl.time, "sleep", lambda s: None)
-    with pytest.raises(RuntimeError):
-        dl.download_youtube_video(
-            "https://www.youtube.com/watch?v=abc12345678", output_dir=str(tmp_path)
-        )
-    assert len(_FakeRetryableFailYDL.attempts) == 3  # the full default chain
+    assert all(a is None for a in _FakeRetryableFailYDL.attempts)
 
 
 # --- download quality: format ladder + its env-configured cap --------------

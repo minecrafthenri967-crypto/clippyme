@@ -9,6 +9,7 @@ OFF and build hook_params from the bot's own env (no `style` key at all), so a
 clip configured in Create with a logo and a hook background reached Discord —
 and then the platform — with neither.
 """
+import asyncio
 import importlib.util
 import os
 import pathlib
@@ -99,3 +100,86 @@ def test_publish_body_without_a_recipe_sends_empty_layer_params(bot, monkeypatch
     assert body["logo_params"] == {}
     assert body["grade_params"] == {}
     assert body["banner_params"] == {}
+
+
+# --- recipe recovery after a bot restart ------------------------------------
+# _clip_meta is in-memory only. A restart between posting a clip and someone
+# reacting to it used to mean the publish fell back to the env defaults, so
+# what reached the platform did NOT match the preview that was approved.
+
+class _FakeHistoryResponse:
+    status = 200
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    async def json(self):
+        return self._payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def get(self, *a, **k):
+        return _FakeHistoryResponse(self._payload)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _patch_history(bot, monkeypatch, payload):
+    monkeypatch.setattr(bot.aiohttp, "ClientSession", lambda *a, **k: _FakeSession(payload))
+
+
+def test_recipe_is_refetched_when_the_in_memory_cache_is_cold(bot, monkeypatch):
+    bot._clip_meta.clear()
+    _patch_history(bot, monkeypatch,
+                   {"jobs": [{"jobId": "job1", "composeRecipe": _RECIPE}]})
+    assert asyncio.run(bot._recipe_for("job1", 0)) == _RECIPE
+
+
+def test_cached_recipe_is_used_without_an_http_call(bot, monkeypatch):
+    bot._clip_meta[("job1", 0)] = {"recipe": _RECIPE}
+
+    def _boom(*a, **k):
+        raise AssertionError("must not re-fetch when the cache is warm")
+
+    monkeypatch.setattr(bot.aiohttp, "ClientSession", _boom)
+    assert asyncio.run(bot._recipe_for("job1", 0)) == _RECIPE
+    bot._clip_meta.clear()
+
+
+def test_refetched_recipe_warms_the_cache(bot, monkeypatch):
+    bot._clip_meta[("job1", 0)] = {"title": "T", "recipe": None}
+    _patch_history(bot, monkeypatch,
+                   {"jobs": [{"jobId": "job1", "composeRecipe": _RECIPE}]})
+    asyncio.run(bot._recipe_for("job1", 0))
+    assert bot._clip_meta[("job1", 0)]["recipe"] == _RECIPE
+    bot._clip_meta.clear()
+
+
+def test_unknown_job_yields_none_not_a_crash(bot, monkeypatch):
+    bot._clip_meta.clear()
+    _patch_history(bot, monkeypatch, {"jobs": [{"jobId": "other", "composeRecipe": _RECIPE}]})
+    assert asyncio.run(bot._recipe_for("job1", 0)) is None
+
+
+def test_history_failure_degrades_to_none(bot, monkeypatch):
+    bot._clip_meta.clear()
+
+    def _boom(*a, **k):
+        raise OSError("backend down")
+
+    monkeypatch.setattr(bot.aiohttp, "ClientSession", _boom)
+    # None is exactly the "no stored preference" case every caller handles.
+    assert asyncio.run(bot._recipe_for("job1", 0)) is None

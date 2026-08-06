@@ -170,3 +170,36 @@ def test_publish_accepts_player_image_toggle_and_optional_params():
 def test_unknown_toggle_key_still_rejected_after_adding_player_image():
     with pytest.raises(ValidationError):
         ComposeRequest(toggles={"playerimage": True})
+
+
+# --- {x, y} placement pairs: allowed for layer params, nowhere else ---------
+# The free-drag logo editor stores logo_params["position"] as {"x":.., "y":..}
+# (logo.parse_logo_position_xy). That one shape has to pass, WITHOUT reopening
+# the scalars-only rule that keeps nested junk out of tiktok_settings /
+# platformSpecificData.
+
+def test_compose_accepts_a_dragged_logo_position():
+    req = ComposeRequest(logo_params={"position": {"x": 0.9, "y": 0.05}, "scale": 0.2})
+    assert req.logo_params["position"] == {"x": 0.9, "y": 0.05}
+
+
+@pytest.mark.parametrize("bad", [
+    {"position": {"x": 0.5}},                      # missing y
+    {"position": {"x": 0.5, "y": 0.5, "z": 1}},    # extra key
+    {"position": {"x": 1.5, "y": 0.5}},            # outside 0..1
+    {"position": {"x": "left", "y": 0.5}},         # non-numeric
+    {"position": {"x": True, "y": 0.5}},           # bool is not a coordinate
+    {"scale": {"x": 0.5, "y": 0.5}},               # only 'position' may be a point
+])
+def test_compose_rejects_a_malformed_placement_pair(bad):
+    with pytest.raises(ValidationError):
+        ComposeRequest(logo_params=bad)
+
+
+def test_tiktok_settings_still_reject_every_nested_value():
+    # The point-pair allowance is opt-in per call site and must NOT leak here.
+    with pytest.raises(ValidationError):
+        PublishRequest(
+            platforms=[{"platform": "tiktok", "accountId": "a"}],
+            tiktok_settings={"position": {"x": 0.5, "y": 0.5}},
+        )

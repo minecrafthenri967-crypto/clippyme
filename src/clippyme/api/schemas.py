@@ -248,7 +248,50 @@ _OVERLAY_MAX_STR = 1000
 _OVERLAY_MAX_ABS_NUM = 100_000
 
 
-def _validate_overlay_params(value):
+def _validate_overlay_scalar(key, item):
+    """One scalar overlay-param value. Raises on anything out of bounds."""
+    if isinstance(item, str):
+        if len(item) > _OVERLAY_MAX_STR:
+            raise ValueError(f"value for {key!r} too long (max {_OVERLAY_MAX_STR})")
+    elif isinstance(item, bool) or item is None:
+        return
+    elif isinstance(item, (int, float)):
+        if not math.isfinite(item) or abs(item) > _OVERLAY_MAX_ABS_NUM:
+            raise ValueError(f"value for {key!r} out of range")
+    else:
+        raise ValueError(f"value for {key!r} must be a scalar")
+
+
+def _validate_point_value(key, item):
+    """An {"x": float, "y": float} 0..1 placement pair — nothing else.
+
+    The ONLY nested shape any overlay-param block is allowed to carry. The
+    free-drag logo editor stores `logo_params["position"]` like this (see
+    logo.parse_logo_position_xy), so a blanket scalars-only rule 400s every
+    submit/compose that has the logo enabled at a dragged position — the logo
+    feature becomes unusable, not merely unpersisted. Kept deliberately narrow
+    (exactly two numeric keys, range-checked) rather than "any flat object",
+    so it cannot become a hole for the nested junk the scalars-only rule
+    exists to keep out of tiktok_settings / platformSpecificData.
+    """
+    if set(item) != {"x", "y"}:
+        raise ValueError(f"value for {key!r} must be an {{x, y}} pair")
+    for axis in ("x", "y"):
+        axis_value = item[axis]
+        if isinstance(axis_value, bool) or not isinstance(axis_value, (int, float)):
+            raise ValueError(f"value for {key!r}.{axis} must be a number")
+        if not math.isfinite(axis_value) or not (0.0 <= axis_value <= 1.0):
+            raise ValueError(f"value for {key!r}.{axis} must be a 0..1 fraction")
+
+
+def _validate_overlay_params(value, point_keys=frozenset()):
+    """Bound one overlay-param block: a flat object of scalars.
+
+    ``point_keys`` names the keys (if any) that may instead hold an {x, y}
+    placement pair. It is opt-in per call site — the blocks that never carry
+    a point (tiktok_settings, platformSpecificData, …) keep the strict
+    scalars-only rule they were given deliberately.
+    """
     if value is None:
         return value
     if not isinstance(value, dict):
@@ -256,19 +299,15 @@ def _validate_overlay_params(value):
     if len(value) > _OVERLAY_MAX_KEYS:
         raise ValueError(f"too many keys (max {_OVERLAY_MAX_KEYS})")
     for key, item in value.items():
-        if isinstance(item, str):
-            if len(item) > _OVERLAY_MAX_STR:
-                raise ValueError(f"value for {key!r} too long (max {_OVERLAY_MAX_STR})")
-        elif isinstance(item, bool):
+        if isinstance(item, dict) and key in point_keys:
+            _validate_point_value(key, item)
             continue
-        elif isinstance(item, (int, float)):
-            if not math.isfinite(item) or abs(item) > _OVERLAY_MAX_ABS_NUM:
-                raise ValueError(f"value for {key!r} out of range")
-        elif item is None:
-            continue
-        else:
-            raise ValueError(f"value for {key!r} must be a scalar")
+        _validate_overlay_scalar(key, item)
     return value
+
+
+# Overlay-param keys that legitimately hold an {x, y} pair rather than a scalar.
+_OVERLAY_POINT_KEYS = frozenset({"position"})
 
 
 _DROP_MAX_RANGES = 500
@@ -351,7 +390,7 @@ def validate_compose_recipe(value):
             continue
         if not isinstance(item, dict):
             raise ValueError(f"compose[{key!r}] must be an object")
-        _validate_overlay_params(item)
+        _validate_overlay_params(item, point_keys=_OVERLAY_POINT_KEYS)
     return value
 
 
@@ -396,7 +435,7 @@ class ComposeRequest(BaseModel):
     )
     @classmethod
     def _bound_overlay(cls, value):
-        return _validate_overlay_params(value)
+        return _validate_overlay_params(value, point_keys=_OVERLAY_POINT_KEYS)
 
     @field_validator("drop_ranges")
     @classmethod
@@ -461,7 +500,7 @@ class PublishRequest(BaseModel):
     )
     @classmethod
     def _bound_overlay(cls, value):
-        return _validate_overlay_params(value)
+        return _validate_overlay_params(value, point_keys=_OVERLAY_POINT_KEYS)
 
     @field_validator("drop_ranges")
     @classmethod
