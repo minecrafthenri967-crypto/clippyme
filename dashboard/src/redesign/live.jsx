@@ -12,6 +12,8 @@ import { buildMonitorBannerPayload } from '../lib/liveMonitorBanner';
 import { toComposeSubtitleParams, fromComposeSubtitleParams } from '../lib/subtitleComposeParams';
 import { BannerControls } from './bannerControls';
 import { SubtitleControls } from './subtitleControls';
+import { HookStyleControls } from './hookStyle';
+import { HOOK_STYLE_DEFAULT } from './data';
 import { useLiveMonitorStatus } from '../hooks/useLiveMonitorStatus';
 
 // SubtitleControls is fully controlled with no built-in defaults (see
@@ -82,6 +84,15 @@ function MonitorSettings({ monitor, onApply, applying }) {
   const [minGapMin, setMinGapMin] = useState(secToMin(cfg.min_gap_seconds));
   const [subOn, setSubOn] = useState(!!cfg.compose?.subtitle_params);
   const [sub, setSub] = useState(() => fromComposeSubtitleParams(cfg.compose?.subtitle_params, SUB_DEFAULTS));
+  // Hook style override — same idea as the subtitle override above, but for
+  // the top-bar hook text (background/colour/outline/font). Without this the
+  // monitor's own hardcoded hook (text + position:'top' only, see
+  // domain/live_monitor.build_monitor_compose) never carried the banner/
+  // colour styling a user configures elsewhere, so Live-Monitor-published
+  // clips looked plain even when the same job's manual Create-tab preview
+  // showed the styled hook.
+  const [hookOn, setHookOn] = useState(!!cfg.compose?.hook_params);
+  const [hookStyle, setHookStyle] = useState(() => ({ ...HOOK_STYLE_DEFAULT, ...(cfg.compose?.hook_params || {}) }));
   // Default-on (matches the backend default): only an explicit `false` in the
   // persisted config starts the checkbox unchecked.
   const [deleteAfterPublish, setDeleteAfterPublish] = useState(cfg.delete_after_publish !== false);
@@ -96,7 +107,10 @@ function MonitorSettings({ monitor, onApply, applying }) {
     if (segmentMin !== '') partial.segment_seconds = clampMonitorTimings(segmentMin, 0, 0).segment_seconds;
     if (preliveMin !== '') partial.prelive_skip_seconds = clampMonitorTimings(0, preliveMin, 0).prelive_skip_seconds;
     if (minGapMin !== '') partial.min_gap_seconds = clampMonitorTimings(0, 0, minGapMin).min_gap_seconds;
-    if (subOn) partial.compose = { subtitle_params: toComposeSubtitleParams(sub) };
+    const composePartial = {};
+    if (subOn) composePartial.subtitle_params = toComposeSubtitleParams(sub);
+    if (hookOn) composePartial.hook_params = hookStyle;
+    if (Object.keys(composePartial).length) partial.compose = composePartial;
     if (deleteAfterPublishTouched) partial.delete_after_publish = deleteAfterPublish;
     onApply(monitor.id, partial);
   };
@@ -147,6 +161,11 @@ function MonitorSettings({ monitor, onApply, applying }) {
         <Switch on={subOn} onChange={setSubOn} />
       </div>
       {subOn && <SubtitleControls variant="create" value={sub} onChange={(p) => setSub((s) => ({ ...s, ...p }))} />}
+      <div className="opt" style={{ borderBottom: 0, paddingLeft: 0, paddingRight: 0 }}>
+        <div className="otxt"><div className="ot">Hook style overrides</div><div className="od">Applies to future clips only</div></div>
+        <Switch on={hookOn} onChange={setHookOn} label={`Customize hook style ${monitor.id}`} />
+      </div>
+      {hookOn && <HookStyleControls style={hookStyle} set={(p) => setHookStyle((s) => ({ ...s, ...p }))} />}
       <div className="opt" style={{ borderBottom: 0, paddingLeft: 0, paddingRight: 0 }}>
         <div className="otxt"><div className="ot">Delete clip after publish</div><div className="od">Frees disk once a clip is confirmed published</div></div>
         <Switch on={deleteAfterPublish} label={`Delete after publish ${monitor.id}`}
@@ -269,6 +288,8 @@ export function LiveMonitorView({ pushToast }) {
   const [catchup, setCatchup] = useState('backfill');
   const [subOn, setSubOn] = useState(false);
   const [sub, setSub] = useState(SUB_DEFAULTS);
+  const [hookOn, setHookOn] = useState(false);
+  const [hookStyle, setHookStyle] = useState(HOOK_STYLE_DEFAULT);
   const [starting, setStarting] = useState(false);
   const [stoppingId, setStoppingId] = useState(null);
   const [applyingSettingsId, setApplyingSettingsId] = useState(null);
@@ -317,7 +338,12 @@ export function LiveMonitorView({ pushToast }) {
         title_template: titleTemplate,
         instructions,
         banner: buildMonitorBannerPayload(bannerMode, { platform: bannerPlatform, handle: bannerHandle, y_pct: bannerYPct }),
-        ...(subOn ? { compose: { subtitle_params: toComposeSubtitleParams(sub) } } : {}),
+        ...((subOn || hookOn) ? {
+          compose: {
+            ...(subOn ? { subtitle_params: toComposeSubtitleParams(sub) } : {}),
+            ...(hookOn ? { hook_params: hookStyle } : {}),
+          },
+        } : {}),
       });
       pushToast?.('success', `Monitoring ${slug.trim()}…`);
       setSlug('');
@@ -493,6 +519,16 @@ export function LiveMonitorView({ pushToast }) {
         {subOn && (
           <div style={{ marginBottom: 14 }}>
             <SubtitleControls variant="create" value={sub} onChange={(p) => setSub((s) => ({ ...s, ...p }))} />
+          </div>
+        )}
+
+        <div className="opt" style={{ borderBottom: 0 }}>
+          <div className="otxt"><div className="ot">Hook style (customize)</div><div className="od">Leave off for a plain hook, no background</div></div>
+          <div className="r"><Switch on={hookOn} onChange={setHookOn} label="Customize hook style" /></div>
+        </div>
+        {hookOn && (
+          <div style={{ marginBottom: 14 }}>
+            <HookStyleControls style={hookStyle} set={(p) => setHookStyle((s) => ({ ...s, ...p }))} />
           </div>
         )}
 

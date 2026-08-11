@@ -1241,6 +1241,46 @@ class LiveMonitor:
 
     # -- job submission --------------------------------------------------
 
+    def _compose_override(self) -> dict | None:
+        """The override dict fed to ``build_monitor_compose`` — this monitor's
+        ``compose`` config (hook/subtitle style, see the start form's
+        "Customize hook style"/"Customize subtitles" drawers) with its OWN
+        dedicated ``banner`` config folded in under the same ``"banner"`` key
+        ``build_monitor_compose`` already reads.
+
+        ``banner`` and ``compose`` arrive as two separate top-level
+        ``LiveMonitorStartRequest`` fields (banner has its own Auto/Off/Custom
+        picker; compose is everything else) and are stored separately in
+        ``cfg``, but ``build_monitor_compose`` only ever looks inside ONE
+        override dict for both. Without this fold-in, starting a monitor with
+        the banner set to "Off" or "Custom" silently kept auto-deriving the
+        banner from platform+channel — ``cfg["banner"]`` was validated and
+        persisted but nothing downstream ever read it back.
+        """
+        override = dict(self.cfg.get("compose") or {})
+        if "banner" not in override and self.cfg.get("banner") is not None:
+            override["banner"] = self.cfg["banner"]
+        return override or None
+
+    def _persisted_compose_recipe(self) -> dict:
+        """Job-wide compose recipe to store via ``save_job_campaign`` — what
+        ``GET /api/history`` surfaces as ``composeRecipe`` and what the Discord
+        approval bot prefers over its own bare env-var defaults (see
+        ``job_artifacts.save_job_campaign``'s docstring).
+
+        Built the exact same way ``build_monitor_compose`` derives a real
+        clip's recipe (so the two can never drift), with a placeholder hook
+        text that's stripped before returning — recipes never carry hook text
+        (it's per clip), only job-wide style. The placeholder exists purely so
+        ``toggles["hook"]`` reflects "this job wants a hook when a clip has
+        text" instead of the specific (and here irrelevant) fact that no real
+        clip's text was available yet.
+        """
+        recipe = build_monitor_compose(
+            self.platform, self.cfg["channel"], {"viral_hook_text": "x"}, self._compose_override())
+        recipe["hook_params"].pop("text", None)
+        return recipe
+
     def _new_job_dir(self) -> tuple[str, str, dict]:
         from clippyme.domain.job_artifacts import save_job_campaign
 
@@ -1254,7 +1294,12 @@ class LiveMonitor:
         # with, so a per-campaign Discord bot's poll_new_clips filter can't
         # tell one streamer's clips from another's and every bot ends up
         # posting every monitor's clips into its own channel.
-        save_job_campaign(job_dir, self.cfg.get("zernio_profile") or _DEFAULT_ZERNIO_PROFILE)
+        # The compose recipe rides the same sidecar (see job_artifacts) so a
+        # consumer that reads a monitor job back from history — most notably
+        # the Discord bot — sees the monitor's real hook/subtitle/banner style
+        # instead of falling back to its own bare defaults.
+        save_job_campaign(job_dir, self.cfg.get("zernio_profile") or _DEFAULT_ZERNIO_PROFILE,
+                           compose=self._persisted_compose_recipe())
         env = os.environ.copy()
         env["GEMINI_API_KEY"] = self._gemini_key
         # Bound each segment's clip count for the publish-limited monitor —
@@ -1378,7 +1423,7 @@ class LiveMonitor:
             resolved = await asyncio.to_thread(
                 resolve_clip, job_id, idx, self._output_dir, require_file=True)
             recipe = build_monitor_compose(
-                self.platform, self.cfg["channel"], clip, self.cfg.get("compose"))
+                self.platform, self.cfg["channel"], clip, self._compose_override())
             composed = await compose_layers(
                 base_clip=resolved.clip_path, job_dir=resolved.job_dir, clip_index=idx,
                 metadata=resolved.metadata, clip_info=resolved.clip_info,

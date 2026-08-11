@@ -1010,7 +1010,7 @@ def test_new_job_dir_tags_job_with_the_monitor_zernio_profile(tmp_path):
     from clippyme.domain.live_monitor import LiveMonitor
 
     mon = LiveMonitor(id="kick:chan", jobs={}, job_queue=None, output_dir=str(tmp_path))
-    mon.cfg = {"zernio_profile": "ebay_live"}
+    mon.cfg = {"zernio_profile": "ebay_live", "channel": "chan"}
     mon._gemini_key = "g"
 
     _job_id, job_dir, _env = mon._new_job_dir()
@@ -1025,12 +1025,80 @@ def test_new_job_dir_falls_back_to_default_profile_when_unset(tmp_path):
     from clippyme.domain.live_monitor import LiveMonitor
 
     mon = LiveMonitor(id="kick:chan", jobs={}, job_queue=None, output_dir=str(tmp_path))
-    mon.cfg = {}
+    mon.cfg = {"channel": "chan"}
     mon._gemini_key = "g"
 
     _job_id, job_dir, _env = mon._new_job_dir()
 
     assert job_artifacts.load_job_campaign(job_dir) == "default"
+
+
+def test_new_job_dir_persists_the_monitor_compose_recipe(tmp_path):
+    """_new_job_dir must also persist a real compose recipe (not None), so a
+    consumer reading the job back from GET /api/history — most importantly the
+    Discord approval bot's _recipe_for/_build_compose_toggles — sees the
+    monitor's own hook/subtitle/banner style instead of falling back to its
+    own bare env-var defaults. Before this, save_job_campaign was called
+    without a compose= argument at all, so composeRecipe was always None for
+    every Live-Monitor-generated job."""
+    from clippyme.domain import job_artifacts
+    from clippyme.domain.live_monitor import LiveMonitor
+
+    mon = LiveMonitor(id="kick:chan", jobs={}, job_queue=None, output_dir=str(tmp_path))
+    mon.cfg = {
+        "channel": "chan",
+        "compose": {"hook_params": {"bg_enabled": True, "bg_color": "#FF0000"}},
+    }
+    mon._gemini_key = "g"
+
+    _job_id, job_dir, _env = mon._new_job_dir()
+
+    recipe = job_artifacts.load_job_compose_recipe(job_dir)
+    assert recipe is not None
+    # The hook style override rides through, but never a "text" key — hook
+    # text is per clip, the stored recipe only holds job-wide style.
+    assert recipe["hook_params"]["bg_enabled"] is True
+    assert recipe["hook_params"]["bg_color"] == "#FF0000"
+    assert "text" not in recipe["hook_params"]
+    # Job-wide toggles reflect what a real clip would get: hook/subtitles on
+    # (build_monitor_compose's own defaults), banner auto-derived from
+    # platform+channel.
+    assert recipe["toggles"]["hook"] is True
+    assert recipe["toggles"]["subtitles"] is True
+    assert recipe["toggles"]["banner"] is True
+
+
+def test_compose_override_folds_the_monitor_banner_config_in(tmp_path):
+    """_compose_override must merge cfg["banner"] (the start form's dedicated
+    Auto/Off/Custom banner picker) into the same override dict
+    build_monitor_compose reads for a banner override — before this fix,
+    build_monitor_compose only ever saw self.cfg["compose"], which the
+    frontend never puts a "banner" key into, so choosing "Off" or "Custom"
+    banner mode when starting a monitor silently kept auto-deriving the
+    banner from platform+channel instead."""
+    from clippyme.domain.live_monitor import LiveMonitor
+
+    mon = LiveMonitor(id="kick:chan", jobs={}, job_queue=None, output_dir=str(tmp_path))
+    mon.cfg = {"channel": "chan", "compose": {"subtitle_params": {"align": "center"}},
+               "banner": {"enabled": False}}
+
+    override = mon._compose_override()
+
+    assert override["banner"] == {"enabled": False}
+    assert override["subtitle_params"] == {"align": "center"}
+
+    recipe = build_monitor_compose(mon.platform, mon.cfg["channel"], {"viral_hook_text": "x"}, override)
+    assert recipe["toggles"]["banner"] is False
+    assert recipe["banner_params"] == {}
+
+
+def test_compose_override_none_when_nothing_configured(tmp_path):
+    from clippyme.domain.live_monitor import LiveMonitor
+
+    mon = LiveMonitor(id="kick:chan", jobs={}, job_queue=None, output_dir=str(tmp_path))
+    mon.cfg = {"channel": "chan", "compose": None}
+
+    assert mon._compose_override() is None
 
 
 # --- _hhmmss ---------------------------------------------------------------

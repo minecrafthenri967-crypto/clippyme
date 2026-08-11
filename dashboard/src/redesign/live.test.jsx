@@ -263,6 +263,41 @@ test('subtitle override section untouched → start payload has no compose key',
   expect(startLiveMonitor.mock.calls[0][0].compose).toBeUndefined();
 });
 
+// Before this, the Live Monitor start form had no hook-style controls at
+// all — build_monitor_compose's hook was always plain text at position
+// 'top', no background, regardless of what the same user configured (and
+// saw working) on the Create tab. This pins that "Customize hook style"
+// actually reaches the start payload.
+test('hook style override section switched on → start payload carries compose.hook_params (style only, no text/position)', async () => {
+  const { startLiveMonitor } = await import('./realApi');
+  render(<LiveMonitorView />);
+  fireEvent.click(screen.getByRole('switch', { name: 'Customize hook style' }));
+  const bannerRow = screen.getByText('Banner behind text').closest('.edit-opt');
+  fireEvent.click(within(bannerRow).getByRole('switch'));
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
+  await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
+  const hookParams = startLiveMonitor.mock.calls[0][0].compose.hook_params;
+  expect(hookParams.bg_enabled).toBe(true);
+  expect(hookParams.text).toBeUndefined();
+  expect(hookParams.position).toBeUndefined();
+});
+
+test('hook style + subtitle overrides both on → one compose object carries both', async () => {
+  const { startLiveMonitor } = await import('./realApi');
+  render(<LiveMonitorView />);
+  fireEvent.click(screen.getByRole('switch', { name: 'Customize subtitles' }));
+  fireEvent.click(screen.getByRole('switch', { name: 'Customize hook style' }));
+  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
+  await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
+  await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
+  const { compose } = startLiveMonitor.mock.calls[0][0];
+  expect(compose.subtitle_params).toEqual(expect.objectContaining({ position: 'bottom' }));
+  expect(compose.hook_params).toBeDefined();
+});
+
 test('subtitle override section switched on → start payload carries a compose.subtitle_params key', async () => {
   const { startLiveMonitor } = await import('./realApi');
   render(<LiveMonitorView />);
@@ -314,6 +349,41 @@ test('classic-mode subtitle override translates keys in the config Applica paylo
   expect(params.border_color).toBe('#000000');
   expect(params.bg).toBeUndefined();
   expect(params.outline_color).toBeUndefined();
+});
+
+test('Settings drawer hook style override → Apply payload carries compose.hook_params', async () => {
+  const { updateMonitorConfig } = await import('./realApi');
+  mockStatus.mockResolvedValue({
+    monitors: [{ id: 'kick:xqc', platform: 'kick', mode: 'live', running: true, state: 'capturing', channel: 'xqc' }],
+  });
+  render(<LiveMonitorView />);
+  await screen.findByText('xqc');
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  fireEvent.click(screen.getByRole('switch', { name: 'Customize hook style kick:xqc' }));
+  const bannerRow = screen.getByText('Banner behind text').closest('.edit-opt');
+  fireEvent.click(within(bannerRow).getByRole('switch'));
+  fireEvent.click(screen.getByRole('button', { name: /Apply/ }));
+  await waitFor(() => expect(updateMonitorConfig).toHaveBeenCalled());
+  const params = updateMonitorConfig.mock.calls[0][1].compose.hook_params;
+  expect(params.bg_enabled).toBe(true);
+});
+
+test('Settings drawer prefills the hook style toggle+values from the running monitor status().config', async () => {
+  mockStatus.mockResolvedValue({
+    monitors: [{
+      id: 'kick:xqc', platform: 'kick', mode: 'live', running: true, state: 'capturing', channel: 'xqc',
+      config: {
+        compose: { hook_params: { bg_enabled: true, bg_color: '#00FF00' } },
+      },
+    }],
+  });
+  render(<LiveMonitorView />);
+  await screen.findByText('xqc');
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  // Drawer already open in "banner on" state (proves the persisted hook_params seeded it).
+  expect(screen.getByText('Banner color')).toBeInTheDocument();
+  const bannerRow = screen.getByText('Banner behind text').closest('.edit-opt');
+  expect(within(bannerRow).getByRole('switch')).toHaveAttribute('aria-checked', 'true');
 });
 
 test('Settings drawer prefills from the running monitor status().config', async () => {

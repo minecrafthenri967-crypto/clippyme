@@ -334,6 +334,25 @@ so a hook configured WITH a background at a drawn position reached Discord
 (and then TikTok) with none, at the bot's `HOOK_POSITION`. A `None` recipe
 (old job, or a caller that sent none) means "no stored preference" and every
 consumer keeps its prior behaviour.
+⚠️ Live Monitor jobs have their OWN, separate recipe path — `build_monitor_compose`
+(`domain/live_monitor.py`), not the Create-tab's `buildJobComposeRecipe` — because
+a monitor's clips are auto-published without a human choosing per-job options.
+Its start form and the running-monitor Settings drawer each carry a "Customize
+subtitles" AND a "Customize hook style" drawer (the latter reuses
+`hookStyle.jsx`'s shared `HookStyleControls`, style-only — no text, no
+position; position stays the hardcoded `'top'` the letterboxed layout is
+designed around); both feed `compose.subtitle_params`/`compose.hook_params`.
+`LiveMonitor._compose_override()` folds the monitor's own dedicated `banner`
+config (its Auto/Off/Custom picker, a SEPARATE `LiveMonitorStartRequest` field
+from `compose`) into the same override dict `build_monitor_compose` reads —
+before this, `cfg["banner"]` was validated and persisted but nothing
+downstream ever read it back, so choosing "Off" or "Custom" silently kept
+auto-deriving the banner from platform+channel. `_new_job_dir` now persists a
+full recipe too (`_persisted_compose_recipe()`, built via `build_monitor_compose`
+itself so the two can't drift, with a placeholder hook text stripped before
+storage) — before this, a monitor job's `composeRecipe` was always `None`, so
+the Discord approval bot fell back to its own bare env-var defaults for every
+Live-Monitor-sourced clip even after the recipe machinery above shipped.
 ⚠️ The stream-layout editor's hook/subtitle guides are dragged on the 9:16
 PREVIEW, so they are heights on the DELIVERED frame and travel as 0..1
 fractions in `hook.position` / `subtitles.position` (see
