@@ -177,3 +177,26 @@ test('hook style (background) survives the translation', () => {
   assert.equal(p.hook.bg_enabled, true);
   assert.equal(p.hook.bg_color, '#FF0000');
 });
+
+// --- compose-time layer toggles reaching the backend -----------------------
+//
+// optsToPreselections is the ONLY bridge from the Create tab's flat `opts` to
+// the preselections that seedToggles turns into backend toggles. A layer
+// missing here is a silent dead end: the switch flips in the UI and nothing
+// downstream ever hears about it.
+
+test('player image toggle reaches preselections (was missing entirely — dead-end switch)', () => {
+  const pre = optsToPreselections({
+    playerImage: true, playerImagePos: 'top-left', playerImageSize: 'L',
+  });
+  assert.deepEqual(pre.player_image, { position: 'top-left', size: 'L' });
+});
+
+test('player image off yields a falsy preselection so seedToggles leaves it off', () => {
+  assert.equal(optsToPreselections({ playerImage: false }).player_image, false);
+});
+
+test('cold-open teaser toggle reaches preselections', () => {
+  assert.equal(optsToPreselections({ teaser: true }).teaser, true);
+  assert.equal(optsToPreselections({}).teaser, false);
+});

@@ -865,6 +865,7 @@ async def compose_clip(job_id: str, clip_index: int, req: ComposeRequest, reques
             grade_params=req.grade_params,
             banner_params=req.banner_params,
             player_image_params=req.player_image_params,
+            teaser_params=req.teaser_params,
             drop_ranges=req.drop_ranges,
             metadata_path=resolved.metadata_path,
         )

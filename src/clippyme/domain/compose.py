@@ -177,16 +177,22 @@ async def _apply_hook(
     intermediate_files: list,
     logo_params: dict = None,
     reframe_mode: str = None,
+    teaser_offset: float = 0.0,
 ) -> str:
     """Hook overlay pass. When ``logo_params`` is given the brand logo is
     composited in the SAME encode (hook below, logo topmost — identical
     z-order to the sequential Hook → Logo passes, one generation cheaper).
 
     The hook is visible for the first 4s of the clip only, EXCEPT when
-    ``reframe_mode`` is the literal 'disabled' (letterbox) — full clip then."""
+    ``reframe_mode`` is the literal 'disabled' (letterbox) — full clip then.
+
+    ``teaser_offset`` extends that window by the length of a prepended
+    cold-open teaser. Without it the teaser would eat into the 4s and the
+    clip's real opening would get whatever was left — the hook has to cover
+    the teaser AND still give the clip's own start its full four seconds."""
     from clippyme.domain.hooks import add_hook_to_video
 
-    hook_duration = None if reframe_mode == "disabled" else 4
+    hook_duration = None if reframe_mode == "disabled" else 4 + max(0.0, teaser_offset)
 
     hook_output = os.path.join(job_dir, f"composed_hook_{clip_index}.mp4")
     intermediate_files.append(hook_output)
@@ -255,6 +261,85 @@ async def _apply_banner(
     return banner_output
 
 
+async def _apply_teaser(
+    current_input: str,
+    job_dir: str,
+    clip_index: int,
+    teaser_params: dict,
+    clip_info: dict,
+    metadata: dict,
+    drop_ranges,
+    smartcut_rendered: bool,
+    intermediate_files: list,
+) -> tuple:
+    """Prepend the clip's peak moment as a cold-open teaser.
+
+    Returns ``(path, offset_seconds)``. The offset is how much LATER every
+    subsequent timestamp on this clip now falls, and it is load-bearing —
+    the hook's visible window and the player-image overlay both shift by it.
+    Returning it explicitly (rather than having the caller re-derive the
+    window) keeps a single source of truth for how long the teaser actually
+    turned out to be.
+
+    ``(current_input, 0.0)`` means "no teaser" and is a completely normal
+    outcome: no peak, the peak was cut away by Smart Cut, or the render
+    failed. Never raises — same defensive posture as ``_apply_banner``.
+    """
+    from clippyme.domain.teaser import (
+        DEFAULT_TEASER_FADE,
+        DEFAULT_TEASER_MAX_DURATION,
+        prepend_teaser,
+        resolve_teaser_window,
+    )
+
+    try:
+        params = teaser_params or {}
+        duration, has_audio, _ = await asyncio.to_thread(_probe_qa, current_input)
+        if not duration:
+            logger.info("teaser: could not probe duration (clip_index=%d) — skipping",
+                        clip_index)
+            return current_input, 0.0
+
+        # Smart Cut shortened the clip, so the peak's clip-relative time means
+        # nothing until it is remapped onto the rendered timeline. Only pass
+        # the kept spans when a render ACTUALLY happened (the toggle alone is
+        # not enough — smart_cut can decline to render).
+        kept_segments = None
+        if smartcut_rendered:
+            transcript = metadata.get("transcript") or {}
+            kept_segments, _ = analyze_silences(
+                transcript, clip_info.get("start", 0), clip_info.get("end", 0),
+                transcript.get("language"), drop_ranges,
+            )
+
+        window = resolve_teaser_window(
+            clip_info, video_duration=duration, kept_segments=kept_segments,
+            max_duration=params.get("max_duration", DEFAULT_TEASER_MAX_DURATION),
+        )
+        if window is None:
+            logger.info(
+                "teaser: no usable peak window for clip_index=%d — skipping "
+                "(no peak, cut away by Smart Cut, or too close to the clip start)",
+                clip_index,
+            )
+            return current_input, 0.0
+
+        start, end = window
+        teaser_output = os.path.join(job_dir, f"composed_teaser_{clip_index}.mp4")
+        intermediate_files.append(teaser_output)
+        await asyncio.to_thread(
+            prepend_teaser, current_input, teaser_output,
+            start=start, end=end,
+            fade=params.get("fade", DEFAULT_TEASER_FADE),
+            has_audio=has_audio,
+        )
+        return teaser_output, end - start
+    except Exception:
+        logger.warning("teaser: failed for clip_index=%d — skipping the layer",
+                       clip_index, exc_info=True)
+        return current_input, 0.0
+
+
 async def _apply_player_image(
     current_input: str,
     job_dir: str,
@@ -266,9 +351,11 @@ async def _apply_player_image(
     drop_ranges,
     smartcut_rendered: bool,
     intermediate_files: list,
+    teaser_offset: float = 0.0,
 ) -> str:
     """Detect (once, cached) → match (every call, cheap) → remap through
-    Smart Cut if it actually rendered → burn a timed photo overlay.
+    Smart Cut if it actually rendered → shift past any cold-open teaser →
+    burn a timed photo overlay.
 
     Never raises — any failure at any stage falls back to returning
     ``current_input`` unchanged (skip the layer), same defensive posture as
@@ -353,6 +440,11 @@ async def _apply_player_image(
                 return current_input
         else:
             mapped_t = raw_timestamp
+
+        # A prepended teaser pushed the whole clip later by exactly its own
+        # length; without this the photo would flash during the teaser instead
+        # of on the name that triggered it.
+        mapped_t += max(0.0, teaser_offset)
 
         dur, _, _ = await asyncio.to_thread(_probe_qa, current_input)
         video_duration = dur if dur else max(0.0, clip_end - clip_start)
@@ -507,6 +599,7 @@ async def compose_layers(
     grade_params: dict = None,
     banner_params: dict = None,
     player_image_params: dict = None,
+    teaser_params: dict = None,
     drop_ranges=None,
     metadata_path: str = None,
 ) -> str:
@@ -533,6 +626,7 @@ async def compose_layers(
             hook_params=hook_params, subtitle_params=subtitle_params,
             logo_params=logo_params, grade_params=grade_params,
             banner_params=banner_params, player_image_params=player_image_params,
+            teaser_params=teaser_params,
             drop_ranges=drop_ranges, metadata_path=metadata_path,
         )
 
@@ -551,6 +645,7 @@ async def _compose_layers_impl(
     grade_params: dict = None,
     banner_params: dict = None,
     player_image_params: dict = None,
+    teaser_params: dict = None,
     drop_ranges=None,
     metadata_path: str = None,
 ) -> str:
@@ -664,6 +759,29 @@ async def _compose_layers_impl(
             layers_applied.append("smartcut")
             logger.info("compose_layers: ✓ smartcut → %s", os.path.basename(current_input))
 
+        # Cold-open teaser, AFTER Smart Cut and BEFORE the hook.
+        #
+        # After Smart Cut, because Smart Cut is transcript-driven on
+        # clip-relative times — prepending footage first would desync it, and
+        # it would also chew on the duplicated teaser footage.
+        #
+        # Before the hook, because the teaser is the first thing anyone sees:
+        # the hook text belongs ON it. That is the whole point of the format
+        # (peak footage + hook copy together in the first two seconds).
+        #
+        # This is the only layer that changes the clip's DURATION, so it
+        # returns the offset every later timed layer has to shift by.
+        teaser_offset = 0.0
+        if active.get("teaser"):
+            current_input, teaser_offset = await _apply_teaser(
+                current_input, job_dir, clip_index, teaser_params, clip_info, metadata,
+                drop_ranges, smartcut_rendered, intermediate_files,
+            )
+            if teaser_offset:
+                layers_applied.append("teaser")
+                logger.info("compose_layers: ✓ teaser (+%.2fs) → %s",
+                            teaser_offset, os.path.basename(current_input))
+
         # Hook last: it's a static overlay that should appear on every
         # kept frame, regardless of how many silences Smart Cut removed.
         hook_text = (hook_params or {}).get("text", "")
@@ -695,6 +813,7 @@ async def _compose_layers_impl(
                 current_input, job_dir, clip_index, hp_clean, intermediate_files,
                 logo_params=logo_params or {},
                 reframe_mode=(clip_info or {}).get("reframe_mode"),
+                teaser_offset=teaser_offset,
             )
             layers_applied += ["hook", "logo"]
             logger.info("compose_layers: ✓ hook+logo → %s", os.path.basename(current_input))
@@ -703,6 +822,7 @@ async def _compose_layers_impl(
             current_input = await _apply_hook(
                 current_input, job_dir, clip_index, hp_clean, intermediate_files,
                 reframe_mode=(clip_info or {}).get("reframe_mode"),
+                teaser_offset=teaser_offset,
             )
             layers_applied.append("hook")
             logger.info("compose_layers: ✓ hook → %s", os.path.basename(current_input))
@@ -723,7 +843,7 @@ async def _compose_layers_impl(
             current_input = await _apply_player_image(
                 current_input, job_dir, clip_index, player_image_params,
                 clip_info, metadata, metadata_path, drop_ranges, smartcut_rendered,
-                intermediate_files,
+                intermediate_files, teaser_offset,
             )
             layers_applied.append("player_image")
             logger.info("compose_layers: ✓ player_image → %s", os.path.basename(current_input))

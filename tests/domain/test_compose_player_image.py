@@ -234,7 +234,8 @@ def _install_recording_stubs(monkeypatch, order):
         return out
 
     async def fake_hook(current_input, job_dir, clip_index, hook_params,
-                        intermediate_files, logo_params=None, reframe_mode=None):
+                        intermediate_files, logo_params=None, reframe_mode=None,
+                        teaser_offset=0.0):
         order.append("hook")
         out = os.path.join(job_dir, f"composed_hook_{clip_index}.mp4")
         _touch(out)
@@ -243,7 +244,8 @@ def _install_recording_stubs(monkeypatch, order):
 
     async def fake_player_image(current_input, job_dir, clip_index, player_image_params,
                                 clip_info, metadata, metadata_path, drop_ranges,
-                                smartcut_rendered, intermediate_files):
+                                smartcut_rendered, intermediate_files,
+                                teaser_offset=0.0):
         order.append("player_image")
         out = os.path.join(job_dir, f"composed_player_image_{clip_index}.mp4")
         _touch(out)

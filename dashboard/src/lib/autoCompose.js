@@ -33,7 +33,7 @@ export function hasBurnableLayer(params) {
   const gradeUsable = !!(toggles.grade && (params?.gradeParams?.preset || 'none') !== 'none');
   return !!(
     toggles.subtitles || toggles.smartcut || toggles.logo ||
-    toggles.banner || toggles.player_image || hookUsable || gradeUsable
+    toggles.banner || toggles.player_image || toggles.teaser || hookUsable || gradeUsable
   );
 }
 

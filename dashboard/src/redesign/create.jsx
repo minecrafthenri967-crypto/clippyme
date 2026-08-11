@@ -428,6 +428,8 @@ function OptionsPanel({ opts, set, onSaveAsDefault }) {
         on={opts.playerImage} set={(v) => set({ playerImage: v })}
         onConfig={() => setPlayerImageCfg(!playerImageCfg)} configActive={playerImageCfg} />
       {opts.playerImage && playerImageCfg && <PlayerImageConfig opts={opts} set={set} />}
+      <OptRow icon="rewind" label={t('create.teaser.label')} desc={t('create.teaser.desc')}
+        on={opts.teaser} set={(v) => set({ teaser: v })} />
       <div className="opt">
         <div className="oico"><Icon n="palette" /></div>
         <div className="otxt"><div className="ot">{t('create.grade.label')}</div><div className="od">{t('create.grade.desc')}</div></div>

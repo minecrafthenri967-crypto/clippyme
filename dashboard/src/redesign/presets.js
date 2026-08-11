@@ -26,6 +26,7 @@ export const PRESET_KEYS = [
   'subFontSize', 'subStroke', 'subOutlineW', 'subBg', 'subAlign', 'subOffsetY',
   'hooks', 'hookPos', 'hookSize', 'hookStyle',
   'logo', 'logoPos', 'logoSize', 'logoScale', 'language',
+  'playerImage', 'playerImagePos', 'playerImageSize', 'teaser',
 ];
 
 export function captureOpts(opts) {

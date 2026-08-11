@@ -270,6 +270,8 @@ export const de = {
   'create.logo.desc': 'Brennt dein Logo auf jeden Clip',
   'create.banner.label': 'Attributions-Banner',
   'create.banner.desc': 'Plattform-Logo + Handle unten im Clip eingebrannt',
+  'create.teaser.label': 'Cold-Open-Teaser',
+  'create.teaser.desc': 'Zeigt den stärksten Moment vorab, dann läuft der Clip von vorn',
   'create.playerImage.label': 'Spielerbild',
   'create.playerImage.desc': 'Blendet das Foto des Athleten ein, wenn sein Name erkannt wird',
   'create.grade.label': 'Farbkorrektur',

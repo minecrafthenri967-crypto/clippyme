@@ -272,6 +272,8 @@ export const en = {
   'create.logo.desc': 'Burn your logo onto every clip',
   'create.banner.label': 'Attribution banner',
   'create.banner.desc': 'Platform logo + handle burned bottom of clip',
+  'create.teaser.label': 'Cold-open teaser',
+  'create.teaser.desc': 'Show the strongest moment first, then play the clip from its start',
   'create.playerImage.label': 'Player image',
   'create.playerImage.desc': "Flash the athlete's photo when their name is detected",
   'create.grade.label': 'Colour grade',

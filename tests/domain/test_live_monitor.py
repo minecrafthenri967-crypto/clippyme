@@ -62,6 +62,10 @@ def test_build_monitor_compose_defaults():
     recipe = build_monitor_compose("kick", "grenbaud", clip, None)
     assert recipe["toggles"] == {
         "hook": True, "subtitles": True, "banner": True, "player_image": False,
+        # Both extras stay OFF for a monitor: player_image needs an image
+        # library, and the teaser is a strong editorial choice a campaign
+        # opts into rather than inherits.
+        "teaser": False,
     }
     assert recipe["player_image_params"] == {}
     assert recipe["hook_params"]["position"] == "top"

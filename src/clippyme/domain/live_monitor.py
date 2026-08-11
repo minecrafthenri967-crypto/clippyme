@@ -167,6 +167,11 @@ def build_monitor_compose(platform: str, channel: str, clip: dict, override=None
         # Off by default — requires the campaign's image library to be
         # pre-populated, unlike subtitles/hook which always apply.
         "player_image": bool((ov.get("toggles") or {}).get("player_image")),
+        # Off by default too, but for a different reason: the cold-open teaser
+        # changes the clip's length and replays a moment, which is a strong
+        # editorial choice a campaign should opt into rather than inherit.
+        # Clips whose peak Gemini could not identify simply skip it anyway.
+        "teaser": bool((ov.get("toggles") or {}).get("teaser")),
         **(ov.get("toggles") or {}),
     }
     return {
@@ -175,6 +180,7 @@ def build_monitor_compose(platform: str, channel: str, clip: dict, override=None
         "subtitle_params": subtitle_params,
         "banner_params": banner or {},
         "player_image_params": ov.get("player_image_params") or {},
+        "teaser_params": ov.get("teaser_params") or {},
     }
 
 

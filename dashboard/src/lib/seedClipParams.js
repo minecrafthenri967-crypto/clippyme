@@ -17,6 +17,7 @@ export function seedToggles(preselections) {
         grade: !!(preselections?.grade && preselections.grade.preset && preselections.grade.preset !== 'none'),
         banner: !!(preselections?.banner && preselections.banner.enabled),
         player_image: !!preselections?.player_image,
+        teaser: !!preselections?.teaser,
     };
 }
 
@@ -63,6 +64,14 @@ export function seedPlayerImageParams(preselections) {
 // Instagram-Stories-style hook text style keys (mirror domain/hooks.py
 // HOOK_STYLE_DEFAULTS). Forwarded to the compose hook layer.
 const HOOK_STYLE_KEYS = ['bg_enabled', 'bg_color', 'bg_opacity', 'text_color', 'outline_width', 'outline_color', 'font'];
+
+// Cold-open teaser (domain/teaser.py). The Create tab exposes only the
+// on/off switch for now, so this stays empty and the backend's own defaults
+// (<=3s window, short audio+video fade) apply.
+export function seedTeaserParams(preselections) {
+    const te = preselections?.teaser;
+    return te && typeof te === 'object' ? { ...te } : {};
+}
 
 export function seedHookParams(clip, preselections) {
     const h = preselections?.hook || {};
@@ -142,5 +151,6 @@ export function buildJobComposeRecipe(preselections) {
         grade_params: seedGradeParams(preselections),
         banner_params: seedBannerParams(preselections),
         player_image_params: seedPlayerImageParams(preselections),
+        teaser_params: seedTeaserParams(preselections),
     };
 }

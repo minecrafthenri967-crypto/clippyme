@@ -308,9 +308,31 @@ REST) | `elevenlabs` (Scribe; audio-event tags feed the Gemini prompt) |
 on any failure. All paths transcribe an extracted mono-16kHz FLAC, not the
 video. Transcripts are cached 7 days under `data/cache/` keyed by URL hash.
 
+**Cold-open teaser** (`domain/teaser.py`, toggle `"teaser"`, default OFF): replays
+the clip's peak moment for ~2s BEFORE the clip plays from its real start ("show
+the payoff, then rewind"). Source is the `peak_start`/`peak_end` window from the
+viral-detection call (see above). One ffmpeg pass, one encode generation: teaser
+and body are trimmed out of the SAME input and concatenated, with a short fade
+on the teaser's tail — on **audio too**, since a hard mid-word audio cut at the
+jump back is the most jarring part of the transition.
+⚠️ This is the ONLY compose layer that changes the clip's DURATION, so every
+later timed layer shifts by exactly the teaser's length. `_apply_teaser` returns
+`(path, offset)` and `_compose_layers_impl` threads that offset into the hook's
+visible window (`4 + offset`, so the teaser is covered AND the clip's own start
+still gets its full 4s) and into the player-image overlay's start time. **A new
+timed layer added after the teaser must consume that offset or it will fire at
+the wrong moment.**
+⚠️ It sits AFTER Smart Cut (which is transcript-driven on clip-relative times —
+prepending footage first would desync it and make it chew the duplicated
+footage) and BEFORE the hook (the teaser is the first thing anyone sees, so the
+hook copy belongs on it — peak footage + hook text together is the whole point).
+The window is remapped through Smart Cut's kept spans exactly like the
+player-image timestamp, and a peak that was cut away — or only partially
+survived — skips the teaser rather than showing a fragment.
+
 **Compose** (`POST /api/compose/{job}/{clip}`): layers render in the order
-**Grade → Subtitles → Smart Cut → Hook → Logo → Player Image → Banner**. Do NOT
-reorder — subtitles are burned before Smart Cut so their absolute timing can't
+**Grade → Subtitles → Smart Cut → Teaser → Hook → Logo → Player Image → Banner**.
+Do NOT reorder — subtitles are burned before Smart Cut so their absolute timing can't
 drift; grade runs first so overlays keep authored colour; logo sits above hook;
 the player-image "flash" overlay (an athlete's photo, timed to the moment
 their name is detected — `player_image.py` + `player_detect.py`) sits above

@@ -13,7 +13,7 @@ import {
 test('seedToggles defaults everything off', () => {
   assert.deepEqual(seedToggles(undefined), {
     smartcut: false, hook: false, subtitles: false, logo: false, grade: false, banner: false,
-    player_image: false,
+    player_image: false, teaser: false,
   });
 });
 

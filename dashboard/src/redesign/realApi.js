@@ -577,6 +577,18 @@ export function optsToPreselections(opts) {
     banner: opts.banner
       ? { enabled: true, platform: opts.bannerPlatform || 'kick', handle: opts.bannerHandle || '', y_pct: opts.bannerYPct ?? 0.85 }
       : false,
+    // Player-image overlay (compose-time layer). This key was MISSING here, so
+    // seedToggles' `!!preselections?.player_image` was permanently false and
+    // the Create tab's own toggle + position/size controls reached nothing —
+    // the same dead-end class as the layout guides.
+    player_image: opts.playerImage
+      ? { position: opts.playerImagePos || 'center', size: opts.playerImageSize || 'M' }
+      : false,
+    // Cold-open teaser: replay the clip's strongest ~2s before it starts.
+    // No params surface yet — the defaults (<=3s, short fade) live in
+    // domain/teaser.py, and a clip whose peak Gemini could not identify just
+    // skips it.
+    teaser: !!opts.teaser,
   };
 }
 

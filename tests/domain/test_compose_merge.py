@@ -99,7 +99,7 @@ def _run_compose(tmp_path, monkeypatch, toggles, **kwargs):
         return out
 
     async def fake_hook(current_input, job_dir, clip_index, hook_params, files,
-                        logo_params=None, reframe_mode=None):
+                        logo_params=None, reframe_mode=None, teaser_offset=0.0):
         calls["hook_logo_params"] = logo_params
         out = os.path.join(job_dir, "hooked.mp4")
         with open(out, "wb") as f:
