@@ -212,3 +212,24 @@ def test_letterbox_hook_stays_full_clip_even_with_a_teaser(tmp_path, monkeypatch
         {"text": "hi"}, [], reframe_mode="disabled", teaser_offset=2.5,
     ))
     assert seen["duration"] is None
+
+
+def test_transition_params_reach_the_renderer(tmp_path, monkeypatch):
+    """The punch is the default; a recipe can still override it per job."""
+    _stub_probe(monkeypatch)
+    calls = _stub_prepend(monkeypatch, [])
+
+    _run(tmp_path, toggles_params={
+        "transition": "fade", "punch": 1.3, "punch_duration": 0.4,
+    })
+    assert calls[0]["transition"] == "fade"
+    assert calls[0]["punch"] == 1.3
+    assert calls[0]["punch_duration"] == 0.4
+
+
+def test_transition_defaults_to_the_zoom_punch(tmp_path, monkeypatch):
+    _stub_probe(monkeypatch)
+    calls = _stub_prepend(monkeypatch, [])
+
+    _run(tmp_path)
+    assert calls[0]["transition"] == "punch"

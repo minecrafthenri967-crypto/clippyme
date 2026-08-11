@@ -312,9 +312,20 @@ video. Transcripts are cached 7 days under `data/cache/` keyed by URL hash.
 the clip's peak moment for ~2s BEFORE the clip plays from its real start ("show
 the payoff, then rewind"). Source is the `peak_start`/`peak_end` window from the
 viral-detection call (see above). One ffmpeg pass, one encode generation: teaser
-and body are trimmed out of the SAME input and concatenated, with a short fade
-on the teaser's tail — on **audio too**, since a hard mid-word audio cut at the
-jump back is the most jarring part of the transition.
+and body are trimmed out of the SAME input and concatenated.
+The handover is `teaser_params.transition`: `punch` (default — the tail zooms
+in fast, then hard-cuts, the editing idiom for "that was a flash-forward"),
+`fade` (tail fades to black) or `none`. The **audio fade always rides `punch`
+and `fade` alike** — the punch is a visual cue and does nothing about sound
+cutting off mid-word, which is the part that actually sounds broken.
+⚠️ The punch is `scale=…:eval=frame` + `crop=W:H`, and it needs LITERAL frame
+dimensions (`prepend_teaser` probes them): inside `crop`, `iw` is already the
+*scaled* width, so the graph cannot express "the size I had before the scale".
+No usable dimensions → it degrades to `fade` rather than emitting a graph that
+fails at render. The zoom expression is wrapped in `ceil()` because at zoom 1.0
+the scaled frame is EXACTLY the crop size and a one-pixel float undershoot
+aborts the whole render (`Invalid too big or non positive size`) — verified,
+not theorised.
 ⚠️ This is the ONLY compose layer that changes the clip's DURATION, so every
 later timed layer shifts by exactly the teaser's length. `_apply_teaser` returns
 `(path, offset)` and `_compose_layers_impl` threads that offset into the hook's

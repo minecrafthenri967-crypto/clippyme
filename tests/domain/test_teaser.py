@@ -13,6 +13,7 @@ import pytest
 from clippyme.domain.teaser import (
     DEFAULT_TEASER_MAX_DURATION,
     MIN_TEASER_DURATION,
+    build_punch_zoom_expr,
     build_teaser_filter,
     resolve_teaser_window,
 )
@@ -135,18 +136,18 @@ def test_filter_trims_the_peak_and_concats_the_full_body():
 def test_filter_fades_both_video_and_audio_on_the_teaser_tail():
     """With sound on, a hard mid-word audio cut at the jump back is the most
     jarring part of the transition — the audio fade is not optional dressing."""
-    fc = build_teaser_filter(30.0, 32.0, fade=0.2)
+    fc = build_teaser_filter(30.0, 32.0, fade=0.2, transition="fade")
     assert "fade=t=out:st=1.800:d=0.200" in fc
     assert "afade=t=out:st=1.800:d=0.200" in fc
 
 
 def test_fade_is_capped_at_half_the_teaser_so_it_is_not_all_fade():
-    fc = build_teaser_filter(30.0, 31.0, fade=5.0)
+    fc = build_teaser_filter(30.0, 31.0, fade=5.0, transition="fade")
     assert "fade=t=out:st=0.500:d=0.500" in fc
 
 
 def test_zero_fade_emits_no_fade_filter():
-    fc = build_teaser_filter(30.0, 32.0, fade=0.0)
+    fc = build_teaser_filter(30.0, 32.0, fade=0.0, transition="fade")
     assert "fade=" not in fc
 
 
@@ -164,3 +165,98 @@ def test_filter_labels_stay_balanced(fade):
     fc = build_teaser_filter(30.0, 33.0, fade=fade)
     for label in ("[tv]", "[ta]", "[bv]", "[ba]"):
         assert fc.count(label) == 2, f"{label} must be produced once and consumed once"
+
+
+# --- zoom punch transition --------------------------------------------------
+#
+# The punch is what makes the jump back read as "that was a flash-forward"
+# rather than as a glitch. Its ffmpeg graph has two sharp edges that these
+# tests pin: the crop needs literal frame dimensions (inside crop, `iw` is
+# already the SCALED width), and a float undershoot of one pixel aborts the
+# whole render with "Invalid too big or non positive size".
+
+def test_punch_scales_up_and_crops_back_to_the_original_frame():
+    fc = build_teaser_filter(30.0, 32.0, width=1080, height=1920)
+    assert "scale=w='ceil(iw*(" in fc
+    assert "eval=frame" in fc
+    assert "crop=1080:1920" in fc
+
+
+def test_punch_guards_the_crop_with_ceil():
+    """At zoom 1.0 the scaled frame is EXACTLY the crop size; without ceil a
+    float undershoot makes ffmpeg abort the render, not just skip the effect."""
+    fc = build_teaser_filter(30.0, 32.0, width=1080, height=1920)
+    assert "ceil(iw*" in fc and "ceil(ih*" in fc
+
+
+def test_punch_falls_back_to_the_fade_without_frame_dimensions():
+    """crop cannot express "the size I had before the scale", so no dimensions
+    means no punch — degrade rather than emit a graph that fails at render."""
+    fc = build_teaser_filter(30.0, 32.0, transition="punch", width=None, height=None)
+    assert "crop=" not in fc
+    assert "fade=t=out" in fc
+
+
+def test_unknown_transition_falls_back_to_the_default():
+    fc = build_teaser_filter(30.0, 32.0, transition="bogus", width=1080, height=1920)
+    assert "crop=1080:1920" in fc
+
+
+def test_fade_transition_has_no_zoom():
+    fc = build_teaser_filter(30.0, 32.0, transition="fade", width=1080, height=1920)
+    assert "crop=" not in fc and "fade=t=out" in fc
+
+
+def test_none_transition_has_neither_zoom_nor_any_fade():
+    fc = build_teaser_filter(30.0, 32.0, transition="none", width=1080, height=1920)
+    assert "crop=" not in fc
+    assert "fade=" not in fc  # covers afade too
+
+
+def test_audio_fade_rides_the_punch_as_well():
+    """The punch is a VISUAL cue; it does nothing about sound cutting off
+    mid-word, which is the part that actually sounds broken."""
+    fc = build_teaser_filter(30.0, 32.0, transition="punch", width=1080, height=1920)
+    assert "afade=t=out" in fc
+
+
+# --- build_punch_zoom_expr --------------------------------------------------
+
+def _zoom_at(expr, t):
+    """Evaluate the ffmpeg zoom expression in Python for a given t."""
+    import re
+    py = expr.replace("\\,", ",").replace("pow(", "__pow(")
+    return eval(py, {"__pow": pow, "max": max, "min": min, "t": t})  # noqa: S307
+
+
+def test_zoom_expression_is_flat_before_the_punch_window():
+    expr = build_punch_zoom_expr(2.0, 1.12, 0.25)
+    assert _zoom_at(expr, 0.0) == 1.0
+    assert _zoom_at(expr, 1.7) == 1.0
+
+
+def test_zoom_expression_reaches_the_full_zoom_at_the_cut():
+    expr = build_punch_zoom_expr(2.0, 1.12, 0.25)
+    assert _zoom_at(expr, 2.0) == pytest.approx(1.12)
+
+
+def test_zoom_expression_never_dips_below_one():
+    """Below 1.0 the scaled frame is smaller than the crop — a hard render
+    abort, so this is a correctness bound, not an aesthetic one."""
+    expr = build_punch_zoom_expr(2.0, 1.12, 0.25)
+    for t in (-1.0, 0.0, 0.5, 1.75, 1.9, 2.0, 5.0):
+        assert _zoom_at(expr, t) >= 1.0
+
+
+def test_zoom_expression_accelerates_rather_than_creeping():
+    """Squared ramp: at the halfway point of the window the zoom must still be
+    well under half of the total travel, or it reads as a slow push."""
+    expr = build_punch_zoom_expr(2.0, 1.20, 0.40)
+    midpoint = _zoom_at(expr, 1.8)   # halfway through the 0.4s window
+    assert 1.0 < midpoint < 1.10
+
+
+def test_punch_duration_longer_than_the_teaser_is_clamped():
+    expr = build_punch_zoom_expr(1.0, 1.12, 5.0)
+    assert _zoom_at(expr, 0.0) == 1.0
+    assert _zoom_at(expr, 1.0) == pytest.approx(1.12)

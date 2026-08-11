@@ -286,8 +286,11 @@ async def _apply_teaser(
     failed. Never raises — same defensive posture as ``_apply_banner``.
     """
     from clippyme.domain.teaser import (
+        DEFAULT_PUNCH_DURATION,
+        DEFAULT_PUNCH_ZOOM,
         DEFAULT_TEASER_FADE,
         DEFAULT_TEASER_MAX_DURATION,
+        DEFAULT_TEASER_TRANSITION,
         prepend_teaser,
         resolve_teaser_window,
     )
@@ -332,6 +335,9 @@ async def _apply_teaser(
             start=start, end=end,
             fade=params.get("fade", DEFAULT_TEASER_FADE),
             has_audio=has_audio,
+            transition=params.get("transition", DEFAULT_TEASER_TRANSITION),
+            punch=params.get("punch", DEFAULT_PUNCH_ZOOM),
+            punch_duration=params.get("punch_duration", DEFAULT_PUNCH_DURATION),
         )
         return teaser_output, end - start
     except Exception:
