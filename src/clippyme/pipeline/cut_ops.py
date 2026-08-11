@@ -603,4 +603,31 @@ def snap_clips_to_transcript(shorts, words, *, source_duration=None,
             clip["start"] = new_start
             clip["end"] = new_end
             events.append(SnapEvent(idx, path, raw_start, raw_end, new_start, new_end))
+            drop_peak_outside_clip(clip)
     return events
+
+
+def drop_peak_outside_clip(clip):
+    """Clear ``peak_start``/``peak_end`` when they no longer sit inside the
+    clip's (possibly just-snapped) edges.
+
+    The peak window is validated against the ORIGINAL Gemini edges, but
+    sentence-snapping and silence-refining move those edges afterwards —
+    forward-snapping ``start`` past the peak leaves a window pointing at
+    footage the clip no longer contains. Dropping is deliberate over
+    clamping: a teaser assembled from a shrunken window is no longer the
+    moment that was identified, and the clip is still fine with no teaser at
+    all (same "skip, never guess" rule the player-image overlay follows when
+    Smart Cut removes its target moment).
+
+    Pure and idempotent; safe on clips that carry no peak at all.
+    """
+    start, end = clip.get("peak_start"), clip.get("peak_end")
+    if start is None or end is None:
+        return clip
+    try:
+        if float(start) < float(clip["start"]) or float(end) > float(clip["end"]):
+            clip["peak_start"] = clip["peak_end"] = None
+    except (KeyError, TypeError, ValueError):
+        clip["peak_start"] = clip["peak_end"] = None
+    return clip

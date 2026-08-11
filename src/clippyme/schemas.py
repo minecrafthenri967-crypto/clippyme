@@ -7,7 +7,23 @@ longer has to import from ``clippyme.api`` (which inverted the intended
 dependency direction). ``clippyme.api.schemas`` re-exports them for backward
 compatibility.
 """
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+# Bounds on the "peak moment" window Gemini marks inside each clip (the
+# strongest 1-3s — punchline, big reaction, payoff line — used to build a
+# cold-open teaser before the clip plays from its real start).
+#
+# Shorter than MIN is a degenerate/typo value; longer than MAX is not a
+# "moment" at all but a second clip, which means the model misread the task.
+# Either way the window is CLEARED rather than used or clamped: a guessed
+# teaser that opens on the wrong footage is worse than no teaser, and the
+# clip itself is still perfectly good without one.
+#
+# The prompt asks for 1-3s; these bounds are deliberately wider so a
+# near-miss survives instead of being thrown away (same reasoning as
+# ViralClip's own 10-75s duration band vs. the 15-60s the prompt requests).
+MIN_PEAK_DURATION = 0.8
+MAX_PEAK_DURATION = 10.0
 
 
 def _coerce_timestamp_value(v):
@@ -90,6 +106,54 @@ class ViralClip(BaseModel):
     # trim during normalization anyway.
     video_title_for_youtube_short: str = Field("", max_length=110)
     viral_hook_text: str = Field("", max_length=160)
+    # The strongest moment INSIDE this clip, in the same absolute source
+    # seconds as start/end (not clip-relative). Optional by design — see
+    # _coerce_peak_timestamp / _validate_peak_window below for why a bad or
+    # missing value must never cost us the clip.
+    peak_start: float | None = None
+    peak_end: float | None = None
+
+    @field_validator("peak_start", "peak_end", mode="before")
+    @classmethod
+    def _coerce_peak_timestamp(cls, v):
+        """Coerce like start/end, but NEVER raise.
+
+        start/end are load-bearing, so a malformed value there rightly kills
+        the clip. The peak is a bonus: letting an unparseable value raise
+        would reject an otherwise-perfect clip over an optional field, so
+        anything non-numeric collapses to None instead.
+        """
+        if v is None:
+            return None
+        try:
+            return float(_coerce_timestamp_value(v))
+        except (TypeError, ValueError):
+            return None
+
+    @model_validator(mode="after")
+    def _validate_peak_window(self):
+        """Clear the peak window unless it is a sane moment inside the clip.
+
+        Runs after start/end are known, and CLEARS rather than raises for the
+        same reason as above. Note this deliberately does not clamp a
+        too-long window down to size: the point of the peak is that Gemini
+        identified a specific moment, and a window we had to reshape is no
+        longer that moment.
+        """
+        start, end = self.peak_start, self.peak_end
+        if start is None or end is None:
+            self.peak_start = self.peak_end = None
+            return self
+        duration = end - start
+        if (
+            end <= start
+            or start < self.start
+            or end > self.end
+            or duration < MIN_PEAK_DURATION
+            or duration > MAX_PEAK_DURATION
+        ):
+            self.peak_start = self.peak_end = None
+        return self
 
     @field_validator(
         "viral_reason",

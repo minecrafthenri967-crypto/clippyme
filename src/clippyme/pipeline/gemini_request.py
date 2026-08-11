@@ -78,6 +78,23 @@ normally on the words alone.
     * Number / stakes: "3 cose che nessuno dice", "3 things nobody tells you"
     * Warning / callout: "Non guardare se…", "Stop scrolling if…"
   The hook must TEASE the content of the clip without spoiling the payoff. Same language as the transcript. Title Case or Sentence case, never ALL CAPS.
+- peak_start / peak_end mark the SINGLE most striking moment INSIDE the clip — the
+  punchline, the biggest reaction, the payoff line, the "wait what" beat. They are
+  used to build a 1-3s cold-open teaser that plays BEFORE the clip starts from its
+  real beginning, so picking the wrong moment wastes the most valuable seconds of
+  the video. Rules:
+    * Same ABSOLUTE float seconds as start/end (NOT relative to the clip), anchored
+      to real word `s`/`e` values from the WORDS section — same format rules as start/end.
+    * start < peak_start < peak_end < end, STRICTLY inside the clip.
+    * 1.0s ≤ (peak_end - peak_start) ≤ 3.0s. Prefer ~2s.
+    * NEVER put the peak at the very beginning of the clip. If the strongest moment
+      is the clip's own opening, the teaser would just replay the opening twice —
+      in that case omit both fields (set them to null) rather than emit a useless one.
+    * It must be understandable WITHOUT setup, since the viewer sees it first with
+      zero context. A pronoun-only fragment ("...and then he did it") is a BAD peak.
+    * If no single moment clearly stands out above the rest of the clip, emit null
+      for both. An honest null is far better than a mediocre guess — a teaser
+      opening on a flat moment performs WORSE than no teaser at all.
 - No generic intros/outros or pure sponsorship unless they ARE the hook
 
 ## LANGUAGE RULE
@@ -99,11 +116,25 @@ GOOD (score 87):
   start=12.340 end=37.900
   viral_reason="Opens with 'Everyone lies about this' — pattern-break hook, then delivers a counter-intuitive reveal with a clean payoff line at 34s viewers will quote."
   viral_hook_text="The lie everyone believes"          ← teaser, NOT the literal opening line
+  peak_start=34.100 peak_end=36.050                    ← the quotable reveal, stands alone without setup
 
 GOOD (score 78):
   start=102.500 end=148.200
   viral_reason="Builds tension with three failed attempts then lands a punchline at 140s — classic rule-of-three payoff structure perfect for Reels."
   viral_hook_text="I failed 3 times before this"      ← number + stakes, standalone overlay
+  peak_start=140.200 peak_end=142.400                  ← the punchline itself, ~2s
+
+GOOD (score 72, no standout moment — nulls are correct here):
+  start=210.000 end=245.000
+  viral_reason="Steady, informative walkthrough of the pricing change with a clear takeaway, but the value builds evenly rather than landing on one line."
+  viral_hook_text="The pricing trick nobody mentions"
+  peak_start=null peak_end=null                        ← nothing stands out; honest null beats a flat teaser
+
+BAD peaks (DO NOT emit these):
+  peak_start=12.340 peak_end=14.200   ← equals the clip's own opening; teaser would replay it twice
+  peak_start=34.100 peak_end=34.400   ← 0.3s, far too short to register
+  peak_start=20.000 peak_end=33.000   ← 13s is a second clip, not a moment
+  peak covering "...and then he did it" ← pronoun fragment, meaningless with zero context
 
 BAD hooks (DO NOT emit these — they literally echo the transcript):
   "Hello everyone welcome back"          ← transcript intro, not a hook
@@ -148,7 +179,9 @@ Output schema:
       "video_description_for_tiktok": "<TikTok description with CTA>",
       "video_description_for_instagram": "<Instagram description with CTA>",
       "video_title_for_youtube_short": "<max 100 chars>",
-      "viral_hook_text": "<REQUIRED, 3-8 words, scroll-stopping overlay copy — NOT a transcript quote. Use curiosity gap, POV, counter-claim, question, number, or warning pattern. Same language as transcript.>"
+      "viral_hook_text": "<REQUIRED, 3-8 words, scroll-stopping overlay copy — NOT a transcript quote. Use curiosity gap, POV, counter-claim, question, number, or warning pattern. Same language as transcript.>",
+      "peak_start": 34.100,
+      "peak_end": 36.050
     }}
   ]
 }}
@@ -378,7 +411,8 @@ def build_reformat_prompt(err_msg: str, broken_text: str) -> str:
         '"video_description_for_tiktok": "<str>", '
         '"video_description_for_instagram": "<str>", '
         '"video_title_for_youtube_short": "<str>", '
-        '"viral_hook_text": "<str>"}]}\n\n'
+        '"viral_hook_text": "<str>", '
+        '"peak_start": <float or null>, "peak_end": <float or null>}]}\n\n'
         "Rules: straight double quotes only, no trailing commas, no markdown, "
         "no code fences, no prose before or after. Escape every backslash as \\\\."
     )

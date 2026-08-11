@@ -279,6 +279,29 @@ as `clip_filename` in metadata (re-dumped atomically per cut iteration) and
 every consumer resolves through `clip_resolve.clip_filename_for`
 (clip_filename → video_url → positional legacy fallback).
 
+**Peak moment (cold-open teaser source)**: the SAME Gemini viral-detection call
+that returns `viral_hook_text` also returns an optional `peak_start`/`peak_end`
+per clip — the strongest 1-3s inside it (punchline, big reaction, payoff line),
+in the same ABSOLUTE source seconds as `start`/`end`. No second API call, so no
+extra bill. It exists to build a teaser that plays BEFORE the clip's real start
+(the "show the payoff first, then rewind" format).
+⚠️ The peak is OPTIONAL and every layer must treat it that way — a missing or
+nonsensical peak costs the teaser, NEVER the clip. `ViralClip._coerce_peak_timestamp`
+collapses unparseable values to `None` instead of raising (unlike `start`/`end`,
+where malformed input rightly rejects the clip), and `_validate_peak_window`
+CLEARS an out-of-range window rather than raising or clamping it — a window we
+had to reshape is no longer the moment Gemini identified. The prompt asks for
+1-3s while `MIN/MAX_PEAK_DURATION` (0.8-10s) tolerate near-misses, mirroring
+`ViralClip`'s own 10-75s band vs. the 15-60s the prompt requests. The prompt
+also explicitly instructs Gemini to emit `null` when no moment stands out —
+a teaser opening on a flat moment performs worse than no teaser.
+⚠️ `cut_ops.drop_peak_outside_clip` re-checks containment AFTER
+`snap_clips_to_transcript` moves the edges: the peak is validated against
+Gemini's ORIGINAL edges, and while snapping usually WIDENS them (harmless), the
+waveform-silence refine can nudge `start` FORWARD past the peak
+(`tests/pipeline/test_cut_ops.py` pins both directions). Out-of-range → dropped,
+not clamped, same "skip, never guess" rule the player-image overlay follows.
+
 **Transcription**: `TRANSCRIPTION_PROVIDER` = `deepgram` (default, Nova-3
 REST) | `elevenlabs` (Scribe; audio-event tags feed the Gemini prompt) |
 `whisper` (local). Both cloud providers silently fall back to Faster-Whisper

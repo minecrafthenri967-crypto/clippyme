@@ -119,3 +119,75 @@ def test_player_mentions_response_caps_at_twenty():
         PlayerMentionsResponse(mentions=[
             {"player_name": "A", "timestamp": i, "confidence": 0.5} for i in range(21)
         ])
+
+
+# --- ViralClip peak window (cold-open teaser source) ------------------------
+#
+# The peak marks the strongest 1-3s inside a clip, used to build a teaser that
+# plays before the clip's real start. It is OPTIONAL by design: these tests
+# pin that a missing, malformed or nonsensical peak costs us the peak only —
+# never the clip, which is still perfectly publishable without a teaser.
+
+def _clip(**overrides):
+    base = {
+        "start": 10.0,
+        "end": 40.0,
+        "viral_score": 80,
+        "viral_reason": "A specific, non-generic reason long enough to pass validation.",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_peak_window_accepted_when_inside_the_clip():
+    clip = ViralClip.model_validate(_clip(peak_start=30.0, peak_end=32.0))
+    assert clip.peak_start == 30.0
+    assert clip.peak_end == 32.0
+
+
+def test_peak_defaults_to_none_when_gemini_omits_it():
+    clip = ViralClip.model_validate(_clip())
+    assert clip.peak_start is None and clip.peak_end is None
+
+
+def test_peak_coerces_dotted_time_strings_like_start_and_end():
+    clip = ViralClip.model_validate(_clip(peak_start="0.30.500", peak_end="0.32.500"))
+    assert clip.peak_start == pytest.approx(30.5)
+    assert clip.peak_end == pytest.approx(32.5)
+
+
+@pytest.mark.parametrize("peak_start,peak_end,why", [
+    (32.0, 30.0, "reversed"),
+    (30.0, 30.0, "zero length"),
+    (5.0, 12.0, "starts before the clip"),
+    (35.0, 45.0, "ends after the clip"),
+    (30.0, 30.4, "shorter than MIN_PEAK_DURATION"),
+    (12.0, 39.0, "longer than MAX_PEAK_DURATION — a second clip, not a moment"),
+])
+def test_nonsensical_peak_is_cleared_but_the_clip_survives(peak_start, peak_end, why):
+    clip = ViralClip.model_validate(_clip(peak_start=peak_start, peak_end=peak_end))
+    assert clip.peak_start is None and clip.peak_end is None, why
+    # The clip itself is untouched — this is the whole point.
+    assert clip.start == 10.0 and clip.end == 40.0
+
+
+@pytest.mark.parametrize("junk", ["", "not a time", {}, [], "  "])
+def test_unparseable_peak_never_rejects_the_clip(junk):
+    """A malformed peak must NOT raise. start/end are load-bearing so garbage
+    there rightly kills the clip; the peak is a bonus and must never cost us
+    an otherwise-perfect clip."""
+    clip = ViralClip.model_validate(_clip(peak_start=junk, peak_end=junk))
+    assert clip.peak_start is None and clip.peak_end is None
+    assert clip.viral_score == 80
+
+
+def test_half_specified_peak_is_cleared_on_both_sides():
+    clip = ViralClip.model_validate(_clip(peak_start=30.0))
+    assert clip.peak_start is None and clip.peak_end is None
+
+
+def test_peak_survives_model_dump_into_the_clip_dict():
+    """validate_and_dedupe returns model_dump()s — the peak has to ride along
+    into the metadata for the teaser renderer to ever see it."""
+    dumped = ViralClip.model_validate(_clip(peak_start=30.0, peak_end=32.0)).model_dump()
+    assert dumped["peak_start"] == 30.0 and dumped["peak_end"] == 32.0

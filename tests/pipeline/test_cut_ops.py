@@ -356,3 +356,72 @@ def test_snap_clips_neighbor_clamp_prevents_overlap():
     ]
     snap_clips_to_transcript(shorts, _WORDS, source_duration=60.0)
     assert shorts[1]["end"] <= 5.1
+
+
+# --- peak window survives (or is dropped by) edge snapping -------------------
+#
+# The peak is validated against Gemini's ORIGINAL edges, but snapping moves
+# those edges afterwards. A peak left pointing outside the snapped clip would
+# make the teaser renderer cut footage the clip no longer contains.
+
+from clippyme.pipeline.cut_ops import drop_peak_outside_clip  # noqa: E402
+
+
+def test_drop_peak_outside_clip_keeps_a_contained_window():
+    clip = {"start": 10.0, "end": 40.0, "peak_start": 30.0, "peak_end": 32.0}
+    drop_peak_outside_clip(clip)
+    assert clip["peak_start"] == 30.0 and clip["peak_end"] == 32.0
+
+
+def test_drop_peak_outside_clip_drops_when_start_snapped_past_the_peak():
+    """Sentence-snapping can move `start` FORWARD past the peak."""
+    clip = {"start": 33.0, "end": 40.0, "peak_start": 30.0, "peak_end": 32.0}
+    drop_peak_outside_clip(clip)
+    assert clip["peak_start"] is None and clip["peak_end"] is None
+
+
+def test_drop_peak_outside_clip_drops_when_end_snapped_before_the_peak():
+    clip = {"start": 10.0, "end": 31.0, "peak_start": 30.0, "peak_end": 32.0}
+    drop_peak_outside_clip(clip)
+    assert clip["peak_start"] is None and clip["peak_end"] is None
+
+
+def test_drop_peak_outside_clip_is_a_noop_without_a_peak():
+    clip = {"start": 10.0, "end": 40.0}
+    drop_peak_outside_clip(clip)
+    assert clip == {"start": 10.0, "end": 40.0}
+
+
+def test_drop_peak_outside_clip_is_idempotent():
+    clip = {"start": 33.0, "end": 40.0, "peak_start": 30.0, "peak_end": 32.0}
+    drop_peak_outside_clip(clip)
+    drop_peak_outside_clip(clip)
+    assert clip["peak_start"] is None and clip["peak_end"] is None
+
+
+def test_snap_clips_to_transcript_drops_a_peak_its_own_snap_invalidated():
+    """End-to-end through the real snapper.
+
+    Edges usually WIDEN (which can never invalidate a contained peak), but the
+    waveform-silence refine nudges an edge into the nearest trough — and a
+    trough starting exactly at the requested start moves `start` FORWARD. A
+    peak in the skipped sliver must not survive that.
+    """
+    words = [{"word": "One.", "start": 0.0, "end": 0.5}]
+    clip = {"start": 10.0, "end": 40.0, "peak_start": 10.05, "peak_end": 11.05}
+    snap_clips_to_transcript(
+        [clip], words, source_duration=60.0,
+        silences=[(10.0, 10.2), (12.0, 12.5)],
+    )
+    assert clip["start"] > 10.05, "precondition: the refine moved start forward"
+    assert clip["peak_start"] is None and clip["peak_end"] is None
+
+
+def test_snap_clips_to_transcript_keeps_a_peak_when_edges_only_widen():
+    """The common case — widened edges still contain the peak, so it stays."""
+    words = [{"word": "One.", "start": 0.0, "end": 0.5}]
+    clip = {"start": 10.0, "end": 40.0, "peak_start": 30.0, "peak_end": 32.0}
+    snap_clips_to_transcript([clip], words, source_duration=60.0,
+                             silences=[(10.5, 11.5)])
+    assert clip["start"] < 10.0 and clip["end"] > 40.0, "precondition: edges widened"
+    assert clip["peak_start"] == 30.0 and clip["peak_end"] == 32.0
