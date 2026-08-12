@@ -279,6 +279,19 @@ as `clip_filename` in metadata (re-dumped atomically per cut iteration) and
 every consumer resolves through `clip_resolve.clip_filename_for`
 (clip_filename → video_url → positional legacy fallback).
 
+**Hook copy quality**: the prompt (`gemini_request.py`) requires `viral_hook_text`
+to be SPECIFIC to the clip — a number, a named claim, a concrete stake — not a
+template reusable on any random clip unchanged, and lists overused generic bait
+phrases ("You won't believe what happens next", "This is insane", …) Gemini is
+told never to emit. `gemini_parser._hook_text_is_generic` mirrors that banned
+list on the backend so a violation is DETECTABLE even if the model ignores the
+instruction. ⚠️ Unlike `_viral_reason_is_generic` (which `drop_generic` can use
+to reject a candidate), this check is diagnostic-only — `validate_and_dedupe`
+logs a count but never drops a clip over it. Weak marketing copy doesn't mean
+the clip itself is bad, and the fallback chain (`backfill_hook_text`) already
+guarantees a non-empty hook either way; dropping would only lose good footage
+over fixable copy.
+
 **Peak moment (cold-open teaser source)**: the SAME Gemini viral-detection call
 that returns `viral_hook_text` also returns an optional `peak_start`/`peak_end`
 per clip — the strongest 1-3s inside it (punchline, big reaction, payoff line),

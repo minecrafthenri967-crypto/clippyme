@@ -12,6 +12,7 @@ from clippyme.pipeline import gemini_parser as gp
 from clippyme.pipeline.gemini_parser import (
     _clean_json,
     _extract_json_section,
+    _hook_text_is_generic,
     _viral_reason_is_generic,
     backfill_hook_text,
     parse_gemini_response,
@@ -19,13 +20,14 @@ from clippyme.pipeline.gemini_parser import (
 )
 
 
-def _clip(start, end, score, reason='The speaker reveals the "secret" pricing tactic in detail'):
+def _clip(start, end, score, reason='The speaker reveals the "secret" pricing tactic in detail',
+         hook_text=""):
     """A ViralClip dict that passes Pydantic (duration 10-75, score 1-100,
     reason >= 20 chars)."""
     return {
         "start": start, "end": end, "viral_score": score, "viral_reason": reason,
         "video_description_for_tiktok": "", "video_title_for_youtube_short": "",
-        "viral_hook_text": "",
+        "viral_hook_text": hook_text,
     }
 
 
@@ -95,6 +97,35 @@ def test_specific_reason_with_quote_not_generic():
     assert _viral_reason_is_generic('He names the "3-second rule" that doubled signups') is False
 
 
+# --- _hook_text_is_generic --------------------------------------------------
+
+@pytest.mark.parametrize("hook_text", [
+    "You won't believe what happens next",
+    "This is insane",
+    "This is crazy",
+    "You need to see this",
+    "Watch till the end",
+    "watch until the end",  # case-insensitive
+    "This will blow your mind",
+    "The ending will shock you",
+    "You have to see this",
+    "  You Need To See This  ",  # whitespace/casing don't hide it
+])
+def test_known_generic_hook_phrases_are_flagged(hook_text):
+    assert _hook_text_is_generic(hook_text) is True
+
+
+@pytest.mark.parametrize("hook_text", [
+    "The 3-step drill nobody drills",
+    "POV: you just found the loophole",
+    "I failed 3 times before this",
+    "",
+    None,
+])
+def test_specific_or_empty_hooks_are_not_flagged(hook_text):
+    assert _hook_text_is_generic(hook_text) is False
+
+
 # --- validate_and_dedupe ---------------------------------------------------
 
 def test_overlapping_clips_keep_higher_score():
@@ -122,6 +153,18 @@ def test_invalid_clip_dropped_not_whole_batch():
     data = {"shorts": [_clip(0, 30, 90), _clip(0, 3, 80)]}
     kept = validate_and_dedupe(data)
     assert len(kept) == 1
+
+
+def test_generic_hook_text_is_logged_but_the_clip_is_kept(caplog):
+    """Unlike a generic viral_reason (which CAN be dropped via drop_generic),
+    a generic hook must never cost the clip — weak marketing copy doesn't
+    mean the clip itself is bad."""
+    data = {"shorts": [_clip(0, 30, 90, hook_text="You won't believe what happens next")]}
+    with caplog.at_level("INFO"):
+        kept = validate_and_dedupe(data)
+    assert len(kept) == 1
+    assert kept[0]["viral_hook_text"] == "You won't believe what happens next"
+    assert any("generic-sounding viral_hook_text" in r.message for r in caplog.records)
 
 
 def test_drop_generic_removes_placeholder_reasons():

@@ -198,6 +198,37 @@ def _viral_reason_is_generic(reason: str) -> bool:
     return (not has_digit) and (not has_quote) and len(lowered.split()) < 8
 
 
+# Overused "bait" phrases that carry zero information about the specific clip
+# — the same words would fit literally any video, so they are not a tease,
+# just noise. Mirrors the prompt's own NEVER-use list (gemini_request.py) so
+# a violation is detectable even if the model ignores the instruction.
+_GENERIC_HOOK_MARKERS = (
+    "you won't believe what happens next",
+    "wait for it",
+    "this is insane",
+    "this is crazy",
+    "you need to see this",
+    "watch till the end",
+    "watch until the end",
+    "this will blow your mind",
+    "the ending will shock you",
+    "you have to see this",
+)
+
+
+def _hook_text_is_generic(hook_text: str) -> bool:
+    """Heuristic: does ``viral_hook_text`` read as generic bait rather than a
+    tease grounded in this specific clip?
+
+    Diagnostic only — unlike ``_viral_reason_is_generic`` (which can drop a
+    candidate via ``drop_generic``), a weak hook does not mean the CLIP is
+    bad, only that the copy is. Callers log this rather than reject the clip,
+    so a slow-to-improve prompt is visible without ever costing usable output.
+    """
+    lowered = (hook_text or "").lower().strip()
+    return any(marker in lowered for marker in _GENERIC_HOOK_MARKERS)
+
+
 # Timestamp coercion now lives in clippyme.api.schemas.ViralClip as a
 # @field_validator('start','end', mode='before'). The legacy helpers
 # _coerce_timestamp() and _normalize_clip_timestamps() that used to
@@ -278,6 +309,17 @@ def validate_and_dedupe(
             logger.info(
                 "validate_and_dedupe: dropped %d clip(s) with generic viral_reason", dropped
             )
+
+    # Diagnostic only — NEVER drops a clip over weak copy (unlike the
+    # viral_reason check above). Visibility into whether the prompt's own
+    # NEVER-use list is actually holding, without ever costing usable output.
+    generic_hooks = sum(1 for c in candidates if _hook_text_is_generic(c.viral_hook_text))
+    if generic_hooks:
+        logger.info(
+            "validate_and_dedupe: %d/%d clip(s) have a generic-sounding viral_hook_text "
+            "(prompt asks Gemini to avoid this — logged for visibility only, not dropped)",
+            generic_hooks, len(candidates),
+        )
 
     candidates.sort(key=lambda c: -c.viral_score)
 

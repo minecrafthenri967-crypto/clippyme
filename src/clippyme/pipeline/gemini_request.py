@@ -70,13 +70,26 @@ normally on the words alone.
 - Never cut in the middle of a word, phrase, or sentence — the clip must open on
   the first word of a sentence and close on the last word of a sentence.
 - viral_reason MUST be at least 20 characters and cite the specific hook, payoff or quote
-- viral_hook_text is REQUIRED, NEVER empty: 3-8 words, written AS A SCROLL-STOPPING OVERLAY — NOT a transcript quote, NOT the first words the speaker says. It is standalone copywriting designed to make someone stop scrolling on TikTok/Reels. Use one of these proven patterns:
+- viral_hook_text is REQUIRED, NEVER empty: 3-8 words (prefer 3-6 — every extra word is a
+  fraction of a second someone can decide to keep scrolling before they finish reading
+  it), written AS A SCROLL-STOPPING OVERLAY — NOT a transcript quote, NOT the first words
+  the speaker says. It is standalone copywriting designed to make someone stop scrolling
+  on TikTok/Reels. Use one of these proven patterns:
     * Curiosity gap: "Nessuno ti dice questo", "What they don't want you to know"
     * POV / relatable: "POV: sei il primo a scoprirlo", "POV: you just realized…"
     * Counter-intuitive claim: "Stavo sbagliando tutto", "I was doing it wrong"
     * Direct question: "E se fosse tutto falso?", "What if you're wrong?"
     * Number / stakes: "3 cose che nessuno dice", "3 things nobody tells you"
     * Warning / callout: "Non guardare se…", "Stop scrolling if…"
+  SPECIFICITY IS MANDATORY: the hook must lock onto something ONLY THIS clip has — a
+  number, a named claim, a concrete stake, a specific outcome — not a template that could
+  be pasted onto any random clip unchanged. If you could reuse the exact same hook on a
+  completely different video without editing a single word, it is too generic — REJECT
+  it and write a sharper one grounded in what actually happens in THIS clip.
+  NEVER use these (worn out by overuse, contain zero information about the clip, read as
+  bait rather than a tease): "You won't believe what happens next", "Wait for it",
+  "This is insane", "This is crazy", "You need to see this", "Watch till the end",
+  "This will blow your mind", "The ending will shock you", "You have to see this".
   The hook must TEASE the content of the clip without spoiling the payoff. Same language as the transcript. Title Case or Sentence case, never ALL CAPS.
 - peak_start / peak_end mark the SINGLE most striking moment INSIDE the clip — the
   punchline, the biggest reaction, the payoff line, the "wait what" beat. They are
@@ -140,6 +153,16 @@ BAD hooks (DO NOT emit these — they literally echo the transcript):
   "Hello everyone welcome back"          ← transcript intro, not a hook
   "So today I wanted to talk about"      ← filler, no curiosity gap
   "And then what happened next was"      ← mid-sentence fragment
+
+BAD hooks (DO NOT emit these — generic bait, not a tease: same words would fit
+ANY clip in ANY video, so they carry zero information about THIS one):
+  "You won't believe what happens next"  ← fits literally any clip ever
+  "This is insane"                       ← insane how? says nothing specific
+  "Watch till the end"                   ← no claim, no stakes, just a request
+
+GOOD vs BAD on the SAME clip (a coach explains a specific 3-step drill):
+  BAD:  "This changes everything"        ← could be about anything
+  GOOD: "The 3-step drill nobody drills" ← the actual number, the actual subject
 
 BAD (would score ~30 — DO NOT emit anything like this):
   viral_reason="Interesting point about the topic"   ← too generic, no hook, no payoff specified
