@@ -96,6 +96,19 @@ export function SubtitleControls({ value: v, onChange, variant = 'edit' }) {
               </span>
             </label>
           </div>
+          {variant === 'create' ? (
+            <div className="opt" style={{ paddingLeft: 0, paddingRight: 0 }}>
+              <div className="otxt"><div className="ot" style={{ fontSize: 13 }}>Word pop</div>
+                <div className="od">Active word bounces bigger as it&apos;s spoken</div></div>
+              <Switch on={!!v.pop} onChange={(pop) => onChange({ pop })} />
+            </div>
+          ) : (
+            <div className="edit-opt" style={{ marginTop: 4 }}>
+              <div className="eo-txt"><div className="eo-t" style={{ fontSize: 13 }}>Word pop</div>
+                <div className="eo-d">Active word bounces bigger as it&apos;s spoken</div></div>
+              <Switch on={!!v.pop} onChange={(pop) => onChange({ pop })} />
+            </div>
+          )}
         </>
       )}
       {v.mode === 'classic' && (

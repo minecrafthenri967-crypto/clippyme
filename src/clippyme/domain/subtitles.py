@@ -210,6 +210,59 @@ def format_srt_block(index, start, end, text):
         
     return f"{index}\n{format_time(start)} --> {format_time(end)}\n{text}\n\n"
 
+# --- Karaoke word "pop" (scale bounce on the active word) ------------------
+#
+# The existing karaoke highlight only recolours the active word (\k tag,
+# secondary -> primary colour). This adds a scale bounce on top, the
+# CapCut/"bold captions" style: the active word snaps up in size then settles
+# back down, timed to its own \k window. Off by default — it changes the
+# feel of the default karaoke mode, so it is an opt-in style choice like
+# uppercase, not a silent behaviour change for existing recipes.
+POP_SCALE = 130  # percent — 100 = no scale, so this is a 30% size bump.
+POP_UP_MS = 60   # fast punch up
+POP_DOWN_MS = 90  # slightly slower settle — a symmetric snap reads mechanical.
+# Below this, a word is on screen too briefly for a two-phase animation to
+# register as anything but a flicker; skip the effect for it entirely rather
+# than emit a degenerate near-zero-length \t.
+POP_MIN_WORD_MS = 20
+
+
+def build_pop_transform_tags(t1_ms, word_duration_ms,
+                             scale=POP_SCALE, up_ms=POP_UP_MS, down_ms=POP_DOWN_MS):
+    """ASS override tags animating a word's scale up then back down.
+
+    ``t1_ms`` is the word's own start, in milliseconds relative to the
+    DIALOGUE EVENT's start — ``\\t(...)`` times are always relative to the
+    event, never to the current override block, so the caller must pass the
+    running cumulative offset (see ``generate_ass_karaoke``), not a per-word
+    local time.
+
+    Returns ``""`` for a word too short to animate meaningfully. Otherwise
+    always starts by resetting to 100% before animating: each word's block is
+    self-contained and never assumes what the previous word's transform left
+    behind, so a clamped-and-cut-short animation on one word can never bleed
+    a lingering "big" size into the next.
+    """
+    if word_duration_ms < POP_MIN_WORD_MS:
+        return ""
+
+    total = up_ms + down_ms
+    if total > word_duration_ms:
+        # Compress both phases proportionally rather than overflowing into
+        # the next word's own \k window, which would pop the WRONG word.
+        ratio = word_duration_ms / total
+        up_ms = max(1, round(up_ms * ratio))
+        down_ms = max(1, word_duration_ms - up_ms)
+
+    t_mid = t1_ms + up_ms
+    t2 = t_mid + down_ms
+    return (
+        f"\\fscx100\\fscy100"
+        f"\\t({t1_ms},{t_mid},\\fscx{scale}\\fscy{scale})"
+        f"\\t({t_mid},{t2},\\fscx100\\fscy100)"
+    )
+
+
 def hex_to_ass_color(hex_color, opacity=1.0):
     """Convert #RRGGBB to ASS &HAABBGGRR format. opacity: 0.0=transparent, 1.0=opaque"""
     hex_color = hex_color.lstrip('#')
@@ -493,7 +546,8 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
                          words_per_group=3, uppercase=True,
                          font_name=None, font_color=None, highlight_color=None,
                          font_size=None, outline_width=None, position="bottom",
-                         offset_y=0, outline_color=None, align="center"):
+                         offset_y=0, outline_color=None, align="center",
+                         pop=False):
     """
     Generate an ASS subtitle file with karaoke word-by-word highlighting.
     Uses \\k tags so the current word snaps from secondary (base) to primary (highlight) color.
@@ -508,6 +562,8 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
         uppercase: convert text to uppercase
         font_name/font_color/highlight_color/font_size/outline_width: overrides for preset
         position: 'top', 'center', 'bottom'
+        pop: also scale-bounce the active word (see build_pop_transform_tags). Off by
+            default — an opt-in style on top of the existing colour-only highlight.
     """
     # Resolve preset
     style = SUBTITLE_PRESETS.get(preset, SUBTITLE_PRESETS["classic_white"]).copy()
@@ -635,12 +691,19 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
         event_end = max(0, group[-1]['end'] - clip_start)
 
         karaoke_parts = []
+        elapsed_ms = 0
         for w in group:
             duration_cs = max(1, int((w['end'] - w['start']) * 100))
+            duration_ms = duration_cs * 10
             text = _strip_ass_braces(w['word'].strip())
             if style["uppercase"]:
                 text = text.upper()
-            karaoke_parts.append(f"{{\\k{duration_cs}}}{text}")
+            # \t(...) times are relative to the DIALOGUE EVENT's own start, not
+            # to this word's override block — elapsed_ms is the running offset
+            # that makes the pop land on the right word instead of drifting.
+            pop_tags = build_pop_transform_tags(elapsed_ms, duration_ms) if pop else ""
+            karaoke_parts.append(f"{{\\k{duration_cs}{pop_tags}}}{text}")
+            elapsed_ms += duration_ms
 
         line_text = " ".join(karaoke_parts)
         # Fix: \k tags shouldn't have space before them inside the line

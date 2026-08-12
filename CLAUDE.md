@@ -588,6 +588,34 @@ there used to fail outright with no recourse, permanently losing that missed
 window once the next stream starts and `_schedule_backfill` discards a prior
 session's unresolved windows.
 
+**Karaoke word pop** (`subtitles.generate_ass_karaoke(..., pop=)`, `subtitle_params.pop`,
+default OFF): the active karaoke word scale-bounces (100% → 130% → 100%) as it's
+spoken, on top of the existing colour-only `\k` highlight — the CapCut/"bold
+captions" style. `build_pop_transform_tags` emits two ASS `\t(...)` phases per
+word; the caller threads a running `elapsed_ms` cursor across the line (`\t`
+times are relative to the DIALOGUE EVENT's start, not the word's own override
+block) so the pop lands on the right word instead of drifting. Verified against
+real ffmpeg/libass output (not just plausible tag syntax): the rendered glyph's
+pixel bounding box is measurably larger at the pop's peak frame and returns to
+byte-identical size with `pop=False` immediately after.
+⚠️ Below `POP_MIN_WORD_MS` the word is skipped rather than animated (a two-phase
+cycle on a sub-20ms word would just flicker), and a word shorter than
+`POP_UP_MS + POP_DOWN_MS` gets both phases compressed proportionally rather than
+overflowing into the NEXT word's own `\k` window — the wrong word must never
+appear to pop. Each word's tag also unconditionally resets to `\fscx100\fscy100`
+before animating, so a clamped/cut-short pop on one word can never leave a
+lingering "big" size for the next.
+⚠️ Reaching the backend from any of the three surfaces (Create tab, EditClipModal,
+Live Monitor's subtitle drawer) took FOUR separate fixes, not one — this
+codebase already carries this exact bug class from the hook `animate`/`sfx`
+toggles fixed earlier the same session: `create.jsx`'s `SUB_KEYMAP` translation
+table, `realApi.js`'s `optsToPreselections` karaoke-only spread, `captions.jsx`'s
+`apply()` (which cherry-picks fields into `subtitleParams` rather than spreading
+`subs` wholesale), and `lib/subtitleComposeParams.js`'s `to/fromComposeSubtitleParams`
+converter pair used by the Live Monitor drawer. **A new subtitle-style field
+needs all four updated together**, or it silently dead-ends on whichever
+surfaces were missed.
+
 **Smart Cut**: transcript-driven silence/filler removal rendered via a
 hand-built auto-editor v3 JSON timeline (ffmpeg concat fallback if the binary
 is missing), plus an audio-threshold polish pass. Manual trims arrive as

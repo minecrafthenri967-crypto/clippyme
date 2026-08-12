@@ -24,6 +24,7 @@ const SUB_DEFAULTS = {
   mode: 'karaoke', preset: 'hormozi_bold', font: 'Montserrat-Black',
   font_color: '#FFFFFF', outline_color: '#000000', font_size: 0,
   border_width: 2, bg: false, position: 'bottom', align: 'center', offset_y: 0,
+  pop: false,
 };
 
 const STATE_LABEL = {

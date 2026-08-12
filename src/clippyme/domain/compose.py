@@ -551,6 +551,7 @@ async def _apply_subtitles(
                 offset_y=sub_offset_y,
                 outline_color=subtitle_params.get("outline_color"),
                 align=subtitle_params.get("align", "center"),
+                pop=bool(subtitle_params.get("pop")),
             ),
         )
         if not success:

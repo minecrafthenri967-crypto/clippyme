@@ -127,6 +127,9 @@ export function seedSubtitleParams(preselections) {
     if (subs?.outline_width !== undefined) out.outline_width = subs.outline_width;
     if (subs?.font_size !== undefined) out.font_size = subs.font_size;
     if (subs?.words_per_group !== undefined) out.words_per_group = subs.words_per_group;
+    // Word "pop" (scale bounce on the active karaoke word). Omitted → backend
+    // default (off), same "only forward an explicit choice" rule as uppercase.
+    if (subs?.pop !== undefined) out.pop = subs.pop;
     return out;
 }
 

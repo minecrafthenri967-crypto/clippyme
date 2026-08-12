@@ -207,6 +207,11 @@ const SUB_KEYMAP = {
   mode: 'subMode', preset: 'subPreset', font: 'subFont', font_color: 'subColor',
   outline_color: 'subStroke', font_size: 'subFontSize', border_width: 'subOutlineW',
   bg: 'subBg', position: 'subPosition', align: 'subAlign', offset_y: 'subOffsetY',
+  // Missing here silently writes to a key literally named "undefined" instead
+  // of persisting anywhere seedSubtitleParams can see (see the 'animate'/'sfx'
+  // hook fix from the same session — identical bug class, caught before ship
+  // this time instead of after).
+  pop: 'subPop',
 };
 
 function SubConfig({ opts, set }) {
@@ -222,6 +227,7 @@ function SubConfig({ opts, set }) {
     position: opts.subPosition || 'bottom',
     align: opts.subAlign || 'center',
     offset_y: opts.subOffsetY || 0,
+    pop: !!opts.subPop,
   };
   const onChange = (partial) => {
     const patch = {};

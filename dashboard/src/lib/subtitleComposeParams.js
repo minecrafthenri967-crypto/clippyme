@@ -15,6 +15,7 @@ export function toComposeSubtitleParams(v) {
       font_color: v.font_color,
       outline_color: v.outline_color,
       ...(v.font_size > 0 ? { font_size: v.font_size } : {}),
+      ...(v.pop ? { pop: true } : {}),
     };
   }
   return {
@@ -37,7 +38,7 @@ export function toComposeSubtitleParams(v) {
 export function fromComposeSubtitleParams(params, defaults) {
   if (!params) return defaults;
   const out = { ...defaults };
-  for (const key of ['mode', 'preset', 'position', 'align', 'offset_y', 'font', 'font_color', 'font_size', 'border_width']) {
+  for (const key of ['mode', 'preset', 'position', 'align', 'offset_y', 'font', 'font_color', 'font_size', 'border_width', 'pop']) {
     if (params[key] !== undefined) out[key] = params[key];
   }
   if (params.border_color !== undefined) out.outline_color = params.border_color;

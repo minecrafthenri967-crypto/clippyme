@@ -200,3 +200,13 @@ test('cold-open teaser toggle reaches preselections', () => {
   assert.equal(optsToPreselections({ teaser: true }).teaser, true);
   assert.equal(optsToPreselections({}).teaser, false);
 });
+
+test('subtitle pop toggle reaches preselections only in karaoke mode', () => {
+  const pre = optsToPreselections({ subtitles: true, subMode: 'karaoke', subPop: true });
+  assert.equal(pre.subtitles.pop, true);
+});
+
+test('subtitle pop toggle does not leak into classic mode preselections', () => {
+  const pre = optsToPreselections({ subtitles: true, subMode: 'classic', subPop: true });
+  assert.equal('pop' in pre.subtitles, false);
+});

@@ -114,6 +114,11 @@ test('seedSubtitleParams only forwards explicit overrides', () => {
   assert.equal(set.words_per_group, 4);
 });
 
+test('seedSubtitleParams forwards pop only when explicitly set', () => {
+  assert.equal('pop' in seedSubtitleParams({ subtitles: {} }), false);
+  assert.equal(seedSubtitleParams({ subtitles: { pop: true } }).pop, true);
+});
+
 test('seedSubtitleParams uses canonical snake_case font_size (not fontSize)', () => {
   const out = seedSubtitleParams({ subtitles: { font_size: 40 } });
   assert.equal(out.font_size, 40);
