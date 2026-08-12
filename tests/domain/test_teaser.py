@@ -260,3 +260,13 @@ def test_punch_duration_longer_than_the_teaser_is_clamped():
     expr = build_punch_zoom_expr(1.0, 1.12, 5.0)
     assert _zoom_at(expr, 0.0) == 1.0
     assert _zoom_at(expr, 1.0) == pytest.approx(1.12)
+
+
+def test_default_punch_is_a_real_lunge_not_a_subtle_nudge():
+    """1.12/0.25 read as too subtle in practice — pins the stronger default so
+    a future edit can't quietly soften it back down."""
+    from clippyme.domain.teaser import DEFAULT_PUNCH_DURATION, DEFAULT_PUNCH_ZOOM
+
+    assert DEFAULT_PUNCH_ZOOM >= 1.3
+    expr = build_punch_zoom_expr(2.0, DEFAULT_PUNCH_ZOOM, DEFAULT_PUNCH_DURATION)
+    assert _zoom_at(expr, 2.0) == pytest.approx(DEFAULT_PUNCH_ZOOM)

@@ -49,13 +49,16 @@ DEFAULT_TEASER_FADE = 0.12
 # it is what stops the cut from landing mid-word as a click.
 TEASER_TRANSITIONS = ("punch", "fade", "none")
 DEFAULT_TEASER_TRANSITION = "punch"
-# Zoom reached at the moment of the cut. Small on purpose — a 12% push reads
-# as a punch, while a large one turns the last frames into a blurry upscale of
-# whatever pixels the crop left (the same real-pixel budget reframe worries
-# about).
-DEFAULT_PUNCH_ZOOM = 1.12
+# Zoom reached at the moment of the cut. 1.12 (a 12% push) read as too subtle
+# in practice — barely distinguishable from noise at normal playback speed.
+# 1.35 is a real lunge, still short of turning the last frames into a soft
+# blur of whatever pixels the crop left (the same real-pixel budget reframe
+# worries about).
+DEFAULT_PUNCH_ZOOM = 1.35
 # The push happens only at the very end; before it the teaser plays untouched.
-DEFAULT_PUNCH_DURATION = 0.25
+# Widened alongside the stronger zoom so the motion has room to read as a
+# push rather than a single-frame jump.
+DEFAULT_PUNCH_DURATION = 0.35
 
 
 def resolve_teaser_window(

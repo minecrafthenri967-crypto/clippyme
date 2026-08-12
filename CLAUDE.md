@@ -325,7 +325,9 @@ No usable dimensions → it degrades to `fade` rather than emitting a graph that
 fails at render. The zoom expression is wrapped in `ceil()` because at zoom 1.0
 the scaled frame is EXACTLY the crop size and a one-pixel float undershoot
 aborts the whole render (`Invalid too big or non positive size`) — verified,
-not theorised.
+not theorised. `DEFAULT_PUNCH_ZOOM`/`DEFAULT_PUNCH_DURATION` (1.35 / 0.35s) —
+the first pass at 1.12/0.25s read as too subtle in practice to register as a
+transition at all.
 ⚠️ This is the ONLY compose layer that changes the clip's DURATION, so every
 later timed layer shifts by exactly the teaser's length. `_apply_teaser` returns
 `(path, offset)` and `_compose_layers_impl` threads that offset into the hook's
