@@ -30,7 +30,10 @@ import {
 } from '../lib/seedClipParams';
 
 // Pull the IG-style hook style keys out of a flat hookParams object.
-const HOOK_STYLE_KEYS = ['bg_enabled', 'bg_color', 'bg_opacity', 'text_color', 'outline_width', 'outline_color', 'font'];
+// Kept in sync with seedClipParams.js's own HOOK_STYLE_KEYS — see the note
+// there on why 'animate'/'sfx' must be listed (they were missing, silently
+// dropping both toggles before they ever reached the backend).
+const HOOK_STYLE_KEYS = ['bg_enabled', 'bg_color', 'bg_opacity', 'text_color', 'outline_width', 'outline_color', 'font', 'animate', 'sfx'];
 function pickHookStyle(src) {
   const out = { ...HOOK_STYLE_DEFAULT };
   for (const k of HOOK_STYLE_KEYS) if (src && src[k] !== undefined) out[k] = src[k];

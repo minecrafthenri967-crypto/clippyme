@@ -346,6 +346,37 @@ async def _apply_teaser(
         return current_input, 0.0
 
 
+async def _apply_hook_sfx(
+    current_input: str,
+    job_dir: str,
+    clip_index: int,
+    intermediate_files: list,
+) -> str:
+    """Mix a synthesized impact hit onto the hook's appearance moment (t=0).
+
+    Never raises — same defensive posture as every other optional layer here.
+    Skips (returns ``current_input`` unchanged) on a clip with no audio track:
+    there is nothing to layer the hit onto, and adding a lone audio track to a
+    previously silent video is a different operation this does not attempt.
+    """
+    from clippyme.domain.hook_sfx import render_hook_sfx
+
+    try:
+        _dur, has_audio, _size = await asyncio.to_thread(_probe_qa, current_input)
+        if not has_audio:
+            logger.info("hook_sfx: clip_index=%d has no audio — skipping", clip_index)
+            return current_input
+
+        sfx_output = os.path.join(job_dir, f"composed_hooksfx_{clip_index}.mp4")
+        intermediate_files.append(sfx_output)
+        await asyncio.to_thread(render_hook_sfx, current_input, sfx_output, offset=0.0)
+        return sfx_output
+    except Exception:
+        logger.warning("hook_sfx: failed for clip_index=%d — skipping the layer",
+                       clip_index, exc_info=True)
+        return current_input
+
+
 async def _apply_player_image(
     current_input: str,
     job_dir: str,
@@ -840,6 +871,21 @@ async def _compose_layers_impl(
             )
             layers_applied.append("logo")
             logger.info("compose_layers: ✓ logo → %s", os.path.basename(current_input))
+
+        # Hook impact sound: a synthesized "hit" synced to the same instant
+        # the hook text becomes visible (always t=0 of the current timeline —
+        # a prepended teaser included, since the hook's own enable window
+        # always starts there). Meaningless without a visible hook, and
+        # meaningless on a clip with no audio to layer onto, so it is gated on
+        # both. Audio-only pass (-c:v copy internally) — no video re-encode.
+        if hook_active and (hook_params or {}).get("sfx"):
+            _pre_sfx_input = current_input
+            current_input = await _apply_hook_sfx(
+                current_input, job_dir, clip_index, intermediate_files,
+            )
+            if current_input != _pre_sfx_input:
+                layers_applied.append("hook_sfx")
+                logger.info("compose_layers: ✓ hook_sfx → %s", os.path.basename(current_input))
 
         # Player-image: campaign content (the athlete photo flash) sits above
         # the brand hook/logo but strictly below the attribution banner, which

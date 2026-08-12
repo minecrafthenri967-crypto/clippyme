@@ -105,6 +105,12 @@ export const HOOK_STYLE_DEFAULT = {
   outline_color: '#000000',
   font: 'Anton-Regular',
   animate: false,
+  // NOT in hooks.py's HOOK_STYLE_DEFAULTS (create_hook_image's own style
+  // dict) — deliberately omitted here too. `sfx` isn't a rendering style
+  // param, it's a standalone hook_params flag like `text`/`position`; the
+  // frontend/backend parity test below checks THIS object against that
+  // dict key-for-key, so adding it here would fail that check for no
+  // reason. `!!s.sfx` in HookStyleControls already treats undefined as off.
 };
 // Outline thickness presets → px stroke width.
 export const HOOK_OUTLINE = [['0', 'None'], ['4', 'Thin'], ['8', 'Thick']];

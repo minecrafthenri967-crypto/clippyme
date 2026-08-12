@@ -343,8 +343,38 @@ The window is remapped through Smart Cut's kept spans exactly like the
 player-image timestamp, and a peak that was cut away — or only partially
 survived — skips the teaser rather than showing a fragment.
 
+**Hook impact sound** (`domain/hook_sfx.py`, `hook_params.sfx`, default OFF):
+a short synthesized "hit" mixed onto the clip's audio at the exact instant the
+hook text becomes visible (always t=0 of the current timeline — a prepended
+teaser included, since the hook's own enable window always starts there; no
+threading of `teaser_offset` is needed for this reason). Meaningless without
+a visible hook and meaningless on a clip with no audio, so gated on both.
+Synthesized entirely from ffmpeg's own audio sources (`aevalsrc` sine +
+`anoisesrc` noise burst, mixed) rather than a shipped or uploaded sound file —
+no asset, no licensing question. The clip's own audio is briefly ducked
+(`DEFAULT_DUCK_LEVEL` 0.65 for `DEFAULT_DUCK_DURATION` 0.3s) so the hit is
+audible over it instead of just adding to it.
+⚠️ This is an AUDIO-ONLY pass (`-c:v copy` internally) — unlike every other
+compose layer it costs no video re-encode generation at all, since the video
+stream is a byte-identical copy (verified directly, not assumed).
+⚠️ `hook_params.sfx` sits alongside `text`/`position`/`size` at the TOP LEVEL
+of `hook_params`, not inside the nested style object `create_hook_image`
+receives — `compose.py` reads it straight off the raw dict, so no schema or
+`_style_keys` change was needed. The frontend forwards it via
+`HOOK_STYLE_KEYS` in `seedClipParams.js`/`captions.jsx` (mirrored, kept in
+sync) — do NOT add it to `data.js`'s `HOOK_STYLE_DEFAULT`, which is checked
+key-for-key against `hooks.py`'s `HOOK_STYLE_DEFAULTS` (the actual render
+style dict) by `tests/domain/test_frontend_backend_parity.py`; `sfx` isn't a
+render style param and has no counterpart there.
+⚠️ `animate` (the existing "Animated entrance" hook toggle) was silently
+dropped by the exact same `HOOK_STYLE_KEYS` allow-list before this change —
+the UI toggle worked, the state held correctly, but neither the Create tab's
+initial submission nor the Edit modal's persistence across reopens ever
+forwarded it to the backend. Fixed in the same commit that added `sfx`, since
+it is the identical bug in the identical list.
+
 **Compose** (`POST /api/compose/{job}/{clip}`): layers render in the order
-**Grade → Subtitles → Smart Cut → Teaser → Hook → Logo → Player Image → Banner**.
+**Grade → Subtitles → Smart Cut → Teaser → Hook → Logo → Hook SFX → Player Image → Banner**.
 Do NOT reorder — subtitles are burned before Smart Cut so their absolute timing can't
 drift; grade runs first so overlays keep authored colour; logo sits above hook;
 the player-image "flash" overlay (an athlete's photo, timed to the moment

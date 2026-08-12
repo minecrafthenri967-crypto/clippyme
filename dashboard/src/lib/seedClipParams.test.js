@@ -74,9 +74,15 @@ test('seedHookParams prefers viral_hook_text and carries style keys', () => {
 
 test('seedHookParams omits style keys the user never set', () => {
   const out = seedHookParams({}, { hook: {} });
-  for (const k of ['bg_enabled', 'bg_color', 'text_color', 'outline_width', 'font']) {
+  for (const k of ['bg_enabled', 'bg_color', 'text_color', 'outline_width', 'font', 'animate', 'sfx']) {
     assert.equal(k in out, false, `unset style key ${k} must not be forwarded`);
   }
+});
+
+test('seedHookParams forwards animate and sfx (previously dropped by the allow-list)', () => {
+  const out = seedHookParams({}, { hook: { animate: true, sfx: true } });
+  assert.equal(out.animate, true);
+  assert.equal(out.sfx, true);
 });
 
 test('seedSubtitleParams defaults match the backend contract', () => {

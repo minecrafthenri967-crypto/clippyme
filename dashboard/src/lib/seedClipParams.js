@@ -63,7 +63,11 @@ export function seedPlayerImageParams(preselections) {
 
 // Instagram-Stories-style hook text style keys (mirror domain/hooks.py
 // HOOK_STYLE_DEFAULTS). Forwarded to the compose hook layer.
-const HOOK_STYLE_KEYS = ['bg_enabled', 'bg_color', 'bg_opacity', 'text_color', 'outline_width', 'outline_color', 'font'];
+// 'animate' and 'sfx' were MISSING here: the UI toggles both correctly (they
+// merge generically into opts.hookStyle), but this allow-list is what copies
+// hookStyle keys into the hook_params actually sent to the backend — either
+// switch turning the UI on and doing nothing server-side.
+const HOOK_STYLE_KEYS = ['bg_enabled', 'bg_color', 'bg_opacity', 'text_color', 'outline_width', 'outline_color', 'font', 'animate', 'sfx'];
 
 // Cold-open teaser (domain/teaser.py). The Create tab exposes only the
 // on/off switch for now, so this stays empty and the backend's own defaults
