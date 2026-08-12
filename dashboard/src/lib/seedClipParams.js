@@ -130,6 +130,10 @@ export function seedSubtitleParams(preselections) {
     // Word "pop" (scale bounce on the active karaoke word). Omitted → backend
     // default (off), same "only forward an explicit choice" rule as uppercase.
     if (subs?.pop !== undefined) out.pop = subs.pop;
+    // Number emphasis (persistent colour on digit words). Same "only forward
+    // an explicit choice" rule.
+    if (subs?.emphasize_numbers !== undefined) out.emphasize_numbers = subs.emphasize_numbers;
+    if (subs?.emphasis_color !== undefined) out.emphasis_color = subs.emphasis_color;
     return out;
 }
 

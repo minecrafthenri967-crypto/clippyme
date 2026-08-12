@@ -164,3 +164,12 @@ test('a hook position of 0 is not swallowed by a falsy check', () => {
   assert.equal(seedHookParams(null, { hook: { position: 0 } }).position, 0);
   assert.equal(seedSubtitleParams({ subtitles: { position: 0 } }).position, 0);
 });
+
+test('seedSubtitleParams forwards emphasize_numbers/emphasis_color only when explicitly set', () => {
+  const bare = seedSubtitleParams({ subtitles: {} });
+  assert.equal('emphasize_numbers' in bare, false);
+  assert.equal('emphasis_color' in bare, false);
+  const set = seedSubtitleParams({ subtitles: { emphasize_numbers: true, emphasis_color: '#FF2D95' } });
+  assert.equal(set.emphasize_numbers, true);
+  assert.equal(set.emphasis_color, '#FF2D95');
+});

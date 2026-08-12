@@ -102,6 +102,8 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
     border_width: Number(sp.border_width ?? preSubs.border_width ?? 2),
     bg: Number(sp.bg_opacity ?? preSubs.bg_opacity ?? 0) > 0,
     pop: !!(sp.pop ?? preSubs.pop),
+    emphasize_numbers: !!(sp.emphasize_numbers ?? preSubs.emphasize_numbers),
+    emphasis_color: sp.emphasis_color || preSubs.emphasis_color,
   }));
 
   const [hookText, setHookText] = useState(
@@ -158,7 +160,8 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
       ...(subs.mode === 'karaoke'
         ? { font_size: subs.font_size > 0 ? subs.font_size : undefined,
             font_color: subs.font_color, outline_color: subs.outline_color,
-            pop: subs.pop }
+            pop: subs.pop, emphasize_numbers: subs.emphasize_numbers,
+            emphasis_color: subs.emphasis_color }
         : { font: subs.font, font_color: subs.font_color, border_width: subs.border_width,
             bg_opacity: subs.bg ? 0.6 : 0, bg_color: '#000000' }) };
     const hookParams = { ...seedHookParams(clip, preselections), ...(initial?.hookParams || {}), ...hookStyle, text: hookText };

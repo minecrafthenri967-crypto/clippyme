@@ -109,6 +109,30 @@ export function SubtitleControls({ value: v, onChange, variant = 'edit' }) {
               <Switch on={!!v.pop} onChange={(pop) => onChange({ pop })} />
             </div>
           )}
+          {variant === 'create' ? (
+            <div className="opt" style={{ paddingLeft: 0, paddingRight: 0 }}>
+              <div className="otxt"><div className="ot" style={{ fontSize: 13 }}>Highlight numbers</div>
+                <div className="od">Numbers stay a distinct colour the whole line</div></div>
+              <Switch on={!!v.emphasize_numbers} onChange={(emphasize_numbers) => onChange({ emphasize_numbers })} />
+            </div>
+          ) : (
+            <div className="edit-opt" style={{ marginTop: 4 }}>
+              <div className="eo-txt"><div className="eo-t" style={{ fontSize: 13 }}>Highlight numbers</div>
+                <div className="eo-d">Numbers stay a distinct colour the whole line</div></div>
+              <Switch on={!!v.emphasize_numbers} onChange={(emphasize_numbers) => onChange({ emphasize_numbers })} />
+            </div>
+          )}
+          {v.emphasize_numbers && (
+            <div className="cf-row">
+              <span className="field-label" style={{ marginBottom: 9, display: 'flex' }}>Number colour</span>
+              <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="color" aria-label="Number highlight color" value={v.emphasis_color || '#FF2D95'}
+                  onChange={(e) => onChange({ emphasis_color: e.target.value })}
+                  style={{ width: 40, height: 30, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
+                <span className={desc}>{(v.emphasis_color || '#FF2D95').toUpperCase()}</span>
+              </span>
+            </div>
+          )}
         </>
       )}
       {v.mode === 'classic' && (

@@ -552,6 +552,8 @@ async def _apply_subtitles(
                 outline_color=subtitle_params.get("outline_color"),
                 align=subtitle_params.get("align", "center"),
                 pop=bool(subtitle_params.get("pop")),
+                emphasize_numbers=bool(subtitle_params.get("emphasize_numbers")),
+                emphasis_color=subtitle_params.get("emphasis_color"),
             ),
         )
         if not success:

@@ -138,3 +138,97 @@ def test_second_words_offset_accounts_for_the_first_words_duration(tmp_path):
     # phase must start at ~500ms (its own \k duration is 0.5s = 50cs).
     assert starts[0] == 0
     assert starts[2] == 500
+
+
+# --- number emphasis --------------------------------------------------------
+
+from clippyme.domain.subtitles import (  # noqa: E402
+    DEFAULT_EMPHASIS_COLOR,
+    build_emphasis_color_tags,
+    word_has_digit,
+)
+
+PRIMARY = "&H00FF00FF&"
+SECONDARY = "&H00FFFFFF&"
+EMPHASIS = "&H00952DFF&"
+
+
+@pytest.mark.parametrize("word,expected", [
+    ("3", True), ("$50", True), ("2024", True), ("10x", True), ("100%", True),
+    ("free", False), ("the", False), ("", False), (None, False),
+])
+def test_word_has_digit(word, expected):
+    assert word_has_digit(word) is expected
+
+
+def test_emphasis_word_gets_the_same_colour_for_both_karaoke_states():
+    """The whole point: a number reads as important throughout the line, not
+    only once the karaoke sweep reaches it — so primary and secondary must
+    be identical for an emphasis word, unlike a normal word."""
+    tags = build_emphasis_color_tags(True, PRIMARY, SECONDARY, EMPHASIS)
+    assert f"\\1c{EMPHASIS}" in tags
+    assert f"\\2c{EMPHASIS}" in tags
+
+
+def test_normal_word_keeps_its_own_karaoke_colour_pair():
+    tags = build_emphasis_color_tags(False, PRIMARY, SECONDARY, EMPHASIS)
+    assert f"\\1c{PRIMARY}" in tags
+    assert f"\\2c{SECONDARY}" in tags
+
+
+def test_no_bold_tag_is_ever_emitted():
+    """The style's own [V4+ Styles] line already sets Bold=-1 (every karaoke
+    word is bold by default, verified by real render) — an explicit \\b0 on
+    non-emphasis words would make them THINNER than that default instead of
+    leaving normal words untouched, and ASS has no way to go bolder than
+    Bold=-1 to add real contrast on emphasis words either. Colour is the
+    entire effect; \\b must never appear here."""
+    for is_emphasis in (True, False):
+        tags = build_emphasis_color_tags(is_emphasis, PRIMARY, SECONDARY, EMPHASIS)
+        assert "\\b" not in tags
+
+
+# --- generate_ass_karaoke wiring (emphasize_numbers) ------------------------
+
+def test_emphasize_numbers_false_emits_no_emphasis_tags(tmp_path):
+    transcript = _transcript([("we", 0.0, 0.3), ("made", 0.3, 0.6), ("3", 0.6, 0.9)])
+    out = tmp_path / "sub.ass"
+    generate_ass_karaoke(transcript, 0.0, 1.0, str(out), emphasize_numbers=False)
+    content = out.read_text()
+    assert "\\1c" not in content and "\\b0" not in content and "\\b1" not in content
+
+
+def test_emphasize_numbers_true_marks_only_the_numeric_word(tmp_path):
+    transcript = _transcript([("we", 0.0, 0.3), ("made", 0.3, 0.6), ("3", 0.6, 0.9)])
+    out = tmp_path / "sub.ass"
+    generate_ass_karaoke(transcript, 0.0, 1.0, str(out), emphasize_numbers=True,
+                         words_per_group=3, emphasis_color="#123456")
+    content = out.read_text()
+    assert content.count("&H00563412") == 2  # "3" gets it for BOTH \1c and \2c
+    assert "\\b" not in content  # never touches weight (see build_emphasis_color_tags)
+
+
+def test_emphasis_colour_override_reaches_the_output(tmp_path):
+    transcript = _transcript([("5", 0.0, 0.5)])
+    out = tmp_path / "sub.ass"
+    generate_ass_karaoke(transcript, 0.0, 1.0, str(out), emphasize_numbers=True,
+                         emphasis_color="#00FF00")
+    content = out.read_text()
+    assert "\\1c&H0000FF00" in content  # ASS is BGR: green -> 00FF00
+
+
+def test_invalid_emphasis_color_raises(tmp_path):
+    transcript = _transcript([("5", 0.0, 0.5)])
+    out = tmp_path / "sub.ass"
+    with pytest.raises(ValueError, match="emphasis_color"):
+        generate_ass_karaoke(transcript, 0.0, 1.0, str(out), emphasis_color="not-a-color")
+
+
+def test_default_emphasis_color_is_not_any_preset_highlight_color():
+    """Checked against every SUBTITLE_PRESETS highlight_color at design time
+    — pin it so a future preset addition can't silently collide and make the
+    emphasis invisible (identical to the 'already spoken' karaoke colour)."""
+    from clippyme.domain.subtitles import SUBTITLE_PRESETS
+
+    used = {p["highlight_color"].upper() for p in SUBTITLE_PRESETS.values()}
+    assert DEFAULT_EMPHASIS_COLOR.upper() not in used

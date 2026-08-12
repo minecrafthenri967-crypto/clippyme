@@ -544,9 +544,12 @@ export function optsToPreselections(opts) {
                 font_color: opts.subColor || '#FFFFFF',
                 outline_color: opts.subStroke || '#000000',
                 ...(opts.subFontSize > 0 ? { font_size: opts.subFontSize } : {}),
-                // Word pop only means anything for the karaoke \k timeline —
-                // gated the same way font_size/colors already are above.
+                // Word pop / number emphasis only mean anything for the
+                // karaoke \k timeline — gated the same way font_size/colors
+                // already are above.
                 ...(opts.subPop ? { pop: true } : {}),
+                ...(opts.subEmphasizeNumbers ? { emphasize_numbers: true } : {}),
+                ...(opts.subEmphasisColor ? { emphasis_color: opts.subEmphasisColor } : {}),
               }
             : {}),
           // Classic-mode typography (karaoke draws style from the preset, so

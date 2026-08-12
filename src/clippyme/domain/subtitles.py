@@ -263,6 +263,57 @@ def build_pop_transform_tags(t1_ms, word_duration_ms,
     )
 
 
+# --- Number emphasis (persistent accent on numeric words) ------------------
+#
+# A number is the single strongest, most language-agnostic scan-anchor in a
+# short-form caption — a stat, a price, a count — exactly what a sound-off
+# viewer's eye catches on. Deliberately scoped to digits only, NOT a curated
+# superlative/power-word list: a guessed multi-language copywriting
+# vocabulary risks being subjective or simply wrong in a language this
+# codebase supports but no one here can verify by ear; a digit is
+# unambiguous in every one of them.
+#
+# Checked against every SUBTITLE_PRESETS highlight_color below before
+# picking this: yellow/green/cyan/white/red are all already spoken for, so
+# an emphasis colour drawn from that set would be invisible (identical to
+# the "already spoken" karaoke colour) on whichever preset uses it.
+DEFAULT_EMPHASIS_COLOR = "#FF2D95"  # vivid pink/magenta — on no existing preset
+_DIGIT_RE = re.compile(r"\d")
+
+
+def word_has_digit(word_text: str) -> bool:
+    """Is this word an emphasis candidate (contains at least one digit)?"""
+    return bool(_DIGIT_RE.search(word_text or ""))
+
+
+def build_emphasis_color_tags(is_emphasis, primary_colour, secondary_colour, emphasis_colour):
+    """ASS override tags giving a word either its normal karaoke colour pair
+    or a single persistent emphasis colour.
+
+    An emphasis word gets the SAME colour for \\1c (primary/"spoken") and
+    \\2c (secondary/"upcoming") — it deliberately does not participate in the
+    karaoke sweep at all, since the point is a number reads as important
+    throughout the line, not only once the highlight reaches it.
+
+    Every word states its OWN colour explicitly (never relies on what the
+    previous word's override block left behind) for the same reason
+    ``build_pop_transform_tags`` always resets scale: ASS override tags
+    persist across a line until changed, so a non-emphasis word right after
+    an emphasis one would otherwise inherit its colour.
+
+    Colour only, deliberately no \\b (bold) toggle: the [V4+ Styles] line
+    this module writes sets Bold=-1 (every karaoke word is already bold by
+    default), verified by real render — an earlier version forced \\b0 on
+    non-emphasis words, which didn't add emphasis, it made every OTHER word
+    THINNER than the existing default. ASS has no "bolder than bold" to add
+    real contrast on top of that, so weight carries no signal here; colour
+    alone is the entire effect.
+    """
+    if is_emphasis:
+        return f"\\1c{emphasis_colour}\\2c{emphasis_colour}"
+    return f"\\1c{primary_colour}\\2c{secondary_colour}"
+
+
 def hex_to_ass_color(hex_color, opacity=1.0):
     """Convert #RRGGBB to ASS &HAABBGGRR format. opacity: 0.0=transparent, 1.0=opaque"""
     hex_color = hex_color.lstrip('#')
@@ -547,7 +598,7 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
                          font_name=None, font_color=None, highlight_color=None,
                          font_size=None, outline_width=None, position="bottom",
                          offset_y=0, outline_color=None, align="center",
-                         pop=False):
+                         pop=False, emphasize_numbers=False, emphasis_color=None):
     """
     Generate an ASS subtitle file with karaoke word-by-word highlighting.
     Uses \\k tags so the current word snaps from secondary (base) to primary (highlight) color.
@@ -564,6 +615,10 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
         position: 'top', 'center', 'bottom'
         pop: also scale-bounce the active word (see build_pop_transform_tags). Off by
             default — an opt-in style on top of the existing colour-only highlight.
+        emphasize_numbers: give every word containing a digit a persistent distinct
+            colour + bold (see build_emphasis_color_tags), regardless of the karaoke
+            sweep's position. Off by default.
+        emphasis_color: override for the emphasis colour (default DEFAULT_EMPHASIS_COLOR).
     """
     # Resolve preset
     style = SUBTITLE_PRESETS.get(preset, SUBTITLE_PRESETS["classic_white"]).copy()
@@ -580,7 +635,7 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
     # are interpolated into the .ass file and must not silently coerce to white
     # (hex_to_ass_color's fallback) on a malformed value.
     for _label, _val in (("font_color", font_color), ("highlight_color", highlight_color),
-                         ("outline_color", outline_color)):
+                         ("outline_color", outline_color), ("emphasis_color", emphasis_color)):
         if _val and not _HEX_RE.match(str(_val)):
             raise ValueError(f"invalid {_label}: {_val!r}")
     if font_color:
@@ -652,6 +707,7 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
     secondary_colour = hex_to_ass_color(style["text_color"], 1.0)
     outline_colour = hex_to_ass_color(style.get("outline_color", "#000000"), 1.0)
     back_colour = hex_to_ass_color("#000000", 0.0)
+    emphasis_colour_ass = hex_to_ass_color(emphasis_color or DEFAULT_EMPHASIS_COLOR, 1.0)
 
     # ASS header
     ass_content = (
@@ -702,7 +758,13 @@ def generate_ass_karaoke(transcript, clip_start, clip_end, output_path,
             # to this word's override block — elapsed_ms is the running offset
             # that makes the pop land on the right word instead of drifting.
             pop_tags = build_pop_transform_tags(elapsed_ms, duration_ms) if pop else ""
-            karaoke_parts.append(f"{{\\k{duration_cs}{pop_tags}}}{text}")
+            emphasis_tags = ""
+            if emphasize_numbers:
+                emphasis_tags = build_emphasis_color_tags(
+                    word_has_digit(w['word']), primary_colour, secondary_colour,
+                    emphasis_colour_ass,
+                )
+            karaoke_parts.append(f"{{\\k{duration_cs}{emphasis_tags}{pop_tags}}}{text}")
             elapsed_ms += duration_ms
 
         line_text = " ".join(karaoke_parts)

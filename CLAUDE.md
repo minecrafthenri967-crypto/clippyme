@@ -616,6 +616,34 @@ converter pair used by the Live Monitor drawer. **A new subtitle-style field
 needs all four updated together**, or it silently dead-ends on whichever
 surfaces were missed.
 
+**Number emphasis** (`subtitles.generate_ass_karaoke(..., emphasize_numbers=)`,
+`subtitle_params.emphasize_numbers`/`emphasis_color`, default OFF): every word
+containing a digit gets a persistent distinct colour (`DEFAULT_EMPHASIS_COLOR`
+`#FF2D95`, chosen because it collides with NO `SUBTITLE_PRESETS` `highlight_color`
+— pinned by a test) for BOTH `\1c` and `\2c`, so it does not participate in the
+karaoke sweep at all — a number reads as important for the whole line, not only
+once the highlight reaches it. Deliberately scoped to digits only, not a curated
+superlative/power-word list: a guessed multi-language copywriting vocabulary
+risks being subjective or simply wrong in a language nobody here can verify by
+ear, where a digit is unambiguous in every one of them.
+⚠️ `build_emphasis_color_tags` emits colour ONLY, never `\b` (bold) — an earlier
+version forced `\b0` on non-emphasis words to prevent inheriting an emphasis
+word's boldness, discovered by real render to be an actual regression: the
+`[V4+ Styles]` line this module writes sets `Bold=-1` (every karaoke word is
+already bold by default), so an explicit `\b0` made every OTHER word THINNER
+than the existing look, and ASS has no "bolder than bold" to add real contrast
+on top of that default anyway — weight carries no signal here, colour is the
+entire effect. Verified against real ffmpeg/libass output, not assumed: with
+the bug, a non-emphasis word measurably differed in pixel weight between
+`emphasize_numbers=True/False`; after the fix, that word renders byte-identical
+between the two, and the emphasis colour is confirmed present on the numeric
+word BEFORE its own `\k` turn (RGB sampled ~235,42,139 against the intended
+#FF2D95, vs. the un-emphasized word's near-white ~239,239,239 at the same
+instant) — proof the colour is a constant override, not a sped-up karaoke cue.
+Reaching all three surfaces needed the exact same four-fix pattern as `pop`
+above (same session, same bug class, applied correctly on the first pass this
+time).
+
 **Smart Cut**: transcript-driven silence/filler removal rendered via a
 hand-built auto-editor v3 JSON timeline (ffmpeg concat fallback if the binary
 is missing), plus an audio-threshold polish pass. Manual trims arrive as

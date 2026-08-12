@@ -212,6 +212,8 @@ const SUB_KEYMAP = {
   // hook fix from the same session — identical bug class, caught before ship
   // this time instead of after).
   pop: 'subPop',
+  emphasize_numbers: 'subEmphasizeNumbers',
+  emphasis_color: 'subEmphasisColor',
 };
 
 function SubConfig({ opts, set }) {
@@ -228,6 +230,8 @@ function SubConfig({ opts, set }) {
     align: opts.subAlign || 'center',
     offset_y: opts.subOffsetY || 0,
     pop: !!opts.subPop,
+    emphasize_numbers: !!opts.subEmphasizeNumbers,
+    emphasis_color: opts.subEmphasisColor,
   };
   const onChange = (partial) => {
     const patch = {};

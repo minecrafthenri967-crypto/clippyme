@@ -210,3 +210,16 @@ test('subtitle pop toggle does not leak into classic mode preselections', () => 
   const pre = optsToPreselections({ subtitles: true, subMode: 'classic', subPop: true });
   assert.equal('pop' in pre.subtitles, false);
 });
+
+test('number emphasis toggle + color reach preselections only in karaoke mode', () => {
+  const pre = optsToPreselections({
+    subtitles: true, subMode: 'karaoke', subEmphasizeNumbers: true, subEmphasisColor: '#00FF00',
+  });
+  assert.equal(pre.subtitles.emphasize_numbers, true);
+  assert.equal(pre.subtitles.emphasis_color, '#00FF00');
+});
+
+test('number emphasis does not leak into classic mode preselections', () => {
+  const pre = optsToPreselections({ subtitles: true, subMode: 'classic', subEmphasizeNumbers: true });
+  assert.equal('emphasize_numbers' in pre.subtitles, false);
+});
