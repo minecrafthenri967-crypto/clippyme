@@ -15,6 +15,12 @@ test('PRESET_KEYS includes every subtitle fine-tuning field the drawer sets', ()
   }
 });
 
+test('PRESET_KEYS includes the karaoke pop / number emphasis fields', () => {
+  for (const k of ['subPop', 'subEmphasizeNumbers', 'subEmphasisColor']) {
+    expect(PRESET_KEYS).toContain(k);
+  }
+});
+
 test('PRESET_KEYS includes the hook fields the drawer sets', () => {
   for (const k of ['hookPos', 'hookSize', 'hookStyle']) {
     expect(PRESET_KEYS).toContain(k);

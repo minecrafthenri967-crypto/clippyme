@@ -355,6 +355,17 @@ hook copy belongs on it — peak footage + hook text together is the whole point
 The window is remapped through Smart Cut's kept spans exactly like the
 player-image timestamp, and a peak that was cut away — or only partially
 survived — skips the teaser rather than showing a fragment.
+⚠️ `teaser_params` needs the same per-clip round trip every other layer's
+params object gets — `lib/bulkApply.js`'s `clipStateToParams`/`buildClipParams`
+(auto-compose + "apply to all") were missing it entirely (no key at all, not
+even a default, unlike every other layer), and `lib/applyEdit.js`'s
+`runApplyEdit` — the function that actually calls `POST /api/compose` for
+auto-compose, bulk-apply AND the Edit modal alike — hardcoded
+`teaser_params: {}` regardless of the toggle or the staged params, the one
+layer whose compose body wasn't gated by its own toggle the way `hook_params`/
+`subtitle_params`/`player_image_params` all are just above it. Fixed in the
+same pass as the `PRESET_KEYS` gap above (found while auditing every
+per-clip-params seam for the same "new field, one seam missed" bug class).
 
 **Hook impact sound** (`domain/hook_sfx.py`, `hook_params.sfx`, default OFF):
 a short synthesized "hit" mixed onto the clip's audio at the exact instant the
@@ -615,6 +626,18 @@ table, `realApi.js`'s `optsToPreselections` karaoke-only spread, `captions.jsx`'
 converter pair used by the Live Monitor drawer. **A new subtitle-style field
 needs all four updated together**, or it silently dead-ends on whichever
 surfaces were missed.
+⚠️ A FIFTH spot carries the same requirement and was missed on the first pass:
+`redesign/presets.js`'s `PRESET_KEYS` — the allow-list `captureOpts` uses for
+"Save current preset" / the one-click "Save as default" — is a completely
+separate persistence path from the four above (browser localStorage, not a
+compose payload) and needs the new `sub*` opts key too, or "Save as default"
+silently drops the field on every save even though the drawer itself and a
+same-session compose both honour it correctly. This is the exact bug PRESET_KEYS
+was already fixed for once (missing `subFontSize`/`subStroke`/etc.) — `pop`/
+`emphasize_numbers`/`emphasis_color`'s `subPop`/`subEmphasizeNumbers`/
+`subEmphasisColor` opts keys reintroduced it, caught only when a user's saved
+default silently stopped applying them. `presets.test.js` now pins these three
+keys the same way it already pinned the earlier ones.
 
 **Number emphasis** (`subtitles.generate_ass_karaoke(..., emphasize_numbers=)`,
 `subtitle_params.emphasize_numbers`/`emphasis_color`, default OFF): every word

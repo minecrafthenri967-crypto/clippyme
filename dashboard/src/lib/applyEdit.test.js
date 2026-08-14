@@ -99,6 +99,36 @@ test('player_image toggle off sends empty player_image_params', async () => {
   expect(body.player_image_params).toEqual({});
 });
 
+// teaser_params was previously hardcoded to {} unconditionally — the toggle
+// reached the backend (via `toggles`) but any per-clip teaser params never
+// did, the one layer where the compose body ignored the staged params object
+// entirely instead of gating it like every other layer above.
+test('teaser toggle gates teaser_params the same way as the others', async () => {
+  const { args } = makeCtx();
+  await runApplyEdit({
+    ...args,
+    params: baseParams({
+      toggles: { smartcut: false, subtitles: false, hook: false, logo: false, grade: false, teaser: true },
+      teaserParams: { transition: 'fade' },
+    }),
+  });
+  const body = args.api.composeClip.mock.calls[0][2];
+  expect(body.teaser_params).toEqual({ transition: 'fade' });
+});
+
+test('teaser toggle off sends empty teaser_params', async () => {
+  const { args } = makeCtx();
+  await runApplyEdit({
+    ...args,
+    params: baseParams({
+      toggles: { smartcut: false, subtitles: true, hook: false, logo: false, grade: false, teaser: false },
+      teaserParams: { transition: 'fade' },
+    }),
+  });
+  const body = args.api.composeClip.mock.calls[0][2];
+  expect(body.teaser_params).toEqual({});
+});
+
 test('smartcut on forwards drop_ranges', async () => {
   const { args } = makeCtx();
   await runApplyEdit({

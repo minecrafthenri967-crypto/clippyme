@@ -24,6 +24,13 @@ export const PRESET_KEYS = [
   // current"/the default preset silently reverted them to the preset's
   // basic values on every reload.
   'subFontSize', 'subStroke', 'subOutlineW', 'subBg', 'subAlign', 'subOffsetY',
+  // Karaoke word pop + number emphasis — added alongside the subtitle drawer
+  // toggles that set them (SubConfig's SUB_KEYMAP in create.jsx); missing here
+  // meant "Save current"/"Save as default" silently dropped both back to off
+  // on every reload, even though the drawer itself persisted them correctly
+  // within a single session — the exact same class of bug this list already
+  // got bitten by once (see the comment above on the other subtitle fields).
+  'subPop', 'subEmphasizeNumbers', 'subEmphasisColor',
   'hooks', 'hookPos', 'hookSize', 'hookStyle',
   'logo', 'logoPos', 'logoSize', 'logoScale', 'language',
   'playerImage', 'playerImagePos', 'playerImageSize', 'teaser',

@@ -77,6 +77,24 @@ test('buildClipParams defaults playerImageParams when source has none', () => {
   assert.deepEqual(out.playerImageParams, { position: 'center', size: 'M' });
 });
 
+// teaserParams was missing from both functions entirely — a bulk apply or
+// auto-compose plan never carried the teaser toggle's own params object at
+// all (unlike every other layer, which at least has a documented default).
+test('clipStateToParams and buildClipParams carry teaserParams', () => {
+  const state = { teaserParams: { transition: 'fade' } };
+  const p = clipStateToParams(state, {}, {});
+  assert.deepEqual(p.teaserParams, { transition: 'fade' });
+
+  const out = buildClipParams(p, {}, {});
+  assert.deepEqual(out.teaserParams, { transition: 'fade' });
+});
+
+test('buildClipParams defaults teaserParams to empty object when source has none', () => {
+  const src = { reframeMode: 'auto', toggles: {}, subtitleParams: {}, logoParams: {}, hookParams: {} };
+  const out = buildClipParams(src, {}, {});
+  assert.deepEqual(out.teaserParams, {});
+});
+
 test('buildBulkPlan skips the source clip and plans the rest', () => {
   const src = { reframeMode: 'auto', toggles: { smartcut: true }, subtitleParams: {}, logoParams: {}, hookParams: { text: 'x' } };
   const targets = [
