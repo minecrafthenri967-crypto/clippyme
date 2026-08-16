@@ -15,6 +15,7 @@ from clippyme.pipeline.gemini_parser import (
     _hook_text_is_generic,
     _viral_reason_is_generic,
     backfill_hook_text,
+    count_duplicate_hooks,
     parse_gemini_response,
     validate_and_dedupe,
 )
@@ -189,3 +190,51 @@ def test_backfill_falls_back_to_title():
     clips = [{"viral_hook_text": "", "video_title_for_youtube_short": "The pricing tactic"}]
     out = backfill_hook_text(clips, words=[], fallback_title="Source title")
     assert out[0]["viral_hook_text"]  # never left empty
+
+
+def test_backfill_last_resort_is_empty_not_banned_bait():
+    """No Gemini hook and no title of any kind → no overlay at all.
+
+    The old last resort emitted "You need to see this" — a phrase on this
+    module's OWN _GENERIC_HOOK_MARKERS list and on the prompt's NEVER-use
+    list, so the fallback burned the exact bait the pipeline exists to
+    prevent and then flagged itself for it.
+    """
+    clips = [{"viral_hook_text": "", "video_title_for_youtube_short": ""}]
+    out = backfill_hook_text(clips, words=[], fallback_title="")
+    assert out[0]["viral_hook_text"] == ""
+    assert not _hook_text_is_generic(out[0]["viral_hook_text"])
+
+
+# --- count_duplicate_hooks --------------------------------------------------
+# The language-neutral half of the hook-quality diagnostic: the English marker
+# list catches nothing on an Italian/German transcript, but two identical
+# hooks are a template in every language.
+
+def test_count_duplicate_hooks_counts_redundant_copies_not_distinct_texts():
+    # Three clips share one hook → two clips lost their own copy.
+    assert count_duplicate_hooks(["Stesso gancio", "Stesso gancio", "Stesso gancio"]) == 2
+
+
+def test_count_duplicate_hooks_is_zero_when_every_hook_is_unique():
+    assert count_duplicate_hooks(["L'errore da 40.000€", "3 secondi per capire"]) == 0
+
+
+def test_count_duplicate_hooks_normalizes_case_and_whitespace():
+    assert count_duplicate_hooks(["  L'Errore Da 40.000€ ", "l'errore da 40.000€"]) == 1
+
+
+def test_count_duplicate_hooks_ignores_empty_hooks():
+    # backfill leaves these deliberately blank — "no overlay twice" is not
+    # duplicated copy.
+    assert count_duplicate_hooks(["", "", "  ", None]) == 0
+
+
+def test_count_duplicate_hooks_handles_empty_input():
+    assert count_duplicate_hooks([]) == 0
+    assert count_duplicate_hooks(None) == 0
+
+
+def test_count_duplicate_hooks_works_on_a_generator():
+    # validate_and_dedupe passes a generator expression, not a list.
+    assert count_duplicate_hooks(h for h in ["a", "a", "b"]) == 1

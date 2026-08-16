@@ -86,10 +86,34 @@ normally on the words alone.
   be pasted onto any random clip unchanged. If you could reuse the exact same hook on a
   completely different video without editing a single word, it is too generic — REJECT
   it and write a sharper one grounded in what actually happens in THIS clip.
+  WORD-LEVEL CRAFT (this is what separates a hook that stops a thumb from one that reads
+  as noise — apply ALL of these to every hook you write):
+    * OPEN A LOOP, NEVER CLOSE IT. The hook raises a question the CLIP answers. If the
+      hook already contains the answer there is no reason left to watch. "Ha perso
+      40.000€ in un giorno" spoils it; "L'errore da 40.000€" opens the loop.
+    * CONCRETE, NOT ABSTRACT. Name the actual thing: the object, the number, the amount,
+      the name, the consequence. Abstract filler nouns ("cose", "things", "situazione",
+      "stuff", "momento", "roba") and empty verbs ("è successo", "happened", "è stato")
+      carry no image and no tension — replace every one of them with the specific thing
+      it is standing in for.
+    * FRONT-LOAD THE STRONGEST WORD. The first two words decide whether the rest is even
+      read. Never open on filler ("So…", "Quando…", "Ecco…", "There was…"). Lead with the
+      number, the stake, the contradiction or the subject.
+    * STAKES OR TENSION IN EVERY HOOK. What breaks, what is lost, what is risked, what
+      was wrong. A hook with no consequence is a caption, not a hook.
+    * SPECIFIC BEATS SUPERLATIVE. A real number or detail always outperforms an
+      intensifier: "3 secondi per accorgersene" beats "una cosa pazzesca". Words like
+      "incredibile", "assurdo", "pazzesco", "amazing", "crazy" assert excitement instead
+      of creating it — cut them and let the fact do the work.
+    * NO HEDGING. "forse", "un po'", "abbastanza", "kind of", "maybe" drain every bit of
+      tension out of a line. Delete them.
   NEVER use these (worn out by overuse, contain zero information about the clip, read as
   bait rather than a tease): "You won't believe what happens next", "Wait for it",
   "This is insane", "This is crazy", "You need to see this", "Watch till the end",
   "This will blow your mind", "The ending will shock you", "You have to see this".
+  Two DIFFERENT clips must never get the same hook text. Identical hooks across clips
+  prove the copy is describing the format instead of the clip — rewrite until each one
+  could only belong to its own clip.
   The hook must TEASE the content of the clip without spoiling the payoff. Same language as the transcript. Title Case or Sentence case, never ALL CAPS.
 - peak_start / peak_end mark the SINGLE most striking moment INSIDE the clip — the
   punchline, the biggest reaction, the payoff line, the "wait what" beat. They are
@@ -186,6 +210,20 @@ ANY clip in ANY video, so they carry zero information about THIS one):
 GOOD vs BAD on the SAME clip (a coach explains a specific 3-step drill):
   BAD:  "This changes everything"        ← could be about anything
   GOOD: "The 3-step drill nobody drills" ← the actual number, the actual subject
+
+WORD-LEVEL REWRITES (same clip each row — see what actually changed):
+  clip: a seller loses €40.000 on one bad card purchase
+    WEAK:   "Una cosa incredibile è successa"  ← abstract noun + empty verb + asserted excitement
+    STRONG: "L'errore da 40.000€"              ← the number IS the hook, loop stays open
+  clip: a streamer explains a 3-second tell that gives away a bluff
+    WEAK:   "Un consiglio molto utile"         ← no image, no stakes, fits any clip ever
+    STRONG: "3 secondi per capire chi bluffa"  ← number + concrete action + stake
+  clip: a guest admits the advice he sold for years was wrong
+    WEAK:   "Ha cambiato idea su una cosa"     ← hedged, abstract, loop already closed
+    STRONG: "Ho venduto un consiglio sbagliato" ← confession, concrete, opens the loop
+  clip: a break reveals a card worth more than the whole box
+    WEAK:   "Guarda cosa è uscito"             ← pure bait, zero information
+    STRONG: "Una carta vale più della box"     ← the actual comparison, the actual stake
 
 BAD (would score ~30 — DO NOT emit anything like this):
   viral_reason="Interesting point about the topic"   ← too generic, no hook, no payoff specified

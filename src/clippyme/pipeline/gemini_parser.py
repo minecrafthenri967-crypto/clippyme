@@ -224,9 +224,39 @@ def _hook_text_is_generic(hook_text: str) -> bool:
     candidate via ``drop_generic``), a weak hook does not mean the CLIP is
     bad, only that the copy is. Callers log this rather than reject the clip,
     so a slow-to-improve prompt is visible without ever costing usable output.
+
+    ⚠️ The marker list is ENGLISH ONLY, so this catches nothing on an Italian
+    or German transcript — see ``count_duplicate_hooks`` for the
+    language-neutral half of the same diagnostic.
     """
     lowered = (hook_text or "").lower().strip()
     return any(marker in lowered for marker in _GENERIC_HOOK_MARKERS)
+
+
+def count_duplicate_hooks(hook_texts) -> int:
+    """How many hooks in one batch are not unique to their own clip.
+
+    A hook repeated across two clips of the SAME video is proof the copy is
+    describing the format rather than the clip — the exact failure the prompt's
+    specificity mandate exists to prevent. Unlike ``_hook_text_is_generic``'s
+    English phrase list this works in every language, because it compares the
+    hooks against EACH OTHER instead of against a vocabulary: whatever language
+    Gemini answered in, two identical strings are still a template.
+
+    Counts the redundant copies, not the distinct offending texts — three clips
+    sharing one hook is two clips that lost their own copy. Empty hooks are
+    ignored (``backfill_hook_text`` leaves those deliberately blank, and "no
+    overlay twice" is not duplicated copy).
+
+    Diagnostic only, same as ``_hook_text_is_generic`` — never drops a clip.
+    """
+    seen: Dict[str, int] = {}
+    for text in hook_texts or ():
+        key = (text or "").strip().lower()
+        if not key:
+            continue
+        seen[key] = seen.get(key, 0) + 1
+    return sum(count - 1 for count in seen.values() if count > 1)
 
 
 # Timestamp coercion now lives in clippyme.api.schemas.ViralClip as a
@@ -320,6 +350,13 @@ def validate_and_dedupe(
             "(prompt asks Gemini to avoid this — logged for visibility only, not dropped)",
             generic_hooks, len(candidates),
         )
+    duplicate_hooks = count_duplicate_hooks(c.viral_hook_text for c in candidates)
+    if duplicate_hooks:
+        logger.info(
+            "validate_and_dedupe: %d/%d clip(s) reuse another clip's viral_hook_text "
+            "(copy is describing the format, not the clip — logged only, not dropped)",
+            duplicate_hooks, len(candidates),
+        )
 
     candidates.sort(key=lambda c: -c.viral_score)
 
@@ -361,7 +398,18 @@ def backfill_hook_text(
       1. Keep Gemini's hook if non-empty (normalized + truncated to 8 words).
       2. Derive a teaser-style hook from the YouTube title if present.
       3. Use ``fallback_title`` (source title) similarly truncated.
-      4. Hard-coded generic teaser so the field is never empty.
+      4. Leave it EMPTY — no overlay at all.
+
+    Step 4 used to emit the literal string "You need to see this", which is on
+    this module's own ``_GENERIC_HOOK_MARKERS`` list AND on the prompt's own
+    NEVER-use list: the last-resort fallback burned onto the video the exact
+    worn-out bait phrase the rest of the pipeline exists to prevent, and then
+    tripped its own quality alarm doing it. It only fires when there is no
+    Gemini hook AND no title of any kind, so there is nothing clip-specific
+    left to say — and an empty hook is handled cleanly everywhere downstream
+    (``compose._compose_layers_impl`` skips the hook layer with a warning,
+    ``build_monitor_compose`` leaves the toggle off). No overlay beats the most
+    overused sentence on the platform.
 
     The ``words`` parameter is kept for backward compatibility with
     callers in ``main.py`` and ``job_results.py``; it is intentionally
@@ -386,7 +434,8 @@ def backfill_hook_text(
             clip["viral_hook_text"] = title_hook
             continue
 
-        clip["viral_hook_text"] = "You need to see this"
+        # Nothing clip-specific to say → no overlay (see docstring step 4).
+        clip["viral_hook_text"] = ""
 
     return clips
 
@@ -439,5 +488,6 @@ __all__ = [
     "parse_gemini_response",
     "validate_and_dedupe",
     "backfill_hook_text",
+    "count_duplicate_hooks",
     "drop_wordless_clips",
 ]

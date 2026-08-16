@@ -288,9 +288,32 @@ list on the backend so a violation is DETECTABLE even if the model ignores the
 instruction. ⚠️ Unlike `_viral_reason_is_generic` (which `drop_generic` can use
 to reject a candidate), this check is diagnostic-only — `validate_and_dedupe`
 logs a count but never drops a clip over it. Weak marketing copy doesn't mean
-the clip itself is bad, and the fallback chain (`backfill_hook_text`) already
-guarantees a non-empty hook either way; dropping would only lose good footage
-over fixable copy.
+the clip itself is bad; dropping would only lose good footage over fixable copy.
+Beyond the banned list the prompt now also carries WORD-LEVEL craft rules —
+open a loop instead of closing it (a hook that states the payoff removes the
+reason to watch), concrete nouns over abstract filler, strongest word first
+(the first two words decide the scroll), stakes in every hook, a real number
+over an intensifier ("incredibile"/"pazzesco" assert excitement instead of
+creating it), no hedging — plus a WORD-LEVEL REWRITES few-shot block showing
+weak→strong on the same clip, since the earlier abstract rules alone still
+produced grammatically-fine but flat copy.
+⚠️ `_hook_text_is_generic`'s marker list is ENGLISH ONLY, so it detects nothing
+on the Italian/German transcripts this install mostly runs — `count_duplicate_hooks`
+is the language-neutral half: it compares the batch's hooks against EACH OTHER
+rather than against a vocabulary, so two identical hooks read as a template in
+any language. It counts REDUNDANT COPIES, not distinct offending texts (three
+clips sharing one hook = two clips that lost their own copy), and skips empty
+hooks. Diagnostic-only, same as its sibling.
+⚠️ `backfill_hook_text`'s last resort used to emit the literal string "You need
+to see this" — a phrase on `_GENERIC_HOOK_MARKERS` AND on the prompt's own
+NEVER-use list, so the fallback burned the exact bait the pipeline exists to
+prevent and then flagged itself for it. It now leaves the hook EMPTY (its
+docstring's "never empty" guarantee is gone with it): the step only fires when
+there is no Gemini hook AND no title of any kind, so nothing clip-specific is
+left to say, and empty is handled cleanly everywhere downstream
+(`_compose_layers_impl` skips the hook layer with a warning,
+`build_monitor_compose` leaves the toggle off). No overlay beats the single
+most overused sentence on the platform.
 
 **Peak moment (cold-open teaser source)**: the SAME Gemini viral-detection call
 that returns `viral_hook_text` also returns an optional `peak_start`/`peak_end`
