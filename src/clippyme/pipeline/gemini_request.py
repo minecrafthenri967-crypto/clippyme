@@ -98,8 +98,23 @@ normally on the words alone.
   the video. Rules:
     * Same ABSOLUTE float seconds as start/end (NOT relative to the clip), anchored
       to real word `s`/`e` values from the WORDS section — same format rules as start/end.
+      This is a floor, not the whole job: pick the WORD whose `s`/`e` actually starts/
+      ends the moment, don't round to a nearby one that merely LOOKS close enough.
+      Downstream code re-snaps whatever you emit onto the nearest word boundary, so an
+      imprecise pick still renders cleanly — but it can only snap to a boundary near the
+      one you chose, so it cannot rescue picking the wrong MOMENT entirely.
     * start < peak_start < peak_end < end, STRICTLY inside the clip.
     * 1.0s ≤ (peak_end - peak_start) ≤ 3.0s. Prefer ~2s.
+    * If an audio-cue marker — see AUDIO CUES above — falls inside this clip, that is
+      the single strongest peak signal available: it is proof a reaction actually
+      happened, not just an inference from wording. A candidate moment ending right at
+      an ``(laughter)``/``(applause)``/``(cheering)`` marker outranks an equally
+      punchy-sounding line with no marker. Set peak_end at or just after the marker so
+      the reaction itself is included, not cut off before it lands.
+    * Without a marker, rank candidates the way a human scrolling would react: does
+      THIS 1-3s excerpt, seen with zero context, make someone stop and want the
+      set-up? A line that is merely informative or sets up a later payoff is not a
+      peak on its own — the payoff itself is.
     * NEVER put the peak at the very beginning of the clip. If the strongest moment
       is the clip's own opening, the teaser would just replay the opening twice —
       in that case omit both fields (set them to null) rather than emit a useless one.
@@ -143,11 +158,19 @@ GOOD (score 72, no standout moment — nulls are correct here):
   viral_hook_text="The pricing trick nobody mentions"
   peak_start=null peak_end=null                        ← nothing stands out; honest null beats a flat teaser
 
+GOOD (score 91, audio-cue-anchored peak):
+  start=58.000 end=95.400
+  transcript around 80s: "...so I told him the score wasn't even close (laughter) yeah he was NOT happy about that..."
+  viral_reason="Confession builds for 20s then lands a confirmed audience laugh at 80s — the reaction itself is the payoff, not just the line before it."
+  viral_hook_text="He was NOT happy about this"
+  peak_start=78.900 peak_end=80.850                     ← ends just AFTER the (laughter) marker so the reaction is IN the teaser, not cut off before it
+
 BAD peaks (DO NOT emit these):
   peak_start=12.340 peak_end=14.200   ← equals the clip's own opening; teaser would replay it twice
   peak_start=34.100 peak_end=34.400   ← 0.3s, far too short to register
   peak_start=20.000 peak_end=33.000   ← 13s is a second clip, not a moment
   peak covering "...and then he did it" ← pronoun fragment, meaningless with zero context
+  peak ending BEFORE a nearby (laughter)/(applause) marker ← cuts the reaction off right before it lands; the marker must be INSIDE the window
 
 BAD hooks (DO NOT emit these — they literally echo the transcript):
   "Hello everyone welcome back"          ← transcript intro, not a hook

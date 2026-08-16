@@ -418,10 +418,77 @@ def test_snap_clips_to_transcript_drops_a_peak_its_own_snap_invalidated():
 
 
 def test_snap_clips_to_transcript_keeps_a_peak_when_edges_only_widen():
-    """The common case — widened edges still contain the peak, so it stays."""
+    """The common case — widened edges still contain the peak, so it stays.
+
+    The peak itself still gets its own word-snap pass: with no word boundary
+    within reach of either edge, each keeps its raw value plus the standard
+    ``snap_clip_to_words`` pad (0.05s lead / 0.08s tail) — the same shift a
+    clip edge would get in the identical situation.
+    """
     words = [{"word": "One.", "start": 0.0, "end": 0.5}]
     clip = {"start": 10.0, "end": 40.0, "peak_start": 30.0, "peak_end": 32.0}
     snap_clips_to_transcript([clip], words, source_duration=60.0,
                              silences=[(10.5, 11.5)])
     assert clip["start"] < 10.0 and clip["end"] > 40.0, "precondition: edges widened"
-    assert clip["peak_start"] == 30.0 and clip["peak_end"] == 32.0
+    assert clip["peak_start"] == 29.95 and clip["peak_end"] == 32.08
+
+
+# --- snap_peak_to_words ------------------------------------------------------
+
+from clippyme.pipeline.cut_ops import snap_peak_to_words  # noqa: E402
+
+_PEAK_WORDS = [
+    {"start": 30.02, "end": 30.4, "word": "Wait,"},
+    {"start": 30.45, "end": 30.9, "word": "what"},
+    {"start": 30.95, "end": 31.98, "word": "just"},
+    {"start": 32.03, "end": 32.6, "word": "happened?"},
+]
+
+
+def test_snap_peak_to_words_snaps_a_mid_word_guess_onto_boundaries():
+    # Gemini guessed 30.2 (mid "Wait,") .. 32.4 (mid "happened?").
+    clip = {"start": 25.0, "end": 40.0, "peak_start": 30.2, "peak_end": 32.4}
+    snap_peak_to_words(clip, _PEAK_WORDS)
+    # Snapped to the nearest word start/end, then padded (0.05 lead / 0.08 tail).
+    assert clip["peak_start"] == 29.97   # 30.02 - 0.05
+    assert clip["peak_end"] == 32.68     # 32.6 + 0.08
+
+
+def test_snap_peak_to_words_is_a_noop_without_a_peak():
+    clip = {"start": 25.0, "end": 40.0}
+    snap_peak_to_words(clip, _PEAK_WORDS)
+    assert clip == {"start": 25.0, "end": 40.0}
+
+
+def test_snap_peak_to_words_is_a_noop_without_words():
+    clip = {"start": 25.0, "end": 40.0, "peak_start": 30.2, "peak_end": 32.4}
+    snap_peak_to_words(clip, [])
+    assert clip["peak_start"] == 30.2 and clip["peak_end"] == 32.4
+
+
+def test_snap_peak_to_words_drops_when_the_snap_pushes_the_peak_outside_the_clip():
+    # The clip's own end (32.5) sits between the nearest word boundary (32.6)
+    # and the raw Gemini guess (32.4) — snapping now pushes the peak's end
+    # past the clip's edge, so it must be dropped rather than kept misaligned.
+    clip = {"start": 25.0, "end": 32.5, "peak_start": 30.2, "peak_end": 32.4}
+    snap_peak_to_words(clip, _PEAK_WORDS)
+    assert clip["peak_start"] is None and clip["peak_end"] is None
+
+
+def test_snap_clips_to_transcript_snaps_the_peak_even_when_clip_edges_do_not_move():
+    """Regression: peak-snap used to only run inside the `edges moved` branch,
+    so a clip whose own [start, end] was already word-perfect never got its
+    peak word-snapped at all."""
+    words = [
+        {"start": 0.05, "end": 0.4, "word": "Hello"},
+        {"start": 0.5, "end": 0.9, "word": "world."},
+        {"start": 5.02, "end": 5.4, "word": "Second"},
+        {"start": 5.45, "end": 9.92, "word": "sentence."},
+    ]
+    clip = {"start": 0.0, "end": 10.0, "peak_start": 5.2, "peak_end": 5.85}
+    events = snap_clips_to_transcript([clip], words, source_duration=60.0)
+    assert events == [], "precondition: the clip's own edges already word-perfect"
+    # Peak still gets snapped to the nearby word boundaries + padded, even
+    # though nothing about the clip's own edges triggered a SnapEvent.
+    assert clip["peak_start"] == 4.97   # 5.02 - 0.05
+    assert clip["peak_end"] == 5.48     # 5.4 + 0.08

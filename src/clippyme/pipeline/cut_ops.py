@@ -603,8 +603,50 @@ def snap_clips_to_transcript(shorts, words, *, source_duration=None,
             clip["start"] = new_start
             clip["end"] = new_end
             events.append(SnapEvent(idx, path, raw_start, raw_end, new_start, new_end))
-            drop_peak_outside_clip(clip)
+        # Peak snap runs on EVERY clip that has words, not just ones whose own
+        # edges moved — Gemini's peak timestamp needs the same word-boundary
+        # treatment even when the surrounding clip was already word-perfect.
+        snap_peak_to_words(clip, words)
     return events
+
+
+def snap_peak_to_words(clip, words):
+    """Snap ``peak_start``/``peak_end`` to word boundaries — the same 'never
+    cut mid-word' treatment the clip's own ``[start, end]`` edges get from
+    ``snap_clip_to_words``, applied to the cold-open teaser's source window.
+
+    Gemini is instructed to anchor the peak to real word ``s``/``e`` values
+    (see ``gemini_request``'s prompt), but that is a prompt instruction, not a
+    guarantee — the model can still land a timestamp a few hundred ms inside a
+    word. That matters MORE here than for the clip's own edges: the teaser
+    (``domain/teaser.py``) concatenates a hard ``trim=start:end`` slice, and
+    unlike the clip's own opening/closing edges there is no fade absorbing a
+    misaligned cut — a peak landing mid-word is audible as a click or a
+    truncated consonant at BOTH the teaser's own cut-in and its hand-off back
+    to the clip.
+
+    Reuses ``snap_clip_to_words``'s own pad/max-snap budget rather than
+    inventing peak-specific constants — no reason for a 1-3s teaser window and
+    a 15-60s clip to disagree on what counts as "close enough to a word
+    boundary". Always re-validates containment via ``drop_peak_outside_clip``
+    afterwards: a snap that pushes the peak outside the clip's own (possibly
+    just-snapped) edges is cleared, the same "skip, never guess" rule every
+    other peak failure mode already follows.
+
+    Pure and idempotent; a no-op without a peak. Mutates and returns ``clip``.
+    """
+    start, end = clip.get("peak_start"), clip.get("peak_end")
+    if start is None or end is None:
+        return clip
+    try:
+        start = float(start)
+        end = float(end)
+    except (TypeError, ValueError):
+        return clip
+    if words:
+        clip["peak_start"], clip["peak_end"] = snap_clip_to_words(start, end, words)
+    drop_peak_outside_clip(clip)
+    return clip
 
 
 def drop_peak_outside_clip(clip):

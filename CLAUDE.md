@@ -314,6 +314,24 @@ Gemini's ORIGINAL edges, and while snapping usually WIDENS them (harmless), the
 waveform-silence refine can nudge `start` FORWARD past the peak
 (`tests/pipeline/test_cut_ops.py` pins both directions). Out-of-range → dropped,
 not clamped, same "skip, never guess" rule the player-image overlay follows.
+⚠️ `cut_ops.snap_peak_to_words` gives the peak window the SAME "never cut
+mid-word" treatment `snap_clip_to_words` gives the clip's own `[start, end]` —
+Gemini is prompt-instructed to anchor `peak_start`/`peak_end` to real word
+`s`/`e` values, but that is an instruction, not a guarantee, and it matters
+MORE here than for the clip edges: `prepend_teaser` concatenates a hard
+`trim=start:end` slice with no fade absorbing a misaligned cut, so a peak
+landing mid-word is audible as a click or a truncated consonant at BOTH the
+teaser's own cut-in and its hand-off back to the clip. Runs inside
+`snap_clips_to_transcript` UNCONDITIONALLY per clip — not only on clips whose
+own edges moved, since a clip can already be word-perfect while its peak still
+needs snapping — then re-validates containment via `drop_peak_outside_clip`,
+same "skip, never guess" rule as above. The prompt (`gemini_request.py`) now
+also explicitly ties peak SELECTION (not just its timestamp precision) to the
+audio-cue markers described below: a candidate moment that ends right at a
+`(laughter)`/`(applause)`/`(cheering)` marker is proof a reaction actually
+happened and outranks an equally punchy-sounding line with no marker — before
+this the AUDIO CUES section only fed the overall `viral_score`, not the peak
+pick specifically.
 
 **Transcription**: `TRANSCRIPTION_PROVIDER` = `deepgram` (default, Nova-3
 REST) | `elevenlabs` (Scribe; audio-event tags feed the Gemini prompt) |
