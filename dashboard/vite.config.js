@@ -59,11 +59,22 @@ export default defineConfig({
       interval: 150,
     },
     // Dev-server Host allow-list. Only local names — the unrelated upstream
-    // 'openshorts.app' was removed (DNS-rebinding hardening). Add your own
-    // hostname here if you proxy the dev server through a custom domain.
+    // 'openshorts.app' was removed (DNS-rebinding hardening).
+    //
+    // Reaching the dev dashboard under any OTHER hostname (a Tailscale/VPN
+    // name, a reverse-proxy domain) needs that name added here, or Vite
+    // answers every request with a bare "This host is not allowed" and the
+    // page never loads — which reads as "the server is broken", not as a
+    // config choice. CLIPPYME_DEV_ALLOWED_HOSTS (comma-separated) appends to
+    // the list from the environment so that no longer means editing this file
+    // on the server and carrying a local diff forever. Deliberately additive
+    // rather than Vite's `allowedHosts: true`: an explicit extra name keeps
+    // the DNS-rebinding guard for every host you did NOT name.
     allowedHosts: [
       'localhost',
       '127.0.0.1',
+      ...(process.env.CLIPPYME_DEV_ALLOWED_HOSTS || '')
+        .split(',').map((h) => h.trim()).filter(Boolean),
     ],
     proxy: {
       '/api': {

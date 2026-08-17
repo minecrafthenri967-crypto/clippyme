@@ -132,6 +132,21 @@ services:
       # for a deliberate LAN deployment: every API request must then carry
       # X-API-Token (the dashboard has a Settings field for it).
       - CLIPPYME_API_TOKEN=${CLIPPYME_API_TOKEN:-}
+      # Browser origins trusted for the config/state endpoints (Settings tab,
+      # Live Monitor start, job deletion — see api/security.py). Unset keeps
+      # security.py's own localhost:5173/5175 defaults, so a plain local run is
+      # unchanged. Needed the moment the dashboard is reached under any OTHER
+      # origin (a Tailscale/VPN hostname, a reverse-proxy domain): the browser
+      # then sends that Origin, it fails the allow-list, and every config POST
+      # 403s while the read-only views still work — a confusing half-broken UI.
+      # This line was MISSING: the var was documented in .env.example and
+      # honoured by security.py, but never passed into the container, so
+      # setting it did nothing at all.
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      # Honour X-Forwarded-For for client identity. Only set to 1 behind
+      # exactly one reverse proxy (the shipped prod nginx, or `tailscale
+      # serve`); see .env.example for the append-vs-overwrite reasoning.
+      - TRUST_PROXY=${TRUST_PROXY:-}
       # Optional: route publishing through an external approval workflow (see
       # .env.example). Unset (default) = publishing is open to any caller, as
       # before this gate existed. Must match PUBLISH_GATE_TOKEN in whatever
@@ -156,6 +171,13 @@ services:
       # exact hole the backend loopback binding closes. Same CLIPPYME_BIND
       # override applies.
       - "${CLIPPYME_BIND:-127.0.0.1}:5175:5175"
+    environment:
+      # Extra Host names the Vite dev server accepts (comma-separated). Needed
+      # when the dashboard is reached under anything but localhost — e.g. a
+      # Tailscale name via `tailscale serve`. Empty = local names only, exactly
+      # as before. The prod frontend (nginx, docker-compose.prod.yml) has no
+      # such check and ignores this.
+      - CLIPPYME_DEV_ALLOWED_HOSTS=${CLIPPYME_DEV_ALLOWED_HOSTS:-}
     volumes:
       - ./dashboard:/app
       - /app/node_modules
