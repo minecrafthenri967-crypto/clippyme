@@ -505,6 +505,11 @@ async def _compose_full(job_id: str, idx: int, hook_text: str, recipe=None):
         "grade_params": r.get("grade_params") or {},
         "banner_params": r.get("banner_params") or {},
         "player_image_params": r.get("player_image_params") or {},
+        # Was missing while `toggles` happily carried teaser=true from the
+        # recipe: the layer ran, but with the backend's own defaults instead of
+        # the settings stored with the job — the same "new field, one seam
+        # missed" gap every other params object here exists to close.
+        "teaser_params": r.get("teaser_params") or {},
         "drop_ranges": [],
     }
     try:
