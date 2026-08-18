@@ -158,6 +158,21 @@ POLL_SECONDS = max(15, _int("POLL_SECONDS", 60))
 # clip. After this many attempts a single failure notice is posted instead of
 # retrying forever.
 DISCORD_COMPOSE_MAX_ATTEMPTS = max(1, _int("DISCORD_COMPOSE_MAX_ATTEMPTS", 10))
+# How long to wait for ONE compose request before giving up on it.
+#
+# This used to be a hard-coded 300s, which was far below what a compose can
+# legitimately take: compose runs SEVERAL ffmpeg passes (grade → subtitles →
+# smart cut → teaser → hook → logo → player image → banner) and the backend
+# allows CLIPPYME_FFMPEG_TIMEOUT (default 600s) for EACH one, so a whole
+# compose may exceed 300s without anything being wrong. Worse, the backend
+# does not learn that the client left: it keeps rendering, the bot retries on
+# the next poll, that retry blocks on the per-clip lock waiting for the first
+# (still-running) compose, burns its own budget waiting, and times out too —
+# up to DISCORD_COMPOSE_MAX_ATTEMPTS times, pinning the CPU the whole while
+# and starving every other job on the box. The visible symptom is the
+# "could not compose after N attempts" notice on a clip that never actually
+# failed to render. Matches the 1800s the publish/upload calls already use.
+DISCORD_COMPOSE_TIMEOUT = max(60, _int("DISCORD_COMPOSE_TIMEOUT", 1800))
 TIMEZONE = os.getenv("PUBLISH_TIMEZONE", "Europe/Rome")
 
 BURN_SUBTITLES = _flag("BURN_SUBTITLES", True)
@@ -494,7 +509,7 @@ async def _compose_full(job_id: str, idx: int, hook_text: str, recipe=None):
     }
     try:
         async with aiohttp.ClientSession() as session, session.post(
-            url, json=payload, timeout=aiohttp.ClientTimeout(total=300)
+            url, json=payload, timeout=aiohttp.ClientTimeout(total=DISCORD_COMPOSE_TIMEOUT)
         ) as resp:
             if resp.status != 200:
                 text = await resp.text()
@@ -506,7 +521,8 @@ async def _compose_full(job_id: str, idx: int, hook_text: str, recipe=None):
         # "Compose request failed for X/Y: " with nothing after the colon —
         # indistinguishable from a crash. Name it so a slow/overloaded host
         # is visible in the logs instead of looking like a silent failure.
-        print(f"Compose request timed out for {job_id}/{idx} after 300s", flush=True)
+        print(f"Compose request timed out for {job_id}/{idx} after "
+              f"{DISCORD_COMPOSE_TIMEOUT}s", flush=True)
         return None
     except Exception as exc:
         print(f"Compose request failed for {job_id}/{idx}: {exc}", flush=True)
