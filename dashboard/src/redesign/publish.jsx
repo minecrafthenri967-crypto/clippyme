@@ -6,7 +6,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Icon, Social, Btn, Switch, Segmented, PlatPill, PLATFORMS } from './primitives';
 import { clipVideoSrc } from './realApi';
 import { publishClip, getZernio, getZernioProfiles, getCaptionPresets, saveCaptionPreset } from './realApi';
-import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBannerParams } from '../lib/seedClipParams';
+import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBannerParams,
+  seedPlayerImageParams, seedTeaserParams } from '../lib/seedClipParams';
 import { localDatePlus } from '../lib/scheduleDates';
 import { useModalA11y } from './useModalA11y';
 
@@ -126,6 +127,11 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
     const logoParams = cs.logoParams ?? seedLogoParams(preselections);
     const gradeParams = cs.gradeParams ?? { preset: preselections?.grade?.preset || 'none' };
     const bannerParams = cs.bannerParams ?? seedBannerParams(preselections);
+    // These two were MISSING from the publish body while `toggles` happily
+    // carried player_image/teaser: the layers burned into the uploaded file
+    // were built from backend defaults instead of the clip's own settings.
+    const playerImageParams = cs.playerImageParams ?? seedPlayerImageParams(preselections);
+    const teaserParams = cs.teaserParams ?? seedTeaserParams(preselections);
     const title = (clip.video_title_for_youtube_short || `Clip ${idx + 1}`).slice(0, 100);
     return {
       title,
@@ -139,7 +145,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
         privacy_level: 'PUBLIC_TO_EVERYONE', allow_comment: true, allow_duet: true,
         allow_stitch: true, content_preview_confirmed: true, express_consent_given: true,
       } : undefined,
-      ...(any ? { compose_first: true, toggles, hook_params: toggles.hook ? hookParams : {}, subtitle_params: toggles.subtitles ? subtitleParams : {}, logo_params: toggles.logo ? logoParams : {}, grade_params: toggles.grade ? gradeParams : {}, banner_params: toggles.banner ? bannerParams : {}, drop_ranges: toggles.smartcut ? (cs.dropRanges || []) : [] } : {}),
+      ...(any ? { compose_first: true, toggles, hook_params: toggles.hook ? hookParams : {}, subtitle_params: toggles.subtitles ? subtitleParams : {}, logo_params: toggles.logo ? logoParams : {}, grade_params: toggles.grade ? gradeParams : {}, banner_params: toggles.banner ? bannerParams : {}, player_image_params: toggles.player_image ? playerImageParams : {}, teaser_params: toggles.teaser ? teaserParams : {}, drop_ranges: toggles.smartcut ? (cs.dropRanges || []) : [] } : {}),
     };
   };
 

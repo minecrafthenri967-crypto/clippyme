@@ -60,3 +60,46 @@ test('save as preset: types a name, saves, and the new preset is persisted', asy
     'john_s_breaks', "John's Breaks", '#eBayLive #JohnsBreaks',
   ));
 });
+
+// Renders the modal with the given clip states, clicks through to publish and
+// returns the body handed to publishClip.
+async function capturePublishBody({ clipStates }) {
+  const { publishClip } = await import('./realApi');
+  render(<PublishModal clips={CLIPS} jobId="job1" clipStates={clipStates}
+    preselections={{}} onClose={() => {}} pushToast={() => {}} />);
+  const go = await screen.findByRole('button', { name: 'Publish now' });
+  fireEvent.click(go);
+  await waitFor(() => expect(publishClip).toHaveBeenCalled());
+  return publishClip.mock.calls[0][2];
+}
+
+// --- every active layer's params must ride the publish body ----------------
+// Regression: `toggles` carried player_image/teaser while their params were
+// absent, so the layers burned into the UPLOADED file came from backend
+// defaults rather than the clip's own settings.
+
+test('publish body carries player_image_params and teaser_params when active', async () => {
+  const clipStates = {
+    0: {
+      toggles: { subtitles: true, player_image: true, teaser: true },
+      playerImageParams: { position: 'top-left', size: 'L' },
+      teaserParams: { transition: 'fade' },
+    },
+  };
+  const body = await capturePublishBody({ clipStates });
+  expect(body.player_image_params).toEqual({ position: 'top-left', size: 'L' });
+  expect(body.teaser_params).toEqual({ transition: 'fade' });
+});
+
+test('publish body omits those params when their toggle is off', async () => {
+  const clipStates = {
+    0: {
+      toggles: { subtitles: true, player_image: false, teaser: false },
+      playerImageParams: { position: 'top-left', size: 'L' },
+      teaserParams: { transition: 'fade' },
+    },
+  };
+  const body = await capturePublishBody({ clipStates });
+  expect(body.player_image_params).toEqual({});
+  expect(body.teaser_params).toEqual({});
+});

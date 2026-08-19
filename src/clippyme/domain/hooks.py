@@ -539,13 +539,31 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
             filter_complex = build_hook_overlay_filter(
                 overlay_x, overlay_y, animate=animate, enable_end=hook_duration)
 
+        # ⚠️ The animated entrance NEEDS the hook PNG fed as a looping stream.
+        # A bare `-i image.png` is a SINGLE frame at t=0, and the animation's
+        # `fade=t=in:st=0:alpha=1` evaluates to alpha 0 at exactly t=0 — so
+        # that one frame is fully transparent, overlay holds it for the whole
+        # clip, and the hook renders completely INVISIBLE. No error, no
+        # warning: compose succeeds and the hook is simply not there.
+        # (Verified by render: with animate the frame deviated from the bare
+        # background by 1/255, without it by 223/255.)
+        # `-loop 1` turns the still into an endless stream with advancing
+        # timestamps so the fade has a real time base. `-shortest` is then
+        # MANDATORY, not tidiness: without it the endless image input keeps
+        # the output going forever (measured — a 3s clip was still growing
+        # past 366s when the test was killed). It costs sub-frame accuracy at
+        # the tail (3.000s → 2.995s, under one frame at 30fps).
+        # Applied ONLY on the animated path so the (working) static path keeps
+        # its byte-identical single-image behaviour.
+        hook_input = ["-loop", "1", "-i", img_path] if animate else ["-i", img_path]
         ffmpeg_cmd = [
             "ffmpeg", "-y",
             "-i", video_path,
-            "-i", img_path,
+            *hook_input,
             *extra_inputs,
             "-filter_complex", filter_complex,
             "-c:a", "copy",
+            *(["-shortest"] if animate else []),
             *x264_video_args(crf=x264_intermediate_crf()),
             output_path,
         ]

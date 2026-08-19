@@ -152,3 +152,67 @@ def test_parse_rejects_out_of_range_and_non_numeric():
     assert parse_hook_position_fraction("bottom") is None
     assert parse_hook_position_fraction(True) is None  # bool is not a position
     assert parse_hook_position_fraction(0.5) == 0.5
+
+
+# --- add_hook_to_video: the ffmpeg INPUT flags for the animated hook ---------
+#
+# The tests above pin the filter STRING; nothing pinned the command built
+# around it, which is exactly where the animated hook silently broke: the hook
+# PNG was fed as a bare `-i image.png`, i.e. ONE frame at t=0, while the
+# animation applies `fade=t=in:st=0:alpha=1` — alpha 0 at exactly t=0. That
+# single fully-transparent frame was then held for the whole clip, so the hook
+# rendered INVISIBLE with no error at all (verified by render: 1/255 deviation
+# from the bare background with animate, 223/255 without).
+
+import subprocess  # noqa: E402
+
+import pytest  # noqa: E402
+
+from clippyme.domain import hooks as hooks_mod  # noqa: E402
+
+
+@pytest.fixture
+def _capture_ffmpeg(tmp_path, monkeypatch):
+    """Run add_hook_to_video with every subprocess faked; return the argv."""
+    video = tmp_path / "in.mp4"
+    video.write_bytes(b"x")
+    captured = {}
+
+    monkeypatch.setattr(hooks_mod.subprocess, "check_output",
+                        lambda *a, **k: b"1080x1920")
+    monkeypatch.setattr(hooks_mod, "create_hook_image",
+                        lambda *a, **k: (str(tmp_path / "hook.png"), 300, 120))
+
+    def _fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr(hooks_mod.subprocess, "run", _fake_run)
+
+    def _run(animate):
+        hooks_mod.add_hook_to_video(
+            str(video), "HOOK", str(tmp_path / "out.mp4"),
+            style={"animate": animate}, hook_duration=4,
+        )
+        return captured["cmd"]
+
+    return _run
+
+
+def test_animated_hook_loops_the_still_and_bounds_the_output(_capture_ffmpeg):
+    cmd = _capture_ffmpeg(True)
+    # The image input must loop, or its single t=0 frame is what the alpha
+    # fade sees — and that frame is fully transparent.
+    assert "-loop" in cmd, "animated hook needs -loop on the image input"
+    assert cmd[cmd.index("-loop") + 1] == "1"
+    assert cmd.index("-loop") < cmd.index("-filter_complex")
+    # A looping image input never ends: without -shortest the output runs
+    # forever (measured: a 3s clip was past 366s and still growing).
+    assert "-shortest" in cmd, "a looping image input must be bounded"
+
+
+def test_static_hook_keeps_its_single_image_input(_capture_ffmpeg):
+    """The working (non-animated) path must stay byte-identical."""
+    cmd = _capture_ffmpeg(False)
+    assert "-loop" not in cmd
+    assert "-shortest" not in cmd

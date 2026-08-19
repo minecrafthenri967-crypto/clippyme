@@ -479,6 +479,11 @@ def _build_publish_body(title: str, hook_text: str, recipe=None):
             "grade_params": r.get("grade_params") or {},
             "banner_params": r.get("banner_params") or {},
             "player_image_params": r.get("player_image_params") or {},
+            # Same omission as the compose payload had: `toggles` carried
+            # teaser=true from the recipe while its params never rode along,
+            # so the layer that actually reaches TikTok/YouTube was built from
+            # backend defaults instead of the job's own settings.
+            "teaser_params": r.get("teaser_params") or {},
             "drop_ranges": [],
         })
     return body

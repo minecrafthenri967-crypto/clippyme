@@ -437,6 +437,21 @@ the UI toggle worked, the state held correctly, but neither the Create tab's
 initial submission nor the Edit modal's persistence across reopens ever
 forwarded it to the backend. Fixed in the same commit that added `sfx`, since
 it is the identical bug in the identical list.
+⚠️ **Fixing that wiring then exposed a second bug the dead toggle had been
+hiding: with `animate` on, the hook rendered COMPLETELY INVISIBLE.** The hook
+PNG is fed to ffmpeg as a bare `-i image.png` — a SINGLE frame at t=0 — while
+the animated path applies `fade=t=in:st=0:alpha=1`, whose alpha at exactly t=0
+is 0. That one fully-transparent frame is then held for the whole clip:
+compose succeeds, no error, no warning, and the hook is simply not there.
+Measured on a real render: the frame deviated from the bare background by
+1/255 with animate vs 223/255 without. `add_hook_to_video` now feeds the still
+as `-loop 1` on the animated path only (the static path keeps its byte-identical
+single-image input), which makes `-shortest` MANDATORY rather than tidy — an
+endless image input otherwise never lets the output finish (measured: a 3s clip
+was past 366s and still growing). Cost: sub-frame truncation at the tail
+(3.000s → 2.995s). `tests/domain/test_hook_overlay.py` pins the ffmpeg argv for
+both paths — the pre-existing tests only covered the filter STRING, which is
+exactly the gap this bug walked through.
 
 **Compose** (`POST /api/compose/{job}/{clip}`): layers render in the order
 **Grade → Subtitles → Smart Cut → Teaser → Hook → Logo → Hook SFX → Player Image → Banner**.

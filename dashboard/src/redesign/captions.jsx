@@ -27,6 +27,7 @@ import {
 } from './editTabs';
 import {
   seedSubtitleParams, seedHookParams, seedLogoParams, seedGradeParams, seedBannerParams,
+  seedToggles, seedPlayerImageParams, seedTeaserParams,
 } from '../lib/seedClipParams';
 
 // Pull the IG-style hook style keys out of a flat hookParams object.
@@ -168,8 +169,21 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
     const logoParams = { position: logo.position, size: logo.size, ...(logo.scale ? { scale: logo.scale } : {}) };
     const gradeParams = { preset: gradePreset };
     const bannerParams = { enabled: bannerOn, platform: banner.platform, handle: banner.handle, y_pct: banner.y_pct };
-    const toggles = { smartcut: effSmartcut, subtitles: subsOn, hook: hookOn, logo: logoOn, grade: gradeOn, banner: bannerOn };
+    // Spread the clip's CURRENT toggles first: this modal has no UI for the
+    // player-image or teaser layers, and rebuilding the object from only the
+    // six tabs it does own silently switched both OFF on every "Apply" — a
+    // clip edited once lost settings the user never touched here. The six
+    // below still win, they are the ones this surface actually edits.
+    const toggles = {
+      ...(initial?.toggles || seedToggles(preselections)),
+      smartcut: effSmartcut, subtitles: subsOn, hook: hookOn, logo: logoOn, grade: gradeOn, banner: bannerOn,
+    };
+    // Same reason: pass the untouched layers' params through instead of
+    // dropping them, or the toggle survives while its settings do not.
+    const playerImageParams = initial?.playerImageParams || seedPlayerImageParams(preselections);
+    const teaserParams = initial?.teaserParams || seedTeaserParams(preselections);
     onApply({ reframeMode, baseMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams,
+      playerImageParams, teaserParams,
       dropRanges: effSmartcut ? dropRanges : [] });
   };
 

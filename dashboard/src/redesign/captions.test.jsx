@@ -167,3 +167,36 @@ test('bulk mode hides the Trim tab and the hook text field, dropRanges stay empt
   expect(p.toggles.hook).toBe(true);
   expect(p.dropRanges).toEqual([]);
 });
+
+// --- layers this modal has NO UI for must survive an Apply -----------------
+// Regression: apply() rebuilt `toggles` from only the six tabs it owns, so
+// player_image and teaser were silently switched OFF (and their params
+// dropped) on every edit — settings the user never touched on this surface.
+
+test('Apply preserves the player_image / teaser toggles it has no UI for', () => {
+  const initial = {
+    toggles: { smartcut: false, subtitles: true, hook: false, logo: false,
+               grade: false, banner: false, player_image: true, teaser: true },
+    playerImageParams: { position: 'top-left', size: 'L' },
+    teaserParams: { transition: 'fade' },
+  };
+  const { onApply } = mount({ initial });
+  fireEvent.click(applyBtn());
+  const payload = onApply.mock.calls[0][0];
+  expect(payload.toggles.player_image).toBe(true);
+  expect(payload.toggles.teaser).toBe(true);
+  expect(payload.playerImageParams).toEqual({ position: 'top-left', size: 'L' });
+  expect(payload.teaserParams).toEqual({ transition: 'fade' });
+  // ...while the six the modal DOES own still reflect its own state.
+  expect(payload.toggles.subtitles).toBe(true);
+});
+
+test('Apply falls back to the Create pre-selection for those layers', () => {
+  const { onApply } = mount({
+    preselections: { subtitles: {}, player_image: { position: 'center', size: 'M' }, teaser: true },
+  });
+  fireEvent.click(applyBtn());
+  const payload = onApply.mock.calls[0][0];
+  expect(payload.toggles.player_image).toBe(true);
+  expect(payload.toggles.teaser).toBe(true);
+});
