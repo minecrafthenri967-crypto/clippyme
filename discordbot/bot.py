@@ -173,6 +173,19 @@ DISCORD_COMPOSE_MAX_ATTEMPTS = max(1, _int("DISCORD_COMPOSE_MAX_ATTEMPTS", 10))
 # "could not compose after N attempts" notice on a clip that never actually
 # failed to render. Matches the 1800s the publish/upload calls already use.
 DISCORD_COMPOSE_TIMEOUT = max(60, _int("DISCORD_COMPOSE_TIMEOUT", 1800))
+# How many clips may be composed+posted at the same time.
+#
+# The poll loop used to await one clip at a time, so a single slow compose
+# blocked every clip behind it — head-of-line blocking. With a batch of jobs
+# this is the difference between "all clips arrive" and "the first few do":
+# each clip costs a full multi-pass render, and the loop cannot reach clip 4
+# until clips 0-3 are done. Raising DISCORD_COMPOSE_TIMEOUT made that strictly
+# worse on its own (a stuck clip now holds the line for 30 minutes instead of
+# 5), which is why the two belong together.
+# Default 2 mirrors the dashboard's own bulk-compose cap and AE_MAX_PARALLEL:
+# compose is CPU-bound, so more parallelism past a couple of passes just makes
+# every clip slower instead of finishing any sooner.
+DISCORD_POST_CONCURRENCY = max(1, _int("DISCORD_POST_CONCURRENCY", 2))
 TIMEZONE = os.getenv("PUBLISH_TIMEZONE", "Europe/Rome")
 
 BURN_SUBTITLES = _flag("BURN_SUBTITLES", True)
@@ -629,6 +642,7 @@ async def poll_new_clips():
         print(f"Could not fetch history: {exc}", flush=True)
         return
 
+    pending = []
     for job in data.get("jobs", []):
         job_id = job.get("jobId")
         if not job_id:
@@ -650,8 +664,25 @@ async def poll_new_clips():
                 _posted.add(key)
                 _save_posted(_posted)
                 continue
-            await _post_clip(channel, job_id, idx, clip, len(clips),
-                             recipe=job.get("composeRecipe"))
+            pending.append((job_id, idx, clip, len(clips), job.get("composeRecipe")))
+
+    if not pending:
+        return
+
+    # Bounded concurrency instead of one-at-a-time: see DISCORD_POST_CONCURRENCY.
+    # gather(return_exceptions=True) so one clip raising cannot abort the whole
+    # cycle and strand every clip after it — the exact failure this replaces.
+    sem = asyncio.Semaphore(DISCORD_POST_CONCURRENCY)
+
+    async def _post_one(job_id, idx, clip, total, recipe):
+        async with sem:
+            await _post_clip(channel, job_id, idx, clip, total, recipe=recipe)
+
+    results = await asyncio.gather(
+        *(_post_one(*item) for item in pending), return_exceptions=True)
+    for (job_id, idx, *_), result in zip(pending, results):
+        if isinstance(result, BaseException):
+            print(f"Posting {job_id}/{idx} raised: {result!r}", flush=True)
 
 
 async def _send_clip_message(channel, job_id: str, idx: int, header: str,
