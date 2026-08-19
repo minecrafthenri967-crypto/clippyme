@@ -5,7 +5,8 @@
 // strictly, and Vite accepts the explicit form unchanged.
 import { getApiUrl } from '../config.js';
 import { apiFetch } from '../lib/apiToken.js';
-import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBannerParams } from '../lib/seedClipParams.js';
+import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBannerParams,
+  seedPlayerImageParams, seedTeaserParams } from '../lib/seedClipParams.js';
 import { clipDownloadName } from '../lib/clipFilename.js';
 
 export { clipDownloadName };
@@ -81,11 +82,24 @@ export async function stopJob(jobId) {
   return res.json().catch(() => ({}));
 }
 
-export async function composeClip(jobId, index, { toggles, hook_params, subtitle_params, logo_params, grade_params, banner_params, drop_ranges }) {
+// ⚠️ Forwards the caller's params WHOLESALE. This used to destructure a fixed
+// field list and rebuild the body from it, which made it the single chokepoint
+// where every newer layer's settings died: `player_image_params` and
+// `teaser_params` were not in that list, so they were dropped for EVERY caller
+// — auto-compose, bulk apply, the Edit modal and the download path alike. Fixes
+// made upstream (applyEdit.js correctly gating teaser_params by its toggle)
+// were silently undone right here. Spreading instead of enumerating means a new
+// params block needs no change in this function; the backend's ComposeRequest
+// ignores fields it does not know (verified), so forwarding extra keys is safe.
+export async function composeClip(jobId, index, params = {}) {
   const res = await apiFetch(getApiUrl(`/api/compose/${jobId}/${index}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ toggles, hook_params, subtitle_params, logo_params, grade_params: grade_params || {}, banner_params: banner_params || {}, drop_ranges: drop_ranges || [] }),
+    body: JSON.stringify({
+      grade_params: {}, banner_params: {}, player_image_params: {}, teaser_params: {},
+      drop_ranges: [],
+      ...params,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -129,6 +143,12 @@ export async function exportClip(jobId, index, clip, state, preselections) {
   const logo = state?.logoParams ?? seedLogoParams(preselections);
   const grade = state?.gradeParams ?? { preset: preselections?.grade?.preset || 'none' };
   const banner = state?.bannerParams ?? seedBannerParams(preselections);
+  // Same omission the publish body and the Edit modal carried: `toggles` can
+  // say player_image/teaser while their params never ride along, so a
+  // DOWNLOADED clip burned those two layers from backend defaults instead of
+  // the settings the user configured.
+  const playerImage = state?.playerImageParams ?? seedPlayerImageParams(preselections);
+  const teaser = state?.teaserParams ?? seedTeaserParams(preselections);
   // Resolve to the backend's ABSOLUTE `shorts` position, not the array
   // position `index` — they diverge once a manual-publish gap skips a
   // deleted_after_publish clip (see job_results._build_clips).
@@ -140,6 +160,8 @@ export async function exportClip(jobId, index, clip, state, preselections) {
     logo_params: toggles.logo ? logo : {},
     grade_params: toggles.grade ? grade : {},
     banner_params: toggles.banner ? banner : {},
+    player_image_params: toggles.player_image ? playerImage : {},
+    teaser_params: toggles.teaser ? teaser : {},
     drop_ranges: toggles.smartcut ? (state?.dropRanges || []) : [],
   });
   const href = safeResolveUrl(composed_url);

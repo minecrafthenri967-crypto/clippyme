@@ -223,3 +223,44 @@ test('number emphasis does not leak into classic mode preselections', () => {
   const pre = optsToPreselections({ subtitles: true, subMode: 'classic', subEmphasizeNumbers: true });
   assert.equal('emphasize_numbers' in pre.subtitles, false);
 });
+
+// --- exportClip: the DOWNLOAD path must carry every active layer's params ---
+// Same seam as the publish body and the Edit modal: `toggles` could say
+// player_image/teaser while their params were absent, so a downloaded clip
+// burned those two layers from backend defaults instead of the user's
+// settings.
+
+async function captureExportBody(state) {
+  let body = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (url, init) => {
+    if (String(url).includes('/api/compose/')) body = JSON.parse(init.body);
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ composed_url: '/videos/j/c.mp4' }) });
+  };
+  try {
+    await exportClip('job-1', 0, { original_index: 0, video_url: '/videos/j/clip_1.mp4' }, state, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  return body;
+}
+
+test('exportClip sends player_image_params and teaser_params when active', async () => {
+  const body = await captureExportBody({
+    toggles: { subtitles: true, player_image: true, teaser: true },
+    playerImageParams: { position: 'top-left', size: 'L' },
+    teaserParams: { transition: 'fade' },
+  });
+  assert.deepEqual(body.player_image_params, { position: 'top-left', size: 'L' });
+  assert.deepEqual(body.teaser_params, { transition: 'fade' });
+});
+
+test('exportClip omits those params when their toggle is off', async () => {
+  const body = await captureExportBody({
+    toggles: { subtitles: true, player_image: false, teaser: false },
+    playerImageParams: { position: 'top-left', size: 'L' },
+    teaserParams: { transition: 'fade' },
+  });
+  assert.deepEqual(body.player_image_params, {});
+  assert.deepEqual(body.teaser_params, {});
+});
